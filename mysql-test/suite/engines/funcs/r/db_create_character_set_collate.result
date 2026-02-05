@@ -12,6 +12,7 @@ def	mysql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	performance_schema	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	sys	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	test	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
+def	villagesql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 DROP DATABASE d13;
 CREATE DATABASE d13 CHARACTER SET latin2 COLLATE latin2_general_ci;
 SELECT * FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME;
@@ -23,6 +24,7 @@ def	mysql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	performance_schema	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	sys	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	test	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
+def	villagesql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 DROP DATABASE d13;
 CREATE DATABASE d13 CHARACTER SET  cp1250 COLLATE cp1250_croatian_ci;
 SELECT * FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME;
@@ -34,6 +36,7 @@ def	mysql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	performance_schema	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	sys	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	test	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
+def	villagesql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 DROP DATABASE d13;
 CREATE SCHEMA d13 CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci;
 Warnings:
@@ -48,6 +51,7 @@ def	mysql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	performance_schema	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	sys	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	test	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
+def	villagesql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 DROP SCHEMA d13;
 CREATE SCHEMA d13 CHARACTER SET latin2 COLLATE latin2_general_ci;
 SELECT * FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME;
@@ -59,6 +63,7 @@ def	mysql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	performance_schema	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	sys	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	test	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
+def	villagesql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 DROP SCHEMA d13;
 CREATE SCHEMA d13 CHARACTER SET  cp1250 COLLATE cp1250_croatian_ci;
 SELECT * FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME;
@@ -70,4 +75,5 @@ def	mysql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	performance_schema	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	sys	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	test	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
+def	villagesql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 DROP SCHEMA d13;

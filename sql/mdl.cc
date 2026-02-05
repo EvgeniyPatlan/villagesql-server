@@ -1,4 +1,5 @@
 /* Copyright (c) 2007, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -116,6 +117,7 @@ PSI_stage_info MDL_key::m_namespace_to_wait_state_name[NAMESPACE_END] = {
     {0, "Waiting for global read lock", 0, PSI_DOCUMENT_ME},
     {0, "Waiting for backup lock", 0, PSI_DOCUMENT_ME},
     {0, "Waiting for tablespace metadata lock", 0, PSI_DOCUMENT_ME},
+    {0, "Waiting for extension metadata lock", 0, PSI_DOCUMENT_ME},
     {0, "Waiting for schema metadata lock", 0, PSI_DOCUMENT_ME},
     {0, "Waiting for table metadata lock", 0, PSI_DOCUMENT_ME},
     {0, "Waiting for stored function metadata lock", 0, PSI_DOCUMENT_ME},
@@ -820,6 +822,7 @@ class MDL_lock {
     switch (key.mdl_namespace()) {
       case MDL_key::GLOBAL:
       case MDL_key::TABLESPACE:
+      case MDL_key::EXTENSION:
       case MDL_key::SCHEMA:
       case MDL_key::COMMIT:
       case MDL_key::BACKUP_LOCK:
@@ -1638,6 +1641,11 @@ MDL_lock::fast_path_state_t MDL_lock::get_unobtrusive_lock_increment(
 /**
   Indicates whether object belongs to namespace which requires storage engine
   to be notified before acquiring and after releasing exclusive lock.
+
+  Note: EXTENSION namespace does not require HTON notification because
+  VillageSQL extensions are managed at the server layer, above the storage
+  engine abstraction. Extensions are loaded as VEB files and do not directly
+  correspond to storage engine objects that need coordination.
 */
 
 bool MDL_lock::needs_hton_notification(

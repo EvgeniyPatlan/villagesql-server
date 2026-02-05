@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -105,6 +106,7 @@
 #include "string_with_len.h"
 #include "strxnmov.h"
 #include "thr_lock.h"
+#include "villagesql/types/util.h"
 
 #include <mysql/components/services/bulk_load_service.h>
 
@@ -1475,7 +1477,39 @@ bool Sql_cmd_load_table::read_sep_field(THD *thd, COPY_INFO &info,
         read_info.row_end[0] = 0;  // Safe to change end marker
         if (field == table->next_number_field)
           table->autoinc_field_has_explicit_non_null_value = true;
-        field->store((char *)pos, length, read_info.read_charset);
+
+        // For custom types, encode the input string before storing
+        if (field->has_type_context()) {
+          String input_str((char *)pos, length, read_info.read_charset);
+          bool is_valid = false;
+          String *encoded = villagesql::EncodeStringForField(
+              *field->get_type_context(), input_str, *thd->mem_root,
+              field->field_name, is_valid);
+          if (encoded == nullptr) {
+            if (is_valid) return true;  // OOM case
+            // Encoding failed - in strict mode, fail; otherwise skip row
+            if (!thd->lex->is_ignore() && thd->is_strict_mode()) {
+              // EncodeStringForField already pushed a warning; promote to error
+              my_error(ER_TRUNCATED_WRONG_VALUE_FOR_FIELD, MYF(0),
+                       field->get_type_context()->type_name().c_str(),
+                       input_str.c_ptr_safe(), field->field_name,
+                       thd->get_stmt_da()->current_row_for_condition());
+              return true;
+            }
+            // IGNORE mode: skip this row (similar to constraint violation)
+            // EncodeStringForField already pushed a warning
+            // TODO(villagesql-beta): MySQL's built-in types convert bad values
+            // to implicit defaults (0, '', etc.) rather than skipping. For
+            // custom types, we skip because there's no well-defined default.
+            // If we add support for intrinsic defaults for custom types, we
+            // should use that here instead of skipping.
+            read_info.next_line();
+            goto continue_loop;
+          }
+          field->store(encoded->ptr(), encoded->length(), &my_charset_bin);
+        } else {
+          field->store((char *)pos, length, read_info.read_charset);
+        }
       } else if (item->type() == Item::STRING_ITEM) {
         assert(nullptr != dynamic_cast<Item_user_var_as_out_param *>(item));
         ((Item_user_var_as_out_param *)item)
@@ -1694,7 +1728,38 @@ bool Sql_cmd_load_table::read_xml_field(THD *thd, COPY_INFO &info,
         field->set_notnull();
         if (field == table->next_number_field)
           table->autoinc_field_has_explicit_non_null_value = true;
-        field->store(tag->value.ptr(), tag->value.length(), cs);
+
+        // For custom types, encode the input string before storing
+        if (field->has_type_context()) {
+          String input_str(tag->value.ptr(), tag->value.length(), cs);
+          bool is_valid = false;
+          String *encoded = villagesql::EncodeStringForField(
+              *field->get_type_context(), input_str, *thd->mem_root,
+              field->field_name, is_valid);
+          if (encoded == nullptr) {
+            if (is_valid) return true;  // OOM case
+            // Encoding failed - in strict mode, fail; otherwise skip row
+            if (!thd->lex->is_ignore() && thd->is_strict_mode()) {
+              // EncodeStringForField already pushed a warning; promote to error
+              my_error(ER_TRUNCATED_WRONG_VALUE_FOR_FIELD, MYF(0),
+                       field->get_type_context()->type_name().c_str(),
+                       input_str.c_ptr_safe(), field->field_name,
+                       thd->get_stmt_da()->current_row_for_condition());
+              return true;
+            }
+            // IGNORE mode: skip this row (similar to constraint violation)
+            // EncodeStringForField already pushed a warning
+            // TODO(villagesql-beta): MySQL's built-in types convert bad values
+            // to implicit defaults (0, '', etc.) rather than skipping. For
+            // custom types, we skip because there's no well-defined default.
+            // If we add support for intrinsic defaults for custom types, we
+            // should use that here instead of skipping.
+            goto continue_loop;
+          }
+          field->store(encoded->ptr(), encoded->length(), &my_charset_bin);
+        } else {
+          field->store(tag->value.ptr(), tag->value.length(), cs);
+        }
       } else {
         assert(nullptr != dynamic_cast<Item_user_var_as_out_param *>(item));
         ((Item_user_var_as_out_param *)item)

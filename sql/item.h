@@ -2,6 +2,7 @@
 #define ITEM_INCLUDED
 
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -2767,6 +2768,9 @@ class Item : public Parse_tree_node {
   /// A processor to handle the select lex visitor framework.
   virtual bool visitor_processor(uchar *arg);
 
+  /// A processor to check custom type usage in expressions
+  virtual bool check_custom_type_usage_processor(uchar *arg);
+
   /**
     Item::walk function. Set bit in table->cond_set for all fields of
     all tables that are referred to by the Item.
@@ -3737,6 +3741,16 @@ class Item : public Parse_tree_node {
    A helper function to ensure proper usage of CAST(.. AS .. ARRAY)
   */
   virtual void allow_array_cast() {}
+
+ protected:
+  const villagesql::TypeContext *custom_type{nullptr};
+
+ public:
+  const villagesql::TypeContext *get_type_context() const {
+    return custom_type;
+  }
+  void set_type_context(const villagesql::TypeContext *tc) { custom_type = tc; }
+  bool has_type_context() const { return nullptr != custom_type; }
 };
 
 /**

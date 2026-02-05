@@ -1,0 +1,34 @@
+# Test ALTER TABLE MODIFY COLUMN COMPLEX with attributes (NULL, NOT NULL, DEFAULT)
+# Grammar: ALTER TABLE table_name MODIFY COLUMN col_name COMPLEX [NULL|NOT NULL] [DEFAULT value]
+
+--source include/villagesql/not_implemented_complex_type.inc
+
+--source include/villagesql/install_complex_extension.inc
+--source include/villagesql/binlog_check_begin.inc
+
+CREATE TABLE t1 (
+    id INT PRIMARY KEY,
+    value COMPLEX
+);
+
+INSERT INTO t1 VALUES (1, '(1.0,2.0)');
+INSERT INTO t1 VALUES (2, NULL);
+
+SHOW CREATE TABLE t1;
+SELECT * FROM t1;
+
+# Modify to NOT NULL with DEFAULT
+ALTER TABLE t1 MODIFY COLUMN value COMPLEX NOT NULL DEFAULT '(0.0,0.0)';
+
+SHOW CREATE TABLE t1;
+SELECT * FROM t1;
+
+# Add another row to test default
+INSERT INTO t1 (id) VALUES (3);
+
+SELECT * FROM t1;
+
+DROP TABLE t1;
+
+--source include/villagesql/binlog_check_end.inc
+--source include/villagesql/uninstall_complex_extension.inc

@@ -1,4 +1,5 @@
 /* Copyright (c) 1999, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -184,6 +185,7 @@
 #include "strxmov.h"
 #include "template_utils.h"
 #include "thr_lock.h"
+#include "villagesql/include/error.h"
 #include "violite.h"
 
 #ifdef WITH_LOCK_ORDER
@@ -740,6 +742,10 @@ void init_sql_command_flags() {
       CF_CHANGES_DATA | CF_AUTO_COMMIT_TRANS;
   sql_command_flags[SQLCOM_UNINSTALL_COMPONENT] =
       CF_CHANGES_DATA | CF_AUTO_COMMIT_TRANS;
+  sql_command_flags[SQLCOM_INSTALL_EXTENSION] =
+      CF_CHANGES_DATA | CF_AUTO_COMMIT_TRANS;
+  sql_command_flags[SQLCOM_UNINSTALL_EXTENSION] =
+      CF_CHANGES_DATA | CF_AUTO_COMMIT_TRANS;
   sql_command_flags[SQLCOM_CREATE_RESOURCE_GROUP] =
       CF_CHANGES_DATA | CF_AUTO_COMMIT_TRANS | CF_ALLOW_PROTOCOL_PLUGIN;
   sql_command_flags[SQLCOM_ALTER_RESOURCE_GROUP] =
@@ -915,6 +921,8 @@ void init_sql_command_flags() {
   sql_command_flags[SQLCOM_UNINSTALL_PLUGIN] |= CF_DISALLOW_IN_RO_TRANS;
   sql_command_flags[SQLCOM_INSTALL_COMPONENT] |= CF_DISALLOW_IN_RO_TRANS;
   sql_command_flags[SQLCOM_UNINSTALL_COMPONENT] |= CF_DISALLOW_IN_RO_TRANS;
+  sql_command_flags[SQLCOM_INSTALL_EXTENSION] |= CF_DISALLOW_IN_RO_TRANS;
+  sql_command_flags[SQLCOM_UNINSTALL_EXTENSION] |= CF_DISALLOW_IN_RO_TRANS;
   sql_command_flags[SQLCOM_ALTER_INSTANCE] |= CF_DISALLOW_IN_RO_TRANS;
   sql_command_flags[SQLCOM_IMPORT] |= CF_DISALLOW_IN_RO_TRANS;
   sql_command_flags[SQLCOM_CREATE_SRS] |= CF_DISALLOW_IN_RO_TRANS;
@@ -1124,8 +1132,16 @@ void init_sql_command_flags() {
       CF_NEEDS_AUTOCOMMIT_OFF | CF_POTENTIAL_ATOMIC_DDL;
   sql_command_flags[SQLCOM_IMPORT] |=
       CF_NEEDS_AUTOCOMMIT_OFF | CF_POTENTIAL_ATOMIC_DDL;
+  // Plugin and extension commands need both flags:
+  // - CF_AUTO_COMMIT_TRANS: Wraps statement with implicit COMMIT before/after
+  // - CF_NEEDS_AUTOCOMMIT_OFF: Temporarily disables @@autocommit during
+  // execution
+  //   to prevent InnoDB from auto-committing when data-dictionary tables close.
+  // See CF_AUTO_COMMIT_TRANS and CF_NEEDS_AUTOCOMMIT_OFF in sql_parse.h
   sql_command_flags[SQLCOM_INSTALL_PLUGIN] |= CF_NEEDS_AUTOCOMMIT_OFF;
   sql_command_flags[SQLCOM_UNINSTALL_PLUGIN] |= CF_NEEDS_AUTOCOMMIT_OFF;
+  sql_command_flags[SQLCOM_INSTALL_EXTENSION] |= CF_NEEDS_AUTOCOMMIT_OFF;
+  sql_command_flags[SQLCOM_UNINSTALL_EXTENSION] |= CF_NEEDS_AUTOCOMMIT_OFF;
   sql_command_flags[SQLCOM_CREATE_EVENT] |=
       CF_NEEDS_AUTOCOMMIT_OFF | CF_POTENTIAL_ATOMIC_DDL;
   sql_command_flags[SQLCOM_ALTER_EVENT] |=
@@ -3947,6 +3963,7 @@ int mysql_execute_command(THD *thd, bool first_level) {
     {
       if (check_access(thd, INSERT_ACL, "mysql", nullptr, nullptr, true, false))
         break;
+
       if (!(res = mysql_create_function(
                 thd, &lex->udf,
                 lex->create_info->options & HA_LEX_CREATE_IF_NOT_EXISTS)))
@@ -4673,6 +4690,8 @@ int mysql_execute_command(THD *thd, bool first_level) {
     case SQLCOM_UNINSTALL_PLUGIN:
     case SQLCOM_INSTALL_COMPONENT:
     case SQLCOM_UNINSTALL_COMPONENT:
+    case SQLCOM_INSTALL_EXTENSION:
+    case SQLCOM_UNINSTALL_EXTENSION:
     case SQLCOM_SHUTDOWN:
     case SQLCOM_ALTER_INSTANCE:
     case SQLCOM_SELECT:
@@ -5538,7 +5557,8 @@ bool Alter_info::add_field(
     Value_generator *gcol_info, Value_generator *default_val_expr,
     const char *opt_after, std::optional<gis::srid_t> srid,
     Sql_check_constraint_spec_list *col_check_const_spec_list,
-    dd::Column::enum_hidden_type hidden, bool is_array) {
+    dd::Column::enum_hidden_type hidden, bool is_array,
+    const villagesql::TypeContext *type_context) {
   const uint8 datetime_precision = decimals ? atoi(decimals) : 0;
   DBUG_TRACE;
   assert(!is_array || hidden == dd::Column::enum_hidden_type::HT_HIDDEN_SQL);
@@ -5641,6 +5661,8 @@ bool Alter_info::add_field(
                       uint_geom_type, gcol_info, default_val_expr, srid, hidden,
                       is_array))
     return true;
+
+  new_field->custom_type_context = type_context;
 
   for (const auto &a : cf_appliers) {
     if (a(new_field, this)) return true;

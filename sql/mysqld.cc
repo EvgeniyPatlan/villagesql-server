@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License, version 2.0,
@@ -902,6 +903,10 @@ MySQL clients support the protocol:
 #include "thr_lock.h"
 #include "thr_mutex.h"
 #include "typelib.h"
+#include "villagesql/schema/schema_manager.h"
+#include "villagesql/sql/initialize.h"
+#include "villagesql/veb/sql_extension.h"
+#include "villagesql/veb/veb_file.h"
 #include "violite.h"
 
 #ifdef WITH_PERFSCHEMA_STORAGE_ENGINE
@@ -2750,6 +2755,7 @@ static void clean_up(bool print_message) {
   lex_free(); /* Free some memory */
   item_create_cleanup();
   if (!opt_noacl) udf_unload_udfs();
+  villagesql::deinit_extension_infrastructure();
   table_def_start_shutdown();
   delegates_shutdown();
   plugin_shutdown();
@@ -4311,6 +4317,10 @@ SHOW_VAR com_status_vars[] = {
      (char *)offsetof(System_status_var,
                       com_stat[(uint)SQLCOM_INSTALL_COMPONENT]),
      SHOW_LONG_STATUS, SHOW_SCOPE_ALL},
+    {"install_extension",
+     (char *)offsetof(System_status_var,
+                      com_stat[(uint)SQLCOM_INSTALL_EXTENSION]),
+     SHOW_LONG_STATUS, SHOW_SCOPE_ALL},
     {"install_plugin",
      (char *)offsetof(System_status_var, com_stat[(uint)SQLCOM_INSTALL_PLUGIN]),
      SHOW_LONG_STATUS, SHOW_SCOPE_ALL},
@@ -4586,6 +4596,10 @@ SHOW_VAR com_status_vars[] = {
     {"uninstall_component",
      (char *)offsetof(System_status_var,
                       com_stat[(uint)SQLCOM_UNINSTALL_COMPONENT]),
+     SHOW_LONG_STATUS, SHOW_SCOPE_ALL},
+    {"uninstall_extension",
+     (char *)offsetof(System_status_var,
+                      com_stat[(uint)SQLCOM_UNINSTALL_EXTENSION]),
      SHOW_LONG_STATUS, SHOW_SCOPE_ALL},
     {"uninstall_plugin",
      (char *)offsetof(System_status_var,
@@ -5432,6 +5446,11 @@ static PSI_metric_info_v1 com_metrics[] = {
      get_metric_aggregated_integer,
      (void *)offsetof(aggregated_stats_buffer,
                       com_stat[(uint)SQLCOM_INSTALL_COMPONENT])},
+    {"install_extension", "", COM_COMMON_DESCRIPTION,
+     MetricOTELType::ASYNC_COUNTER, MetricNumType::METRIC_INTEGER, 0, 0,
+     get_metric_aggregated_integer,
+     (void *)offsetof(aggregated_stats_buffer,
+                      com_stat[(uint)SQLCOM_INSTALL_EXTENSION])},
     {"install_plugin", "", COM_COMMON_DESCRIPTION,
      MetricOTELType::ASYNC_COUNTER, MetricNumType::METRIC_INTEGER, 0, 0,
      get_metric_aggregated_integer,
@@ -5792,6 +5811,11 @@ static PSI_metric_info_v1 com_metrics[] = {
      get_metric_aggregated_integer,
      (void *)offsetof(aggregated_stats_buffer,
                       com_stat[(uint)SQLCOM_UNINSTALL_COMPONENT])},
+    {"uninstall_extension", "", COM_COMMON_DESCRIPTION,
+     MetricOTELType::ASYNC_COUNTER, MetricNumType::METRIC_INTEGER, 0, 0,
+     get_metric_aggregated_integer,
+     (void *)offsetof(aggregated_stats_buffer,
+                      com_stat[(uint)SQLCOM_UNINSTALL_EXTENSION])},
     {"uninstall_plugin", "", COM_COMMON_DESCRIPTION,
      MetricOTELType::ASYNC_COUNTER, MetricNumType::METRIC_INTEGER, 0, 0,
      get_metric_aggregated_integer,
@@ -8356,6 +8380,15 @@ static int init_server_components() {
     }
   }
 
+  // Look for whether we need to install VillageSQL system tables on a restart.
+  if (!is_help_or_validate_option() && !opt_initialize) {
+    if (villagesql::SchemaManager::maybe_install_villagesql_schema_on_first_run(
+            opt_upgrade_mode)) {
+      // Error message set by the call above
+      return true;
+    }
+  }
+
   /*
     Re-create non DD based system views after a) if we upgraded system
     schemas b) I_S system view version is changed and server system views
@@ -8773,12 +8806,16 @@ class Plugin_and_data_dir_option_parser final {
   Plugin_and_data_dir_option_parser(int argc, char **argv)
       : datadir_(nullptr),
         plugindir_(nullptr),
+        vebdir_(nullptr),
         save_homedir_{0},
         save_plugindir_{0},
+        save_vebdir_{0},
         valid_(false) {
-    char *ptr, **res, *datadir = nullptr, *plugindir = nullptr;
+    char *ptr, **res, *datadir = nullptr, *plugindir = nullptr,
+                      *vebdir = nullptr;
     char dir[FN_REFLEN] = {0}, local_datadir_buffer[FN_REFLEN] = {0},
-         local_plugindir_buffer[FN_REFLEN] = {0};
+         local_plugindir_buffer[FN_REFLEN] = {0},
+         local_vebdir_buffer[FN_REFLEN] = {0};
     const char *dirs = nullptr;
 
     my_option datadir_options[] = {
@@ -8786,6 +8823,8 @@ class Plugin_and_data_dir_option_parser final {
          0, nullptr, 0, nullptr},
         {"plugin_dir", 0, "", &plugindir, nullptr, nullptr, GET_STR, OPT_ARG, 0,
          0, 0, nullptr, 0, nullptr},
+        {"veb_dir", 0, "", &vebdir, nullptr, nullptr, GET_STR, OPT_ARG, 0, 0, 0,
+         nullptr, 0, nullptr},
         {nullptr, 0, nullptr, nullptr, nullptr, nullptr, GET_NO_ARG, NO_ARG, 0,
          0, 0, nullptr, 0, nullptr}};
 
@@ -8835,6 +8874,11 @@ class Plugin_and_data_dir_option_parser final {
                        mysql_home);
     plugindir_ = my_strdup(PSI_INSTRUMENT_ME, local_plugindir_buffer, MYF(0));
 
+    convert_dirname(local_vebdir_buffer,
+                    vebdir ? vebdir : get_relative_path(VEBDIR), NullS);
+    (void)my_load_path(local_vebdir_buffer, local_vebdir_buffer, mysql_home);
+    vebdir_ = my_strdup(PSI_INSTRUMENT_ME, local_vebdir_buffer, MYF(0));
+
     /* Backup mysql_real_data_home */
     if (mysql_real_data_home[0])
       memcpy(save_homedir_, mysql_real_data_home, strlen(mysql_real_data_home));
@@ -8847,6 +8891,12 @@ class Plugin_and_data_dir_option_parser final {
              std::min(static_cast<size_t>(FN_REFLEN), strlen(opt_plugin_dir)));
     if (plugindir_ != nullptr)
       memcpy(opt_plugin_dir, plugindir_, strlen(plugindir_));
+
+    // Backup opt_veb_dir
+    if (opt_veb_dir[0])
+      memcpy(save_vebdir_, opt_veb_dir,
+             std::min(static_cast<size_t>(FN_REFLEN), strlen(opt_veb_dir)));
+    if (vebdir_ != nullptr) memcpy(opt_veb_dir, vebdir_, strlen(vebdir_));
 
     valid_ = true;
   }
@@ -8863,6 +8913,11 @@ class Plugin_and_data_dir_option_parser final {
       memcpy(opt_plugin_dir, save_plugindir_, strlen(save_plugindir_));
       my_free(plugindir_);
     }
+    if (vebdir_ != nullptr) {
+      memset(opt_veb_dir, 0, sizeof(opt_veb_dir));
+      memcpy(opt_veb_dir, save_vebdir_, strlen(save_vebdir_));
+      my_free(vebdir_);
+    }
   }
 
   bool valid() const { return valid_; }
@@ -8870,8 +8925,10 @@ class Plugin_and_data_dir_option_parser final {
  private:
   char *datadir_;
   char *plugindir_;
+  char *vebdir_;
   char save_homedir_[FN_REFLEN + 1];
   char save_plugindir_[FN_REFLEN + 1];
+  char save_vebdir_[FN_REFLEN + 1];
   bool valid_;
 };
 
@@ -9753,6 +9810,12 @@ int mysqld_main(int argc, char **argv)
 
   if (!opt_noacl) {
     udf_read_functions_table();
+  }
+
+  // Initialize VillageSQL extension infrastructure.
+  if (!opt_initialize && !abort &&
+      villagesql::init_extension_infrastructure()) {
+    unireg_abort(MYSQLD_ABORT_EXIT);
   }
 
   init_status_vars();
@@ -13045,6 +13108,13 @@ static int fix_paths(void) {
       NullS);
   (void)my_load_path(opt_plugin_dir, opt_plugin_dir, mysql_home);
   opt_plugin_dir_ptr = opt_plugin_dir;
+
+  // Initialize VEB directory (parallel to plugin directory)
+  convert_dirname(opt_veb_dir,
+                  opt_veb_dir_ptr ? opt_veb_dir_ptr : get_relative_path(VEBDIR),
+                  NullS);
+  (void)my_load_path(opt_veb_dir, opt_veb_dir, mysql_home);
+  opt_veb_dir_ptr = opt_veb_dir;
 
   my_realpath(mysql_unpacked_real_data_home, mysql_real_data_home, MYF(0));
   mysql_unpacked_real_data_home_len = strlen(mysql_unpacked_real_data_home);

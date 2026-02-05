@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -159,6 +160,8 @@
 #include "strxnmov.h"
 #include "template_utils.h"
 #include "thr_mutex.h"
+#include "villagesql/sql/metadata_modifier.h"
+#include "villagesql/types/util.h"
 
 using std::equal_to;
 using std::hash;
@@ -6081,6 +6084,13 @@ restart:
         // Remember if any of SF modifies data.
         some_routine_modifies_data |= routine_modifies_data;
       }
+      // Process custom functions (extension UDFs) to acquire MDL locks on
+      // their extensions.
+      if (villagesql::Metadata_modifier::process_calls(
+              thd, thd->lex->croutines_list)) {
+        error = true;
+        goto err;
+      }
     }
   }
 
@@ -9331,6 +9341,13 @@ bool setup_fields(THD *thd, Access_bitmask want_privilege, bool allow_sum_func,
   thd->lex->allow_sum_func = save_allow_sum_func;
   thd->mark_used_columns = save_mark_used_columns;
   DBUG_PRINT("info", ("thd->mark_used_columns: %d", thd->mark_used_columns));
+
+  // VillageSQL: Check if custom type fields were found during field binding
+  if (thd->lex->found_custom_type_in_context) {
+    if (villagesql::ValidateCustomTypeContext(thd)) {
+      return true;  // Error reported by validation function
+    }
+  }
 
   assert(!thd->is_error());
   return false;

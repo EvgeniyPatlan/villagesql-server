@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -2597,6 +2598,7 @@ struct st_trg_chistics {
 };
 
 class Sroutine_hash_entry;
+class Croutine_hash_entry;
 
 /*
   Class representing list of all tables used by statement and other
@@ -2656,6 +2658,12 @@ class Query_tables_list {
   SQL_I_List<Sroutine_hash_entry> sroutines_list;
   Sroutine_hash_entry **sroutines_list_own_last;
   uint sroutines_list_own_elements;
+
+  /* Set of custom routines (extension UDFs) called by statement. */
+  std::unique_ptr<malloc_unordered_map<std::string, Croutine_hash_entry *>>
+      croutines;
+  /* List linking elements of 'croutines' set.  */
+  SQL_I_List<Croutine_hash_entry> croutines_list;
 
   /**
     Locking state of tables in this particular statement.
@@ -4405,6 +4413,9 @@ struct LEX : public Query_tables_list {
     tree. When we get a pure parser this will not be needed.
   */
   bool will_contextualize;
+
+  // VillageSQL: Set during field binding if a custom type field is found
+  bool found_custom_type_in_context{false};
 
   LEX();
 

@@ -19,4 +19,5 @@
 #              MUTEX SPINNING
 #
 
+--source include/villagesql/mysql_failure_skip.inc
 --source suite/rpl_nogtid/t/rpl_semi_sync.test

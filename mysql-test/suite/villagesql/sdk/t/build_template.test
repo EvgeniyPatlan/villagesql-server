@@ -1,0 +1,107 @@
+# SDK Build Template Test
+#
+# Tests that the VillageSQL Extension SDK can be used to build an extension:
+# 1. Extract the SDK tarball
+# 2. Build the template project
+# 3. Install and test the extension
+#
+# This test requires the SDK tarball to be built first (make sdk)
+
+--source include/villagesql/binlog_check_begin.inc
+
+--echo # SDK Build Template Test
+
+# Get paths - use @@basedir which points to the build directory where mysqld runs
+--let $veb_dir = `SELECT @@veb_dir`
+--let $build_dir = `SELECT @@basedir`
+--let $test_dir = $MYSQLTEST_VARDIR/tmp/sdk_test
+--let $sdk_version = 0.0.1-dev
+--let $sdk_dir_name = villagesql-extension-sdk-$sdk_version
+--let $sdk_tarball = $build_dir/$sdk_dir_name.tar.gz
+--let $sdk_dir = $test_dir/$sdk_dir_name
+
+# Write the path for perl to check (must be before perl block)
+# Use printf instead of echo -n for portability
+--exec mkdir -p $MYSQLTEST_VARDIR/tmp
+--exec printf '%s' "$sdk_tarball" > $MYSQLTEST_VARDIR/tmp/sdk_path_check.txt
+
+# Check if SDK tarball exists
+--perl
+use strict;
+
+my $vardir = $ENV{'MYSQLTEST_VARDIR'};
+
+# Read the sdk_tarball path from a file
+open(my $fh, '<', "$vardir/tmp/sdk_path_check.txt") or die "Cannot read path: $!";
+my $sdk_tarball = <$fh>;
+chomp($sdk_tarball);
+close($fh);
+
+# Clean up double slashes in path
+$sdk_tarball =~ s{//+}{/}g;
+
+if (! -f $sdk_tarball) {
+    print "SDK tarball not found. Run 'make sdk' first.\n";
+    print "Looked for: $sdk_tarball\n";
+    exit(1);
+}
+print "Found SDK tarball\n";
+EOF
+
+--echo # Setup test directory
+--exec rm -rf $test_dir
+--exec mkdir -p $test_dir
+
+--echo # Extract SDK tarball
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+--exec tar -xzf $sdk_tarball -C $test_dir
+
+--echo # Build the template extension
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+--exec mkdir -p $sdk_dir/template/build
+
+# Run cmake
+--echo # Running cmake...
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+--exec cd $sdk_dir/template/build && cmake .. > cmake_output.txt 2>&1
+
+# Run make
+--echo # Running make...
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+--exec cd $sdk_dir/template/build && make > make_output.txt 2>&1
+
+--echo # Verify VEB was created
+--file_exists $sdk_dir/template/build/my_extension.veb
+
+--echo # Copy VEB to server's VEB directory
+--exec cp $sdk_dir/template/build/my_extension.veb $veb_dir/
+
+--echo # Install the extension
+INSTALL EXTENSION my_extension;
+
+--echo # Verify extension is installed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS
+WHERE extension_name = 'my_extension';
+
+--echo # Test the my_add function (prefixed with extension name)
+SELECT my_extension.my_add(2, 3);
+SELECT my_extension.my_add(10, 20);
+SELECT my_extension.my_add(-5, 5);
+
+--echo # Test NULL handling
+SELECT my_extension.my_add(NULL, 5);
+SELECT my_extension.my_add(5, NULL);
+
+--echo # Uninstall the extension
+UNINSTALL EXTENSION my_extension;
+
+--echo # Verify extension was removed
+SELECT extension_name FROM INFORMATION_SCHEMA.EXTENSIONS
+WHERE extension_name = 'my_extension';
+
+--echo # Cleanup
+--exec rm -rf $test_dir
+--exec rm -f $veb_dir/my_extension.veb
+--exec rm -f $MYSQLTEST_VARDIR/tmp/sdk_path_check.txt
+
+--source include/villagesql/binlog_check_end.inc

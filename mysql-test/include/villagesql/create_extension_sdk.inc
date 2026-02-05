@@ -1,0 +1,90 @@
+# create_extension_sdk.inc - Build extension using VillageSQL SDK
+#
+# This include file builds extensions using the SDK workflow, which mirrors
+# how external users build extensions. It uses find_package(VillageSQL) and
+# VEF_CREATE_VEB() to build the extension.
+#
+# Usage:
+#   --let $extension_name = my_extension
+#   --let $extension_version = 1.0.0
+#   --let $extension_source = $MYSQL_TEST_DIR/suite/villagesql/std_data/my_extension.cc
+#   --source include/villagesql/create_extension_sdk.inc
+#
+# Optional:
+#   --let $extension_manifest_extra = , "description": "My extension"
+#
+# The VEB file will be created and moved to the VEB directory.
+#
+# Requirements:
+#   - SDK must be built (make sdk)
+#   - cmake and make must be available
+
+if (!$extension_name)
+{
+  --die ERROR: create_extension_sdk.inc requires $extension_name to be set
+}
+
+if (!$extension_source)
+{
+  --die ERROR: create_extension_sdk.inc requires $extension_source to be set
+}
+
+# Default version if not specified
+if (!$extension_version)
+{
+  --let $extension_version = 1.0.0
+}
+
+# Get paths
+--let $build_dir = `SELECT @@basedir`
+--let $veb_dir = `SELECT @@veb_dir`
+--let $sdk_version = 0.0.1-dev
+--let $sdk_dir = $build_dir/villagesql-extension-sdk-$sdk_version
+--let $ext_build_dir = $MYSQLTEST_VARDIR/tmp/ext_build_$extension_name
+
+# Verify SDK exists
+--exec test -d "$sdk_dir" || (echo "ERROR: SDK not found at $sdk_dir. Run 'make sdk' first." && exit 1)
+--exec test -f "$sdk_dir/bin/villagesql_config" || (echo "ERROR: villagesql_config not found in SDK" && exit 1)
+
+# Create build directory structure
+--exec rm -rf $ext_build_dir
+--exec mkdir -p $ext_build_dir/src
+--exec mkdir -p $ext_build_dir/build
+
+# Copy source file
+--exec cp $extension_source $ext_build_dir/src/extension.cc
+
+# Create manifest.json
+--exec printf '%s' '{"name": "$extension_name", "version": "$extension_version"$extension_manifest_extra}' > $ext_build_dir/manifest.json
+
+# Create CMakeLists.txt from template
+--let $cmake_template = $MYSQL_TEST_DIR/suite/villagesql/data/extension_creator/CMakeLists.txt.template
+--exec sed 's/@EXTENSION_NAME@/$extension_name/g' $cmake_template > $ext_build_dir/CMakeLists.txt
+
+--echo Creating extension $extension_name using SDK...
+
+# Run cmake
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR $build_dir BUILD_DIR
+--exec cd $ext_build_dir/build && cmake -DVillageSQL_SDK_DIR=$sdk_dir -DCMAKE_MODULE_PATH=$sdk_dir/lib/cmake/VillageSQLExtensionFramework .. > cmake_output.txt 2>&1 || (cat cmake_output.txt && exit 1)
+
+# Run make
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+--exec cd $ext_build_dir/build && make > make_output.txt 2>&1 || (cat make_output.txt && exit 1)
+
+# Verify VEB was created
+--file_exists $ext_build_dir/build/$extension_name.veb
+
+# Move VEB to server's VEB directory
+--exec mkdir -p $veb_dir
+--exec cp $ext_build_dir/build/$extension_name.veb $veb_dir/
+
+--echo Created $extension_name.veb
+
+# Cleanup build directory
+--exec rm -rf $ext_build_dir
+
+# Reset variables
+--let $extension_name =
+--let $extension_version =
+--let $extension_source =
+--let $extension_manifest_extra =

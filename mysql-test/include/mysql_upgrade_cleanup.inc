@@ -26,5 +26,10 @@ let $MYSQLD_DATADIR= `select @@datadir`;
 
 --eval UPDATE mysql.tables_priv SET `Timestamp` = '$saved_sys_timestamp_2' WHERE `Host` = 'localhost' AND `Db` = 'sys' AND `User` = 'mysql.sys' AND `Table_name` = 'sys_config';
 
+if ($saved_villagesql_session_timestamp)
+{
+  --eval UPDATE mysql.user SET `password_last_changed` = '$saved_villagesql_session_timestamp' WHERE `Host` = 'localhost' AND `User` = 'villagesql.session';
+}
+
 --enable_result_log
 --enable_query_log

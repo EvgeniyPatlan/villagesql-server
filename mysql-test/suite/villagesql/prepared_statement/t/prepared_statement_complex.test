@@ -1,0 +1,71 @@
+# Test that prepared statements referencing custom type columns are blocked at PREPARE time
+# but prepared statements that don't reference custom columns are allowed
+
+--source include/villagesql/install_complex_extension.inc
+
+CREATE TABLE t1 (
+  id INT PRIMARY KEY,
+  name VARCHAR(50),
+  val COMPLEX
+);
+
+# Test 1: PREPARE that only accesses non-custom columns
+PREPARE stmt_non_custom FROM 'SELECT id, name FROM t1 WHERE id = ?';
+SET @id = 1;
+EXECUTE stmt_non_custom USING @id;
+DROP PREPARE stmt_non_custom;
+
+# Test 2: PREPARE that selects custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt_select_custom FROM 'SELECT val FROM t1';
+
+# Test 3: PREPARE that inserts into custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt_insert_custom FROM 'INSERT INTO t1 VALUES (?, ?, ?)';
+
+# Test 4: PREPARE with WHERE on custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt_where_custom FROM 'SELECT id FROM t1 WHERE val = ?';
+
+DROP TABLE t1;
+
+# Test 5: INVISIBLE COMPLEX columns should also be blocked in prepared statements
+CREATE TABLE t2 (
+  id INT PRIMARY KEY,
+  name VARCHAR(50),
+  val COMPLEX INVISIBLE
+);
+
+INSERT INTO t2 (id, val, name) VALUES (1, '(1.0,2.0)', 'test1'), (2, '(3.0,4.0)', 'test2');
+
+# Test 5a: PREPARE that explicitly selects non COMPLEX column
+PREPARE stmt_select_non_custom_visible FROM 'SELECT id, name FROM t2 WHERE id = ?';
+SET @id = 1;
+EXECUTE stmt_select_non_custom_visible USING @id;
+DROP PREPARE stmt_select_non_custom_visible;
+
+# Test 5b: PREPARE that explicitly selects INVISIBLE COMPLEX column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt_select_invisible FROM 'SELECT id, val, name FROM t2';
+
+# Test 5c: PREPARE with WHERE on INVISIBLE COMPLEX column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt_where_invisible FROM 'SELECT id, name FROM t2 WHERE val = ?';
+
+# Test 5d: PREPARE with ORDER BY on INVISIBLE COMPLEX column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt_order_invisible FROM 'SELECT id, name FROM t2 ORDER BY val';
+
+# Test 5e: PREPARE that inserts into INVISIBLE COMPLEX column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt_insert_invisible FROM 'INSERT INTO t2 (id, val, name) VALUES (?, ?, ?)';
+
+# Test 5f: Even SELECT * is blocked because the table has COMPLEX columns
+# (even though INVISIBLE columns aren't in SELECT * result)
+# TODO(villagesql): Ideally we should not be blocking here.
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt_select_star FROM 'SELECT * FROM t2 WHERE id = ?';
+
+DROP TABLE t2;
+
+--source include/villagesql/uninstall_complex_extension.inc

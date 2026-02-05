@@ -2,6 +2,7 @@
 # -*- cperl -*-
 
 # Copyright (c) 2004, 2025, Oracle and/or its affiliates.
+# Copyright (c) 2026 VillageSQL Contributors
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2.0,
@@ -7098,6 +7099,20 @@ sub start_servers($) {
     # Create the servers tmpdir
     my $tmpdir = $mysqld->value('tmpdir');
     mkpath($tmpdir) unless -d $tmpdir;
+
+    # Create the servers veb-dir (VillageSQL Extension Bundle directory)
+    my $vebdir = $mysqld->value('veb-dir');
+    mkpath($vebdir) unless -d $vebdir;
+
+    # Copy pre-built VEB files from build directory to this server's veb-dir
+    my $veb_source_dir = "$bindir/veb_output_directory";
+    if (-d $veb_source_dir) {
+      my @veb_files = glob("$veb_source_dir/*.veb");
+      foreach my $veb_file (@veb_files) {
+        my $dest_file = "$vebdir/" . basename($veb_file);
+        copy($veb_file, $dest_file) unless -f $dest_file;
+      }
+    }
 
     # Run <tname>-master.sh
     if ($mysqld->option('#!run-master-sh') and

@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2013, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -59,6 +60,7 @@
 #include "sql/trigger_chain.h"
 #include "string_with_len.h"
 #include "thr_lock.h"
+#include "villagesql/types/util.h"
 
 namespace dd {
 class Schema;
@@ -228,6 +230,13 @@ bool Table_trigger_dispatcher::create_trigger(
   m_new_field = m_subject_table->field;
 
   if (lex->sphead->setup_trigger_fields(thd, this, nullptr, true)) return true;
+
+  // VillageSQL: Check if trigger accesses custom type fields
+  if (thd->lex->found_custom_type_in_context) {
+    if (villagesql::ValidateCustomTypeContext(thd)) {
+      return true;  // Error reported by validation function
+    }
+  }
 
   m_old_field = nullptr;
   m_new_field = nullptr;

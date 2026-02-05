@@ -1,4 +1,5 @@
 /* Copyright (c) 2010, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -67,6 +68,7 @@
 #include "sql/thd_raii.h"
 #include "sql/transaction_info.h"
 #include "string_with_len.h"
+#include "villagesql/sql/initialize.h"
 
 namespace bootstrap {
 
@@ -157,14 +159,17 @@ static bool handle_bootstrap_impl(handle_bootstrap_args *args) {
     Compiled_in_command_iterator comp_iter;
     rc = process_iterator(thd, &comp_iter, true);
 
-    thd->system_thread = SYSTEM_THREAD_INIT_FILE;
-
     sysd::notify("STATUS=Initialization of MySQL system tables ",
                  rc ? "unsuccessful" : "successful", "\n");
 
     if (rc != 0) {
       return true;
     }
+
+    if (villagesql::bootstrap_for_init_file(thd)) {
+      return true;
+    }
+    thd->system_thread = SYSTEM_THREAD_INIT_FILE;
   }
 
   if (args->m_file != nullptr) {

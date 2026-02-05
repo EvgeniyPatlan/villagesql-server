@@ -8,6 +8,7 @@ mtr
 mysql
 performance_schema
 test
+villagesql
 # restart:--upgrade=FORCE
 SHOW DATABASES;
 Database
@@ -17,6 +18,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 TRUNCATE TABLE mysql.tables_priv;
 INSERT INTO mysql.tables_priv (SELECT * FROM mysql.tmp_backup_tables_priv);
 DROP TABLE mysql.tmp_backup_tables_priv;

@@ -1,0 +1,42 @@
+# Test CREATE TABLE with ENGINE specification and COMPLEX columns
+# Tests that COMPLEX type requires InnoDB engine and fails with other engines
+
+--source include/villagesql/not_implemented_complex_type.inc
+
+--source include/villagesql/install_complex_extension.inc
+--source include/villagesql/binlog_check_begin.inc
+
+# Test that InnoDB works with COMPLEX type
+CREATE TABLE t1 (
+    id INT PRIMARY KEY,
+    complex_field COMPLEX
+) ENGINE=InnoDB;
+
+SHOW CREATE TABLE t1;
+
+INSERT INTO t1 VALUES (1, '(1.2,3.4)');
+INSERT INTO t1 VALUES (2, '(5.6,7.8)');
+
+SELECT * FROM t1;
+
+DROP TABLE t1;
+
+# Test that MyISAM fails with COMPLEX type
+--error ER_UNSUPPORTED_ENGINE
+CREATE TABLE t2 (
+    id INT PRIMARY KEY,
+    complex_field COMPLEX
+) ENGINE=MyISAM;
+
+# Test that MEMORY fails with COMPLEX type
+--error ER_UNSUPPORTED_ENGINE
+CREATE TABLE t3 (
+    id INT PRIMARY KEY,
+    complex_field COMPLEX
+) ENGINE=MEMORY;
+
+# Verify no tables were created for unsupported engines
+SHOW TABLES LIKE 't_';
+
+--source include/villagesql/binlog_check_end.inc
+--source include/villagesql/uninstall_complex_extension.inc

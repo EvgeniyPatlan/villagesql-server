@@ -2576,4 +2576,4 @@ ERROR 42000: This version of MySQL doesn't yet support 'Parse tree display of th
 SHOW PARSE_TREE CREATE TABLE tab(id INT);
 ERROR 42000: This version of MySQL doesn't yet support 'Parse tree display of this statement'
 SHOW PARSE_TREE CREATE TABLE tab(id INVALID_SYNTAX);
-ERROR 42000: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'INVALID_SYNTAX)' at line 1
+ERROR 42000: Expected a type or a custom type instead of "INVALID_SYNTAX" near 'INVALID_SYNTAX)' at line 1

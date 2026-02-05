@@ -1,0 +1,344 @@
+/* Copyright (c) 2026 VillageSQL Contributors
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#ifndef VILLAGESQL_TYPES_UTIL_H_
+#define VILLAGESQL_TYPES_UTIL_H_
+
+#include <stddef.h>
+
+#include "lex_string.h"
+#include "my_inttypes.h"
+#include "sql/field.h"
+#include "sql_string.h"
+#include "villagesql/schema/descriptor/type_context.h"
+#include "villagesql/sdk/include/villagesql/abi/types.h"
+
+class Create_field;
+class Field;
+class Item;
+class Item_func;
+struct MEM_ROOT;
+struct ORDER;
+template <typename T>
+class SQL_I_List;
+class THD;
+struct TABLE_SHARE;
+struct TABLE;
+class Table_ref;
+template <typename T>
+class List;
+template <typename T>
+class mem_root_deque;
+class String;
+
+namespace villagesql {
+
+// Check if Field should be marked as a custom type by checking the
+// VictionaryClient. If the Field is supposed to be a custom type, then fill the
+// internal TypeContext appropriately to refer to the type information and the
+// given mem_root. Checks uncommitted column metadata for the THD first before
+// falling back to committed data.
+extern bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field);
+
+// Fills *result with a TypeContext based on the type_name given. If
+// extension_name is non-empty, filters results to match that extension
+// (for qualified names like extension_name.type_name).
+// Returns false on success and true on failure. If the type isn't known the
+// function will return false (success), but the result will be nullptr. The
+// mem_root is used to scope the cleanup of the TypeContext.
+extern bool ResolveTypeToContext(const LEX_STRING &extension_name,
+                                 const LEX_STRING &type_name,
+                                 MEM_ROOT &mem_root,
+                                 const TypeContext *&result);
+
+// Copy custom type contexts from Create_field list to corresponding Fields in
+// a temporary TABLE. Allocates new TypeContext objects on the TABLE_SHARE's
+// mem_root since temp tables persist for the session while thd->mem_root is
+// statement-scoped.
+extern void AnnotateCustomColumnsInTmpTable(TABLE *table,
+                                            List<Create_field> &create_fields);
+
+// Check if a table has custom columns (internal helper)
+extern bool TableHasCustomColumns(const char *db_name, const char *table_name);
+
+// Check if any column in a create_list has a custom type.
+// Used to determine if we need to regenerate the CREATE TABLE statement
+// for binlogging (to ensure fully qualified type names are used).
+extern bool HasCustomTypeColumns(const List<Create_field> &create_list);
+
+// Handle custom column metadata updates when renaming a table
+// Marks all custom columns for the table for UPDATE with new db/table names
+// Queries VictionaryClient cache and marks MarkForUpdate operations
+// Requires write lock to be held for the VictionaryClient before calling
+// Returns false on success, true on error
+extern bool HandleCustomColumnsForTableRename(THD &thd, const char *old_db,
+                                              const char *old_table,
+                                              const char *new_db,
+                                              const char *new_table);
+
+// Using "tc" as the type, encode "from" according to the type's internal
+// representation. Allocations are performed on the given mem_root,
+// using the internal size for buffering.
+// On error, return nullptr. If is_valid is false, then there was a problem with
+// encoding, otherwise we hit a memory problem and my_error was called.
+extern String *EncodeString(const TypeContext &tc, const String &from,
+                            MEM_ROOT &mem_root, bool &is_valid);
+
+// Encodes a string for storage in a custom type field, with error reporting.
+// This is a higher-level wrapper around EncodeString that handles error
+// reporting for LOAD DATA and INSERT/UPDATE operations. See EncodeString
+// above. Additionally, "field_name" is the name of the field (used for
+// error messages). Same return values as EncodeString, except that if there is
+// a failure and it isn't an OOM, a warning will be pushed for the invalid
+// value.
+extern String *EncodeStringForField(const TypeContext &tc, const String &from,
+                                    MEM_ROOT &mem_root, const char *field_name,
+                                    bool &is_valid);
+
+// Decodes binary data into a String representation using the type's decode
+// function. Allocates buffer on the given mem_root. Returns false on
+// success, true on error. On error, is_valid indicates if the data was invalid
+// (false) or if an OOM occurred (true, with my_error already called).
+extern bool DecodeString(const TypeContext &tc, const uchar *encoded_data,
+                         size_t encoded_length, MEM_ROOT &mem_root,
+                         String *output_buffer, bool &is_valid);
+
+// Appends "extension_name.type_name" to the given String.
+extern void AppendFullyQualifiedName(const TypeContext &tc, String *out);
+
+// Type alias for custom type comparison function pointer
+// Returns < 0 when data1 < data2, > 0 when data2 < data1, and 0 when equal
+// Comparison is always in ascending order; DESC is handled by callers
+// Only min(len1, len2) should be compared. Length can be used as tie-breaker
+using compare_func = int (*)(const uchar *data1, size_t len1,
+                             const uchar *data2, size_t len2);
+
+// Get the comparison function for a custom type from its TypeContext.
+inline compare_func GetCompareFunc(const TypeContext &tc) {
+  assert(tc.descriptor());
+  return tc.descriptor()->compare();
+}
+
+// Same as above, but for Item or Field.
+template <typename T>
+inline compare_func GetCompareFunc(const T &obj) {
+  if (obj.has_type_context()) {
+    return GetCompareFunc(*obj.get_type_context());
+  }
+  return nullptr;
+}
+
+// Hash function type for custom types
+using hash_func = size_t (*)(const uchar *data, size_t len);
+
+// Get the hash function for a custom type from its TypeContext.
+// Returns nullptr if no custom hash (meaning binary hash is safe).
+inline hash_func GetHashFunc(const TypeContext &tc) {
+  assert(tc.descriptor());
+  return tc.descriptor()->hash();
+}
+
+// Same as above, but for Item or Field.
+template <typename T>
+inline hash_func GetHashFunc(const T &obj) {
+  if (obj.has_type_context()) {
+    return GetHashFunc(*obj.get_type_context());
+  }
+  return nullptr;
+}
+
+// Inject custom type context into a string Item and encode it for comparison
+// This is used to "poison" string literals with custom type information when
+// they are compared against custom type columns (e.g., WHERE col = '(1,2)')
+// Only affects STRING_ITEM types without existing type context
+// Returns false on success, true on error (my_error already called if needed)
+extern bool InjectAndEncodeCustomType(Item *item, const TypeContext &tc);
+
+// Template version that works with both Item and Field types
+// Both Item and Field have has_type_context() and get_type_context() methods
+// Overload for TypeContext with binary data
+inline std::optional<int> TryCompareCustomType(const TypeContext &tc,
+                                               const uchar *data1, size_t len1,
+                                               const uchar *data2,
+                                               size_t len2) {
+  auto cmp_func = GetCompareFunc(tc);
+  if (cmp_func == nullptr) {
+    return std::nullopt;
+  }
+
+  return cmp_func(data1, len1, data2, len2);
+}
+
+template <typename T>
+std::optional<int> TryCompareCustomType(const T *obj, const uchar *data1,
+                                        size_t len1, const uchar *data2,
+                                        size_t len2) {
+  if (obj == nullptr || !obj->has_type_context()) {
+    return std::nullopt;
+  }
+
+  return TryCompareCustomType(*obj->get_type_context(), data1, len1, data2,
+                              len2);
+}
+
+// Template overload for comparing two String objects with custom type context
+template <typename T>
+std::optional<int> TryCompareCustomType(const T *obj, const String &str1,
+                                        const String &str2) {
+  if (obj == nullptr || !obj->has_type_context()) {
+    return std::nullopt;
+  }
+
+  return TryCompareCustomType(
+      *obj->get_type_context(), pointer_cast<const uchar *>(str1.ptr()),
+      str1.length(), pointer_cast<const uchar *>(str2.ptr()), str2.length());
+}
+
+// Overload for comparing two String objects with TypeContext directly
+inline std::optional<int> TryCompareCustomType(const TypeContext *tc,
+                                               const String &str1,
+                                               const String &str2) {
+  if (tc == nullptr) {
+    return std::nullopt;
+  }
+
+  return TryCompareCustomType(
+      *tc, pointer_cast<const uchar *>(str1.ptr()), str1.length(),
+      pointer_cast<const uchar *>(str2.ptr()), str2.length());
+}
+
+// Compare two binary buffers using custom comparison if item has custom type,
+// otherwise falls back to memcmp. Handles sort direction (reverse) internally
+// because direct mem comparison lays out the memory taking reverse order into
+// account.
+// Returns comparison result (<0, 0, >0) suitable for sorting
+int CustomMemCompare(const Item *item, const uchar *data1, size_t len1,
+                     const uchar *data2, size_t len2, size_t min_len,
+                     bool reverse);
+
+// Check if two TypeContexts represent compatible types for comparison
+// operations Types are compatible if they have the same type name, extension
+// name, and version Returns true if compatible, false if incompatible
+bool AreTypesCompatible(const TypeContext &tc1, const TypeContext &tc2);
+
+// Get custom type context if Items have compatible custom types
+// Returns TypeContext* if one or both Items have compatible custom types
+// Returns nullptr if no custom types or if custom types are incompatible
+// For Arg_comparator::set_compare_func - sets up custom comparison if possible
+const TypeContext *GetCompatibleCustomType(const Item &item1,
+                                           const Item &item2);
+
+// Check if an Item value can be stored in a custom type field
+// The field param must already be a custom type (i.e. field->has_type_context()
+// returns true)
+// Used by Item::save_in_field() to validate type conversions for
+// INSERT/UPDATE
+// Returns true if storage is allowed, false if it should be blocked
+// It only allows:
+// 1. Items with compatible custom type context (same type)
+// 2. String literals that can be encoded by the custom type
+extern bool CanStoreInCustomField(const Item *item, const Field *field);
+
+// Validates storing an Item into a custom type Field and generates appropriate
+// error message if validation fails.
+// Returns false on success (validation passes), true on error (validation
+// fails, error already reported).
+extern bool ValidateAndReportCustomFieldStore(const Item *item,
+                                              const Field *field);
+
+// Copy custom type field data directly between fields with the same type.
+// REQUIRES: from must have a custom type (has_type_context() == true).
+// Returns false if copy was performed successfully or an error was generated,
+// true if the types are incompatible and caller should fall back to normal
+// copy logic. Custom types stored as binary data in VARCHAR fields need special
+// handling to avoid charset conversion which would corrupt the data.
+// If to does not have a custom type, generates an error with readable format.
+extern bool TryCopyCustomTypeField(const Field *from, Field *to);
+
+// Encode a string field value and store it in a custom type field.
+// This enables CTEs and subqueries with string values to work with custom
+// types:
+//   INSERT INTO t1 WITH cte AS (SELECT '(1,2)' AS val) SELECT * FROM cte
+// REQUIRES: from_field has no custom type context, to_field has custom type
+// context, and the source produces a string result.
+extern type_conversion_status TryEncodeStringFieldToCustom(Field *from_field,
+                                                           Field *to_field);
+
+// Check if a function is allowed to operate on custom types for the given type
+// context
+// Returns true if function is allowed, false if it should be blocked
+extern bool IsFuncAllowedWithCustom(THD *thd, Item_func *func,
+                                    const TypeContext &tc);
+
+// Returns true if an Item can be implicitly cast to a custom type field, and
+// false otherwise. We only allow implicit casts for Items that fall into an
+// allowlisted category.
+extern bool CanImplicitlyCastToCustom(const Item *item);
+
+// Injects the TypeContext tc into the item if it can be implicitly cast to the
+// type represented by tc. If item is already custom, then it is checked for
+// compatibility with tc.
+// Returns true if there is an error (e.g. incompatible types) as a consequence,
+// or false on success (including the implicit cast is skipped).
+extern bool TryImplicitCastToCustom(Item *item, const TypeContext &tc);
+
+// Check custom type usage for a single Item
+// Validates that incompatible custom types aren't used together
+// Returns false on success, true on error (with my_error already called)
+extern bool CheckCustomTypeUsage(Item *item, THD *thd);
+
+// Walk query block items and call custom type usage processor on each Item
+// Validates custom type usage in SELECT fields, WHERE, GROUP BY, ORDER BY, and
+// HAVING clauses
+// Returns false on success, true on error
+extern bool WalkQueryBlockForCustomTypeValidation(
+    THD *thd, const mem_root_deque<Item *> &fields,
+    const SQL_I_List<ORDER> &group_list, const SQL_I_List<ORDER> &order_list,
+    Item *where_condition, Item *having_condition);
+
+// Validate custom type access in the current execution context.
+// Checks if custom types are being used in unsupported contexts.
+// Call this after field binding if custom types were found.
+// Returns false on success, true if error was reported.
+extern bool ValidateCustomTypeContext(THD *thd);
+
+// Walk the LEX structure after prepare_query() and check if any custom type
+// fields are referenced. This catches all field references including those in
+// WHERE, JOIN ON, ORDER BY, etc. Returns false on success, true if error.
+extern bool ValidateCustomTypeFieldsInPreparedStatement(THD *thd);
+
+// Validate VDF arguments against function signature and convert string
+// constants to custom types where appropriate. Returns false on success, true
+// on error.
+extern bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
+                                           const LEX_STRING &extension_name,
+                                           uint arg_count, Item **args,
+                                           const vef_signature_t *signature);
+
+// Set the return type_context on a VDF result Item if it returns a custom type.
+extern void SetVDFReturnTypeContext(THD *thd, const LEX_STRING &extension_name,
+                                    const vef_signature_t *signature,
+                                    Item *result_item);
+
+// Acquire a client-managed reference to a TypeContext.
+// Returns a shared_ptr that the caller is responsible for releasing.
+// If source_tc is null, returns an empty shared_ptr.
+extern std::shared_ptr<const TypeContext> AcquireTypeContextClientManaged(
+    const TypeContext *source_tc);
+
+}  // namespace villagesql
+
+#endif  // VILLAGESQL_TYPES_UTIL_H_

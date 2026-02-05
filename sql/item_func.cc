@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -152,6 +153,8 @@
 #include "template_utils.h"
 #include "template_utils.h"  // pointer_cast
 #include "thr_mutex.h"
+#include "villagesql/types/util.h"
+#include "villagesql/vdf/vdf_handler.h"
 
 using std::max;
 using std::min;
@@ -4504,6 +4507,10 @@ udf_handler::udf_handler(udf_func *udf_arg)
       m_args_extension(),
       m_return_value_extension(&my_charset_bin, result_type()) {}
 
+bool udf_handler::is_vdf_returns_string() const {
+  return m_vdf != nullptr && m_vdf->returns_string();
+}
+
 void udf_handler::cleanup() {
   if (!m_original || !m_initialized) return;
 
@@ -4517,9 +4524,13 @@ void udf_handler::cleanup() {
   if (thd->stmt_arena->is_stmt_prepare() && thd->stmt_arena->is_repreparing)
     return;
 
-  if (m_init_func_called && u_d->func_deinit != nullptr) {
-    (*u_d->func_deinit)(&initid);
-    m_init_func_called = false;
+  if (m_vdf) {
+    m_vdf->cleanup();
+  } else {
+    if (m_init_func_called && u_d->func_deinit != nullptr) {
+      (*u_d->func_deinit)(&initid);
+      m_init_func_called = false;
+    }
   }
   DEBUG_SYNC(current_thd, "udf_handler_destroy_sync");
   free_handler();
@@ -4559,7 +4570,15 @@ bool udf_handler::fix_fields(THD *thd, Item_result_field *func, uint arg_count,
   if (check_stack_overrun(thd, STACK_MIN_SIZE, buff))
     return true;  // Fatal error flag is set!
 
-  udf_func *tmp_udf = find_udf(u_d->name.str, (uint)u_d->name.length, true);
+  // For custom VDFs, use find_udf_qualified; for system UDFs, use find_udf
+  udf_func *tmp_udf;
+  if (u_d->extension_name.str) {
+    tmp_udf =
+        find_udf_qualified(u_d->extension_name.str, u_d->extension_name.length,
+                           u_d->name.str, u_d->name.length, true);
+  } else {
+    tmp_udf = find_udf(u_d->name.str, (uint)u_d->name.length, true);
+  }
 
   if (!tmp_udf) {
     my_error(ER_CANT_FIND_UDF, MYF(0), u_d->name.str);
@@ -4569,6 +4588,7 @@ bool udf_handler::fix_fields(THD *thd, Item_result_field *func, uint arg_count,
   args = arguments;
 
   m_initialized = true;  // Use count was incremented by find_udf()
+
   const bool is_in_prepare =
       thd->stmt_arena->is_stmt_prepare() && !thd->stmt_arena->is_repreparing;
   /*
@@ -4635,35 +4655,63 @@ bool udf_handler::fix_fields(THD *thd, Item_result_field *func, uint arg_count,
       used_tables_cache |= item->used_tables();
       f_args.arg_type[i] = item->result_type();
     }
-    // TODO: why all following memory is not allocated with 1 call of sql_alloc?
-    // if (!(buffers = new String[arg_count]) ||
-    if (!(buffers = pointer_cast<String *>(
-              (*THR_MALLOC)->Alloc(sizeof(String) * arg_count))) ||
-        !(f_args.args =
-              (char **)(*THR_MALLOC)->Alloc(arg_count * sizeof(char *))) ||
-        !(f_args.lengths =
-              (ulong *)(*THR_MALLOC)->Alloc(arg_count * sizeof(long))) ||
-        !(f_args.maybe_null =
-              (char *)(*THR_MALLOC)->Alloc(arg_count * sizeof(char))) ||
-        !(num_buffer = (char *)(*THR_MALLOC)
-                           ->Alloc(arg_count * ALIGN_SIZE(sizeof(double)))) ||
-        !(f_args.attributes =
-              (char **)(*THR_MALLOC)->Alloc(arg_count * sizeof(char *))) ||
-        !(f_args.attribute_lengths =
-              (ulong *)(*THR_MALLOC)->Alloc(arg_count * sizeof(long))) ||
-        !(m_args_extension.charset_info =
-              (const CHARSET_INFO **)(*THR_MALLOC)
-                  ->Alloc(f_args.arg_count * sizeof(CHARSET_INFO *)))) {
-      return true;
+    // Allocate buffers based on calling convention
+    const bool will_be_vdf =
+        u_d->calling_convention == UdfCallingConvention::VDF;
+    if (will_be_vdf) {
+      // VDF: allocate buffers for argument marshaling
+      if (!(buffers = pointer_cast<String *>(
+                (*THR_MALLOC)->Alloc(sizeof(String) * arg_count)))) {
+        return true;
+      }
+    } else {
+      // Classic UDF: allocate UDF_ARGS buffers
+      if (!(buffers = pointer_cast<String *>(
+                (*THR_MALLOC)->Alloc(sizeof(String) * arg_count))) ||
+          !(f_args.args =
+                (char **)(*THR_MALLOC)->Alloc(arg_count * sizeof(char *))) ||
+          !(f_args.lengths =
+                (ulong *)(*THR_MALLOC)->Alloc(arg_count * sizeof(long))) ||
+          !(f_args.maybe_null =
+                (char *)(*THR_MALLOC)->Alloc(arg_count * sizeof(char))) ||
+          !(num_buffer = (char *)(*THR_MALLOC)
+                             ->Alloc(arg_count * ALIGN_SIZE(sizeof(double)))) ||
+          !(f_args.attributes =
+                (char **)(*THR_MALLOC)->Alloc(arg_count * sizeof(char *))) ||
+          !(f_args.attribute_lengths =
+                (ulong *)(*THR_MALLOC)->Alloc(arg_count * sizeof(long))) ||
+          !(m_args_extension.charset_info =
+                (const CHARSET_INFO **)(*THR_MALLOC)
+                    ->Alloc(f_args.arg_count * sizeof(CHARSET_INFO *)))) {
+        return true;
+      }
     }
   }
   for (uint i = 0; i < arg_count; i++) {
     (void)::new (buffers + i) String;
-    m_args_extension.charset_info[i] = nullptr;
   }
 
   if (func->resolve_type(thd)) return true;
 
+  // VDF: create handler and initialize
+  if (u_d->calling_convention == UdfCallingConvention::VDF) {
+    void *mem = (*THR_MALLOC)->Alloc(sizeof(villagesql::vdf::vdf_handler));
+    if (!mem) return true;
+    m_vdf = ::new (mem) villagesql::vdf::vdf_handler(u_d);
+    if (m_vdf->fix_fields(thd, func, arg_count, args, buffers)) {
+      m_vdf = nullptr;
+      return true;
+    }
+    udf_fun_guard.defer();
+    return false;
+  }
+
+  // Classic UDF: initialize charset_info array
+  for (uint i = 0; i < arg_count; i++) {
+    m_args_extension.charset_info[i] = nullptr;
+  }
+
+  // TODO(villagesql-beta): optimize for VDF's in addition to UDF's
   /*
     Calculation of constness and non-deterministic property of a UDF is done
     according to this algorithm:
@@ -4812,6 +4860,11 @@ bool udf_handler::get_arguments() {
 
 double udf_handler::val_real(bool *null_value) {
   assert(is_initialized());
+
+  if (m_vdf) {
+    return m_vdf->val_real(null_value);
+  }
+
   is_null = 0;
   if (get_arguments()) {
     *null_value = true;
@@ -4829,6 +4882,11 @@ double udf_handler::val_real(bool *null_value) {
 
 longlong udf_handler::val_int(bool *null_value) {
   assert(is_initialized());
+
+  if (m_vdf) {
+    return m_vdf->val_int(null_value);
+  }
+
   is_null = 0;
   if (get_arguments()) {
     *null_value = true;
@@ -4854,6 +4912,10 @@ String *udf_handler::val_str(String *str, String *save_str) {
   ulong res_length;
   DBUG_TRACE;
   assert(is_initialized());
+  if (m_vdf) {
+    return m_vdf->val_str(str, save_str, u_d->name.str,
+                          m_return_value_extension.charset_info);
+  }
 
   if (get_arguments()) return nullptr;
   Udf_func_string func = reinterpret_cast<Udf_func_string>(u_d->func);
@@ -4888,6 +4950,8 @@ my_decimal *udf_handler::val_decimal(bool *null_value, my_decimal *dec_buf) {
   ulong res_length = DECIMAL_MAX_STR_LENGTH;
 
   assert(is_initialized());
+
+  // TODO(villagesql-ga): Handle decimal
 
   if (get_arguments()) {
     *null_value = true;
@@ -5026,11 +5090,28 @@ void Item_udf_func::cleanup() {
 
 void Item_udf_func::print(const THD *thd, String *str,
                           enum_query_type query_type) const {
-  str->append(func_name());
+  // VillageSQL: Use qualified name for extension VDFs
+  const char *qname = qualified_name();
+  if (qname) {
+    str->append(qname);
+  } else {
+    str->append(func_name());
+  }
   str->append('(');
   for (uint i = 0; i < arg_count; i++) {
     if (i != 0) str->append(',');
-    args[i]->print_item_w_name(thd, str, query_type);
+    // VillageSQL: For extension VDFs, use print() to avoid including aliases
+    // in function arguments (e.g., "func(val AS val)"), which would create
+    // invalid SQL when the view definition is stored and re-parsed.
+    // Note: MySQL's use of print_item_w_name() here is arguably a bug (it's
+    // inconsistent with Item_func::print_args() and produces invalid SQL in
+    // EXPLAIN output), but we preserve that behavior for regular MySQL UDFs
+    // to maintain backward compatibility.
+    if (qname) {
+      args[i]->print(thd, str, query_type);
+    } else {
+      args[i]->print_item_w_name(thd, str, query_type);
+    }
   }
   str->append(')');
 }
@@ -5127,7 +5208,12 @@ bool Item_func_udf_str::resolve_type(THD *) {
   for (uint i = 0; i < arg_count; i++)
     result_length = max(result_length, args[i]->max_length);
   // If the UDF has an init function, this may be overridden later.
-  set_data_type_string(result_length, &my_charset_bin);
+  if (udf.is_vdf_returns_string()) {
+    // TODO(villagesql): Allow VDFs to choose an encoding.
+    set_data_type_string(result_length, &my_charset_utf8mb4_bin);
+  } else {
+    set_data_type_string(result_length, &my_charset_bin);
+  }
   return false;
 }
 
@@ -6118,6 +6204,9 @@ void user_var_entry::init(THD *thd, const Simple_cstring &name,
   copy_name(name);
   reset_value();
   m_used_query_id = 0;
+  // Use placement new to properly construct the shared_ptr since
+  // user_var_entry is allocated with my_malloc (raw memory).
+  new (&m_type_context) std::shared_ptr<const villagesql::TypeContext>();
   collation.set(cs, DERIVATION_IMPLICIT, 0);
   unsigned_flag = false;
   m_type = STRING_RESULT;
@@ -6198,6 +6287,10 @@ bool Item_func_set_user_var::update_hash(const void *ptr, uint length,
     null_value = true;
     return true;
   }
+
+  // Propagate custom type context from source Item to user variable.
+  entry->set_type_context(
+      villagesql::AcquireTypeContextClientManaged(args[0]->get_type_context()));
   entry->unlock();
   return false;
 }
@@ -6895,6 +6988,8 @@ bool Item_func_get_user_var::resolve_type(THD *thd) {
 
     // Override collation for all data types
     collation.set(var_entry->collation);
+
+    set_type_context(var_entry->type_context());
   } else {
     // Unknown user variable, assign expected type from context.
     null_value = true;

@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -1447,9 +1448,15 @@ uint Sort_param::make_sortkey(Bounds_checked_array<uchar> dst,
 
     // Reverse the key if needed.
     if (sort_field->reverse) {
-      while (actual_length--) {
-        *to = (uchar)(~*to);
-        to++;
+      // Skip bit-flipping for custom types - they handle reverse
+      // post-comparison
+      if (item->has_type_context()) {
+        to += actual_length;  // Just advance, don't flip bits
+      } else {
+        while (actual_length--) {
+          *to = (uchar)(~*to);
+          to++;
+        }
       }
     } else {
       to += actual_length;

@@ -1,0 +1,116 @@
+# Test prepared statements with advanced SQL features and custom columns
+
+--source include/villagesql/install_complex_extension.inc
+
+CREATE TABLE t1 (
+  id INT PRIMARY KEY,
+  name VARCHAR(50),
+  val COMPLEX
+);
+
+CREATE TABLE t2 (
+  id INT PRIMARY KEY,
+  description VARCHAR(100),
+  val2 COMPLEX
+);
+
+INSERT INTO t1 VALUES (1, 'Alice', '(1.0,2.0)');
+INSERT INTO t1 VALUES (2, 'Bob', '(3.0,4.0)');
+INSERT INTO t2 VALUES (1, 'First', '(5.0,6.0)');
+INSERT INTO t2 VALUES (2, 'Second', '(7.0,8.0)');
+
+# Test 1: JOIN on non-custom columns
+PREPARE stmt1 FROM 'SELECT t1.id, t1.name, t2.description FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id = ?';
+SET @id = 1;
+EXECUTE stmt1 USING @id;
+DEALLOCATE PREPARE stmt1;
+
+# Test 2: JOIN selecting custom column
+--echo # Test 2: JOIN selecting custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt2 FROM 'SELECT t1.val FROM t1 JOIN t2 ON t1.id = t2.id';
+
+# Test 3: JOIN with custom column in ON clause
+--echo # Test 3: JOIN with custom column in ON clause
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt3 FROM 'SELECT t1.id FROM t1 JOIN t2 ON t1.val = t2.val2';
+
+# Test 4: ORDER BY custom column
+--echo # Test 4: ORDER BY custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt4 FROM 'SELECT id FROM t1 ORDER BY val';
+
+# Test 5: ORDER BY non-custom column
+PREPARE stmt5 FROM 'SELECT id, name FROM t1 ORDER BY name';
+EXECUTE stmt5;
+DEALLOCATE PREPARE stmt5;
+
+# Test 6: GROUP BY custom column
+--echo # Test 6: GROUP BY custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt6 FROM 'SELECT val, COUNT(*) FROM t1 GROUP BY val';
+
+# Test 7: GROUP BY non-custom column
+PREPARE stmt7 FROM 'SELECT name, COUNT(*) FROM t1 GROUP BY name';
+EXECUTE stmt7;
+DEALLOCATE PREPARE stmt7;
+
+# Test 8: Aggregate function on custom column
+--echo # Test 8: COUNT with custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt8 FROM 'SELECT COUNT(val) FROM t1';
+
+# Test 9: DISTINCT on custom column
+--echo # Test 9: DISTINCT on custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt9 FROM 'SELECT DISTINCT val FROM t1';
+
+# Test 10: DISTINCT on non-custom column
+PREPARE stmt10 FROM 'SELECT DISTINCT name FROM t1';
+EXECUTE stmt10;
+DEALLOCATE PREPARE stmt10;
+
+# Test 11: UNION selecting custom column
+--echo # Test 11: UNION selecting custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt11 FROM 'SELECT val FROM t1 UNION SELECT val2 FROM t2';
+
+# Test 12: UNION selecting non-custom columns
+PREPARE stmt12 FROM 'SELECT id, name FROM t1 UNION SELECT id, description FROM t2';
+EXECUTE stmt12;
+DEALLOCATE PREPARE stmt12;
+
+# Test 13: Multiple custom columns in same query
+--echo # Test 13: Multiple custom columns in SELECT
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt13 FROM 'SELECT val, val2 FROM t1 JOIN t2 ON t1.id = t2.id';
+
+# Test 14: INSERT INTO ... SELECT with custom column
+--echo # Test 14: INSERT INTO ... SELECT with custom column
+CREATE TABLE t3 (id INT, val COMPLEX);
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt14 FROM 'INSERT INTO t3 SELECT id, val FROM t1';
+DROP TABLE t3;
+
+# Test 15: INSERT INTO ... SELECT with non-custom columns
+CREATE TABLE t4 (id INT, name VARCHAR(50));
+PREPARE stmt15 FROM 'INSERT INTO t4 SELECT id, name FROM t1';
+EXECUTE stmt15;
+SELECT * FROM t4;
+DEALLOCATE PREPARE stmt15;
+DROP TABLE t4;
+
+# Test 16: HAVING clause with custom column - fails with aggregate function error
+--echo # Test 16: HAVING with custom column
+--error 1221
+PREPARE stmt16 FROM 'SELECT name FROM t1 GROUP BY name HAVING MAX(val) = ?';
+
+# Test 17: CASE expression with custom column
+--echo # Test 17: CASE with custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt17 FROM 'SELECT CASE WHEN val = ? THEN 1 ELSE 0 END FROM t1';
+
+DROP TABLE t1;
+DROP TABLE t2;
+
+--source include/villagesql/uninstall_complex_extension.inc

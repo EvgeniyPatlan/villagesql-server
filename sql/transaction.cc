@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -56,6 +57,7 @@
 #include "sql/tc_log.h"
 #include "sql/transaction_info.h"
 #include "sql/xa.h"
+#include "villagesql/sql/metadata_modifier.h"
 
 /**
   Helper: Tell tracker (if any) that transaction ended.
@@ -290,6 +292,12 @@ bool trans_commit(THD *thd, bool ignore_global_read_lock) {
       thd->dd_client()->rollback_modified_objects();
     else
       thd->dd_client()->commit_modified_objects();
+
+    // VillageSQL: Handle custom column metadata cache transaction
+    if (res)
+      villagesql::Metadata_modifier::rollback(thd);
+    else
+      villagesql::Metadata_modifier::commit(thd);
   }
 
   thd->locked_tables_list.adjust_renamed_tablespace_mdls(&thd->mdl_context);
@@ -377,6 +385,12 @@ bool trans_commit_implicit(THD *thd, bool ignore_global_read_lock) {
       thd->dd_client()->rollback_modified_objects();
     else
       thd->dd_client()->commit_modified_objects();
+
+    // VillageSQL: Handle custom column metadata cache transaction
+    if (res)
+      villagesql::Metadata_modifier::rollback(thd);
+    else
+      villagesql::Metadata_modifier::commit(thd);
   }
 
   thd->locked_tables_list.adjust_renamed_tablespace_mdls(&thd->mdl_context);
@@ -422,8 +436,10 @@ bool trans_rollback(THD *thd) {
     otherwise the uncommitted object added by DDL would be removed by I_S
     query.
   */
-  if (!thd->is_attachable_rw_transaction_active())
+  if (!thd->is_attachable_rw_transaction_active()) {
     thd->dd_client()->rollback_modified_objects();
+    villagesql::Metadata_modifier::rollback(thd);
+  }
 
   thd->locked_tables_list.discard_renamed_tablespace_mdls();
 
@@ -481,8 +497,10 @@ bool trans_rollback_implicit(THD *thd) {
     otherwise the uncommitted object added by DDL would be removed by I_S
     query.
   */
-  if (!thd->is_attachable_rw_transaction_active())
+  if (!thd->is_attachable_rw_transaction_active()) {
     thd->dd_client()->rollback_modified_objects();
+    villagesql::Metadata_modifier::rollback(thd);
+  }
 
   thd->locked_tables_list.discard_renamed_tablespace_mdls();
 

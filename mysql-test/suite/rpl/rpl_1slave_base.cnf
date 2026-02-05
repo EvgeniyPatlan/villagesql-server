@@ -50,8 +50,10 @@ replica-load-tmpdir=          ../../tmp
 MASTER_MYPORT=              @mysqld.1.port
 MASTER_MYSOCK=              @mysqld.1.socket
 MASTER_X_MYSOCK=            @mysqld.1.loose-mysqlx-socket
+MASTER_VEB_DIR=             @mysqld.1.veb-dir
 
 SLAVE_MYPORT=               @mysqld.2.port
 SLAVE_MYSOCK=               @mysqld.2.socket
 SLAVE_X_MYSOCK=             @mysqld.2.loose-mysqlx-socket
+SLAVE_VEB_DIR=              @mysqld.2.veb-dir
 

@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -112,6 +113,7 @@
 #include "sql/window.h"
 #include "template_utils.h"
 #include "thr_lock.h"
+#include "villagesql/types/util.h"
 
 using std::any_of;
 using std::make_pair;
@@ -3978,6 +3980,12 @@ static bool cmp_field_value(Field *field, ptrdiff_t diff) {
     return (left_wrapper.compare(right_wrapper) != 0);
   }
 
+  // Use custom comparison function for custom types
+  if (auto cmp_func = villagesql::GetCompareFunc(*field)) {
+    return cmp_func(field->data_ptr(), value1_length, field->data_ptr() + diff,
+                    value2_length) != 0;
+  }
+
   // Trailing space can't be skipped and length is different
   if (!field->is_text_key_type() && value1_length != value2_length)  // 2
     return true;
@@ -4052,6 +4060,15 @@ ulonglong calc_field_hash(const Field *field, ulonglong *hash_val) {
     const Field_json *json_field = down_cast<const Field_json *>(field);
 
     crc = json_field->make_hash_key(*hash_val);
+  } else if (auto hash_fn = villagesql::GetHashFunc(*field)) {
+    // Custom type with custom hash function - use it.
+    // The hash function may return a constant (for comparison-based dedup)
+    // or canonicalize on the fly before hashing.
+    // If we didn't use this here, the key_type being VARBINARY* would
+    // cause us to fall to the else case and use the raw binary, which
+    // would not work for some custom types that have multiple binary
+    // representations for equivalent values (such as -0 and 0).
+    my_hash_combine(crc, hash_fn(field->data_ptr(), field->data_length()));
   } else if (field->key_type() == HA_KEYTYPE_TEXT ||
              field->key_type() == HA_KEYTYPE_VARTEXT1 ||
              field->key_type() == HA_KEYTYPE_VARTEXT2) {

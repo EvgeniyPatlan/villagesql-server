@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -113,6 +114,7 @@
 #include "sql/window.h"
 #include "template_utils.h"
 #include "thr_lock.h"  // TL_READ
+#include "villagesql/types/util.h"
 
 using std::find;
 using std::function;
@@ -658,6 +660,12 @@ bool Query_block::prepare(THD *thd, mem_root_deque<Item *> *insert_field_list) {
       });
       if (is_updated) item->update_used_tables();
     }
+  }
+
+  // VillageSQL: validate custom type usage in expressions
+  if (villagesql::WalkQueryBlockForCustomTypeValidation(
+          thd, fields, group_list, order_list, where_cond(), having_cond())) {
+    return true;
   }
 
   assert(!thd->is_error());

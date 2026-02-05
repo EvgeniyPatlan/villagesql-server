@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -104,6 +105,7 @@
 #include "strmake.h"
 #include "strxmov.h"
 #include "typelib.h"
+#include "villagesql/sql/metadata_modifier.h"
 
 /*
   .frm is left in this list so that any orphan files can be removed on upgrade.
@@ -855,7 +857,9 @@ bool mysql_rm_db(THD *thd, const LEX_CSTRING &db, bool if_exists) {
     */
     if (!error) error = write_db_cmd_to_binlog(thd, db.str, true);
 
-    if (!error) error = trans_commit_stmt(thd) || trans_commit(thd);
+    if (!error)
+      error = villagesql::Metadata_modifier::store(thd) ||
+              trans_commit_stmt(thd) || trans_commit(thd);
 
     /*
       In case of error rollback the transaction in order to revert

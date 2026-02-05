@@ -9,6 +9,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 CREATE DATABASE d4;
 ERROR HY000: Can't create database 'd4'; database exists
 DROP DATABASE d4;
@@ -20,3 +21,4 @@ mysql
 performance_schema
 sys
 test
+villagesql

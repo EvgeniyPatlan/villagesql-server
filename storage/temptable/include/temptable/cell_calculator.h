@@ -1,4 +1,5 @@
 /* Copyright (c) 2018, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -36,6 +37,7 @@ TempTable Cell_calculator declaration. */
 #include "sql/field.h"
 #include "sql/key.h"
 #include "storage/temptable/include/temptable/cell.h"
+#include "villagesql/types/util.h"
 
 namespace temptable {
 
@@ -166,6 +168,9 @@ inline const CHARSET_INFO *Cell_calculator::field_charset(const Field &field) {
     case HA_KEYTYPE_VARBINARY2:
       if (field.is_flag_set(ENUM_FLAG) || field.is_flag_set(SET_FLAG)) {
         return &my_charset_bin;
+      } else if (field.has_type_context()) {
+        // Force mode == BINARY to use key_cmp
+        return nullptr;
       } else {
         return field.charset_for_protocol();
       }
@@ -189,6 +194,13 @@ inline size_t Cell_calculator::hash(const Cell &cell) const {
     const double val = data_length == 4 ? float4get(data) : float8get(data);
     if (val == 0.0) return s_zero_hash;
     return murmur3_32(data, data_length, 0);
+  }
+
+  // Custom types: check for custom hash function.
+  // If hash_func is provided, use it. If nullptr, binary hash is safe
+  // (encode canonicalizes equivalent values like -0.0 → +0.0).
+  if (auto hash_fn = villagesql::GetHashFunc(*m_mysql_field)) {
+    return hash_fn(data, data_length);
   }
 
   /*

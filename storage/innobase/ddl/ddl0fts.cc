@@ -1,6 +1,7 @@
 /****************************************************************************
 
 Copyright (c) 2010, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -463,21 +464,20 @@ dict_index_t *FTS::create_index(dict_index_t *index, dict_table_t *table,
   field->name = nullptr;
   field->prefix_len = 0;
   field->is_ascending = true;
+  field->fixed_len = 0;
 
   field->col = static_cast<dict_col_t *>(
       mem_heap_alloc(new_index->heap, sizeof(dict_col_t)));
 
-  field->col->len = FTS_MAX_WORD_LEN;
-
-  field->col->mtype =
+  ulint col_len = FTS_MAX_WORD_LEN;
+  ulint col_mtype =
       (charset == &my_charset_latin1) ? DATA_VARCHAR : DATA_VARMYSQL;
+  ulint col_prtype = idx_field->col->prtype | DATA_NOT_NULL;
 
-  field->col->prtype = idx_field->col->prtype | DATA_NOT_NULL;
+  dict_mem_fill_column_struct(field->col, 0, col_mtype, col_prtype, col_len,
+                              true, UINT32_UNDEFINED, UINT8_UNDEFINED,
+                              UINT8_UNDEFINED);
   field->col->mbminmaxlen = idx_field->col->mbminmaxlen;
-  field->fixed_len = 0;
-  field->col->set_version_added(UINT8_UNDEFINED);
-  field->col->set_version_dropped(UINT8_UNDEFINED);
-  field->col->set_phy_pos(UINT32_UNDEFINED);
 
   /* Doc ID */
   field = new_index->get_field(1);
@@ -488,7 +488,6 @@ dict_index_t *FTS::create_index(dict_index_t *index, dict_table_t *table,
   field->col = static_cast<dict_col_t *>(
       mem_heap_alloc(new_index->heap, sizeof(dict_col_t)));
 
-  field->col->mtype = DATA_INT;
   *doc_id_32_bit = false;
 
   /* Check whether we can use 4 bytes instead of 8 bytes integer
@@ -512,37 +511,39 @@ dict_index_t *FTS::create_index(dict_index_t *index, dict_table_t *table,
   }
 
   if (*doc_id_32_bit) {
-    field->col->len = sizeof(uint32_t);
+    col_len = sizeof(uint32_t);
     field->fixed_len = sizeof(uint32_t);
   } else {
-    field->col->len = FTS_DOC_ID_LEN;
+    col_len = FTS_DOC_ID_LEN;
     field->fixed_len = FTS_DOC_ID_LEN;
   }
 
-  field->col->prtype = DATA_NOT_NULL | DATA_BINARY_TYPE;
+  col_mtype = DATA_INT;
+  col_prtype = (DATA_NOT_NULL | DATA_BINARY_TYPE);
 
+  dict_mem_fill_column_struct(field->col, 0, col_mtype, col_prtype, col_len,
+                              true, UINT32_UNDEFINED, UINT8_UNDEFINED,
+                              UINT8_UNDEFINED);
   field->col->mbminmaxlen = 0;
-  field->col->set_version_added(UINT8_UNDEFINED);
-  field->col->set_version_dropped(UINT8_UNDEFINED);
-  field->col->set_phy_pos(UINT32_UNDEFINED);
 
   /* The third field is on the word's position in the original doc */
   field = new_index->get_field(2);
   field->name = nullptr;
   field->prefix_len = 0;
   field->is_ascending = true;
+  field->fixed_len = 4;
 
   field->col = static_cast<dict_col_t *>(
       mem_heap_alloc(new_index->heap, sizeof(dict_col_t)));
 
-  field->col->mtype = DATA_INT;
-  field->col->len = 4;
-  field->fixed_len = 4;
-  field->col->prtype = DATA_NOT_NULL;
+  col_len = 4;
+  col_mtype = DATA_INT;
+  col_prtype = DATA_NOT_NULL;
+
+  dict_mem_fill_column_struct(field->col, 0, col_mtype, col_prtype, col_len,
+                              true, UINT32_UNDEFINED, UINT8_UNDEFINED,
+                              UINT8_UNDEFINED);
   field->col->mbminmaxlen = 0;
-  field->col->set_version_added(UINT8_UNDEFINED);
-  field->col->set_version_dropped(UINT8_UNDEFINED);
-  field->col->set_phy_pos(UINT32_UNDEFINED);
 
   return new_index;
 }

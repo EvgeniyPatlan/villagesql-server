@@ -2,6 +2,7 @@
 #define FIELD_INCLUDED
 
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -60,6 +61,7 @@
 #include "sql/table.h"
 #include "sql_string.h"  // String
 #include "template_utils.h"
+#include "villagesql/schema/descriptor/type_context.h"
 
 class Create_field;
 class CostOfItem;
@@ -1023,6 +1025,10 @@ class Field {
      This trickery is used to decrease a number of malloc calls.
   */
   virtual String *val_str(String *, String *) const = 0;
+  // Unlike val_str(), val_custom_str() takes only one buffer because custom
+  // types always decode binary data to a new string (never returning existing
+  // string data), so the two-buffer optimization doesn't apply.
+  String *val_custom_str(String *buf) const;
   String *val_int_as_str(String *val_buffer, bool unsigned_flag) const;
   /*
    str_needs_quotes() returns true if the value returned by val_str() needs
@@ -1596,6 +1602,7 @@ class Field {
   virtual const CHARSET_INFO *charset() const { return &my_charset_bin; }
 
   const CHARSET_INFO *charset_for_protocol() const {
+    if (has_type_context()) return &my_charset_utf8mb4_bin;
     return binary() ? &my_charset_bin : charset();
   }
   virtual const CHARSET_INFO *sort_charset() const { return charset(); }
@@ -1869,6 +1876,16 @@ class Field {
   uchar *pack_int64(uchar *to, const uchar *from, size_t max_length) const;
 
   const uchar *unpack_int64(uchar *to, const uchar *from) const;
+
+ private:
+  const villagesql::TypeContext *custom_type{nullptr};
+
+ public:
+  const villagesql::TypeContext *get_type_context() const {
+    return custom_type;
+  }
+  void set_type_context(const villagesql::TypeContext *tc) { custom_type = tc; }
+  bool has_type_context() const { return nullptr != custom_type; }
 };
 
 /**
@@ -3573,6 +3590,10 @@ class Field_varstring : public Field_longstr {
 
   uint32 data_length(ptrdiff_t row_offset = 0) const final;
   enum_field_types real_type() const final { return MYSQL_TYPE_VARCHAR; }
+  const CHARSET_INFO *charset() const override {
+    if (nullptr != get_type_context()) return &my_charset_bin;
+    return Field_longstr::charset();
+  }
   bool has_charset() const final {
     return charset() == &my_charset_bin ? false : true;
   }
@@ -3589,6 +3610,7 @@ class Field_varstring : public Field_longstr {
   const uchar *data_ptr() const final { return ptr + length_bytes; }
   bool is_text_key_type() const final { return binary() ? false : true; }
   uint32 get_length_bytes() const override { return length_bytes; }
+  bool send_to_protocol(Protocol *protocol) const override;
 
  private:
   /* Store number of bytes used to store length (1 or 2) */

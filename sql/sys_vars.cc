@@ -1,4 +1,5 @@
 /* Copyright (c) 2009, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -156,6 +157,8 @@
 #include "storage/perfschema/pfs_server.h"
 #include "storage/perfschema/terminology_use_previous.h"
 #endif /* WITH_PERFSCHEMA_STORAGE_ENGINE */
+
+#include "villagesql/veb/sql_extension.h"
 
 static constexpr const unsigned long DEFAULT_ERROR_COUNT{1024};
 static constexpr const unsigned long DEFAULT_SORT_MEMORY{256UL * 1024UL};
@@ -3401,6 +3404,11 @@ static Sys_var_charptr Sys_plugin_dir(
     "plugin_dir", "Directory for plugins",
     READ_ONLY NON_PERSIST GLOBAL_VAR(opt_plugin_dir_ptr),
     CMD_LINE(REQUIRED_ARG), IN_FS_CHARSET, DEFAULT(nullptr));
+
+static Sys_var_charptr Sys_veb_dir(
+    "veb_dir", "Directory for VillageSQL Extension Bundle (VEB) files",
+    READ_ONLY NON_PERSIST GLOBAL_VAR(opt_veb_dir_ptr), CMD_LINE(REQUIRED_ARG),
+    IN_FS_CHARSET, DEFAULT(nullptr));
 
 static Sys_var_uint Sys_port(
     "port",

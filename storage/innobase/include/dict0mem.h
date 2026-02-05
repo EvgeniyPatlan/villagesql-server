@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1996, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 Copyright (c) 2012, Facebook Inc.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -537,6 +538,19 @@ struct dict_col_t {
 
   /* True, if the column is visible */
   bool is_visible;
+
+ public:
+  // VillageSQL: Custom comparison function for custom types
+  // Returns <0 when data1<data2, >0 when data1>data2, 0 when equal
+  using custom_compare_func = int (*)(const byte *, size_t, const byte *,
+                                      size_t);
+
+ private:
+  custom_compare_func custom_compare{nullptr};
+
+ public:
+  void set_custom_compare(custom_compare_func func) { custom_compare = func; }
+  custom_compare_func get_custom_compare() const { return custom_compare; }
 
  private:
   /* Position of column on physical row.

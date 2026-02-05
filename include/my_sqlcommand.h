@@ -1,4 +1,5 @@
 /* Copyright (c) 2015, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License, version 2.0,
@@ -204,6 +205,8 @@ enum enum_sql_command {
   SQLCOM_CREATE_SRS,
   SQLCOM_DROP_SRS,
   SQLCOM_SHOW_PARSE_TREE,
+  SQLCOM_INSTALL_EXTENSION,
+  SQLCOM_UNINSTALL_EXTENSION,
   /* This should be the last !!! */
   SQLCOM_END
 };

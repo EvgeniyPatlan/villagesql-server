@@ -1,0 +1,32 @@
+# Test Window Functions with COMPLEX type
+# Grammar: func() OVER (PARTITION BY ... ORDER BY ...)
+# Window functions are NOT supported for COMPLEX types and should produce errors
+
+# STATUS: PARTITION BY and ORDER BY work correctly, but LAG/LEAD output
+# is shows raw binary instead of string representation.
+# If the right behavior is to disable this, then decide the proper error
+--source include/villagesql/not_implemented_complex_type.inc
+
+--source include/villagesql/install_complex_extension.inc
+
+CREATE TABLE t1 (id INT, group_id INT, val COMPLEX);
+INSERT INTO t1 VALUES (1, 1, '(1.0,2.0)'), (2, 1, '(3.0,4.0)'), (3, 2, '(5.0,6.0)');
+
+# 1. Partition By COMPLEX (should fail - not supported)
+--error ER_NOT_SUPPORTED_YET
+SELECT id, COUNT(*) OVER (PARTITION BY val) FROM t1;
+
+# 2. Order By COMPLEX in window (should fail - not supported)
+--error ER_NOT_SUPPORTED_YET
+SELECT id, ROW_NUMBER() OVER (PARTITION BY group_id ORDER BY val) FROM t1;
+
+# 3. Window Function returning COMPLEX value (LAG/LEAD - should fail)
+--error ER_NOT_SUPPORTED_YET
+SELECT id, LAG(val) OVER (ORDER BY id) FROM t1;
+
+--error ER_NOT_SUPPORTED_YET
+SELECT id, LEAD(val) OVER (ORDER BY id) FROM t1;
+
+DROP TABLE t1;
+
+--source include/villagesql/uninstall_complex_extension.inc

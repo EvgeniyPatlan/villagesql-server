@@ -1,5 +1,6 @@
 # Copyright (c) 2010, 2025, Oracle and/or its affiliates.
-# 
+# Copyright (c) 2026 VillageSQL Contributors
+#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2.0,
 # as published by the Free Software Foundation.
@@ -19,7 +20,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA 
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 
 ADD_WSHADOW_WARNING()
 
@@ -69,3 +70,16 @@ ADD_CUSTOM_TARGET(run-unit-tests DEPENDS test-unit)
 # CMake 4.1.0 adds test-unit to the default build when run-unit-tests DEPENDS on it,
 # which is an undesired side-effect, so we explicitly exclude it again.
 SET_PROPERTY(TARGET test-unit PROPERTY EXCLUDE_FROM_DEFAULT_BUILD TRUE)
+
+# Custom target to run only VillageSQL unit tests
+ADD_CUSTOM_TARGET(
+  test-unit-villagesql
+  COMMAND ${CTEST_EXECUTABLE}
+  --output-on-failure
+  --parallel ${CORES}
+  --progress
+  --timeout 300
+  --label-regex "villagesql"
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  USES_TERMINAL
+)

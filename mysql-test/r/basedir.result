@@ -37,6 +37,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 # Shutdown daemon
 # Wait until daemon is gone
 #

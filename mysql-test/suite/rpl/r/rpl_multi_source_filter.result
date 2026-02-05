@@ -185,6 +185,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 #
 # 3. All matched tables (t1, t11) from db1 are replicated, but
 # unmatched t2 on channel_1 with

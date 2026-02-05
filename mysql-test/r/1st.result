@@ -6,6 +6,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 show tables in mysql where Tables_in_mysql != 'ndb_binlog_index';
 Tables_in_mysql
 columns_priv

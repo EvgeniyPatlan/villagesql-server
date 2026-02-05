@@ -1,0 +1,38 @@
+# Test ALTER TABLE ADD INDEX on COMPLEX functions (REAL, IMAG, ABS)
+# Grammar: ALTER TABLE table_name ADD INDEX index_name ((complex_function(col)))
+
+--source include/villagesql/not_implemented_complex_type.inc
+
+--source include/villagesql/install_complex_extension.inc
+--source include/villagesql/binlog_check_begin.inc
+
+CREATE TABLE t1 (
+    id INT PRIMARY KEY,
+    name VARCHAR(50),
+    value COMPLEX
+);
+
+INSERT INTO t1 VALUES (1, 'test1', '(1.0,2.0)');
+INSERT INTO t1 VALUES (2, 'test2', '(3.5,-1.2)');
+INSERT INTO t1 VALUES (3, 'test3', '(0.0,5.0)');
+
+SHOW CREATE TABLE t1;
+
+# Add functional indexes on COMPLEX functions
+ALTER TABLE t1 ADD INDEX idx_real ((REAL(value)));
+ALTER TABLE t1 ADD INDEX idx_imag ((IMAG(value)));
+ALTER TABLE t1 ADD INDEX idx_abs ((ABS(value)));
+
+SHOW CREATE TABLE t1;
+
+# Test index usage with COMPLEX functions
+SELECT * FROM t1 WHERE REAL(value) = 1.0;
+SELECT * FROM t1 WHERE IMAG(value) > 0;
+SELECT * FROM t1 WHERE ABS(value) < 3.0;
+
+SHOW INDEX FROM t1;
+
+DROP TABLE t1;
+
+--source include/villagesql/binlog_check_end.inc
+--source include/villagesql/uninstall_complex_extension.inc

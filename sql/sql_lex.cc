@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -445,6 +446,7 @@ void LEX::reset() {
   expr_allows_subquery = true;
   use_only_table_context = false;
   contains_plaintext_password = false;
+  found_custom_type_in_context = false;  // VillageSQL
   keep_diagnostics = DA_KEEP_NOTHING;
   m_statement_options = 0;
   next_binlog_file_nr = 0;
@@ -3658,12 +3660,17 @@ void Query_tables_list::reset_query_tables_list(bool init) {
       memory allocation) until first insertion into this hash.
     */
     sroutines.reset();
+    croutines.reset();
   } else if (sroutines != nullptr) {
     sroutines->clear();
+  }
+  if (!init && croutines != nullptr) {
+    croutines->clear();
   }
   sroutines_list.clear();
   sroutines_list_own_last = sroutines_list.next;
   sroutines_list_own_elements = 0;
+  croutines_list.clear();
   binlog_stmt_flags = 0;
   stmt_accessed_table_flag = 0;
   lock_tables_state = LTS_NOT_LOCKED;
@@ -3682,7 +3689,10 @@ void Query_tables_list::reset_query_tables_list(bool init) {
     destroy_query_tables_list()
 */
 
-void Query_tables_list::destroy_query_tables_list() { sroutines.reset(); }
+void Query_tables_list::destroy_query_tables_list() {
+  sroutines.reset();
+  croutines.reset();
+}
 
 /*
   Initialize LEX object.

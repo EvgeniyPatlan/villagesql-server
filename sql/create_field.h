@@ -2,6 +2,7 @@
 #define SQL_CREATE_FIELD_INCLUDED
 
 /* Copyright (c) 2018, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -36,6 +37,11 @@
 #include "sql/gis/srid.h"
 #include "sql/sql_list.h"
 #include "typelib.h"
+
+// Forward declaration for VillageSQL
+namespace villagesql {
+class TypeContext;
+}
 
 class Item;
 class String;
@@ -127,6 +133,9 @@ class Create_field {
   Field::geometry_type geom_type;
   Field *field;  // For alter table
 
+  // VillageSQL: Custom type context if this column uses a custom type
+  const villagesql::TypeContext *custom_type_context{nullptr};
+
   uint offset;
 
   /**
@@ -187,6 +196,7 @@ class Create_field {
       : after(nullptr),
         is_explicit_collation(false),
         geom_type(Field::GEOM_GEOMETRY),
+        custom_type_context(nullptr),
         is_nullable(false),
         is_zerofill(false),
         is_unsigned(false),

@@ -17,6 +17,9 @@ TAGS_sorted_by_file
 .vscode/
 
 build/
+build-debug/
+# Exception: libarchive needs its build/ directory for version and cmake modules
+!extra/libarchive/libarchive-3.8.1/build/
 datatool/
 datatools/
 __pycache__/
@@ -29,3 +32,8 @@ scalability_jobs_*
 .project
 .settings/
 
+AGENTS.local.md
+.DS_Store
+
+# macOS AppleDouble files
+.!*

@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
    as published by the Free Software Foundation.
@@ -176,6 +177,15 @@ void MEM_ROOT::Clear() {
   // Already cleared, or memset() to zero, so just ignore.
   if (m_current_block == nullptr) return;
 
+  // Run cleanup callbacks in LIFO order while memory is still valid.
+  // The callbacks themselves are allocated on this MEM_ROOT, so we just
+  // need to walk the list and call each one.
+  for (CleanupCallback *cb = m_cleanup_callbacks; cb != nullptr;
+       cb = cb->next) {
+    cb->fn(cb->arg);
+  }
+  m_cleanup_callbacks = nullptr;
+
   Block *start = m_current_block;
 
   m_current_block = nullptr;
@@ -197,6 +207,13 @@ void MEM_ROOT::ClearForReuse() {
 
   // Already cleared, or memset() to zero, so just ignore.
   if (m_current_block == nullptr) return;
+
+  // Run cleanup callbacks in LIFO order while memory is still valid.
+  for (CleanupCallback *cb = m_cleanup_callbacks; cb != nullptr;
+       cb = cb->next) {
+    cb->fn(cb->arg);
+  }
+  m_cleanup_callbacks = nullptr;
 
   // Keep the last block, which is usually the biggest one.
   m_current_free_start = pointer_cast<char *>(m_current_block) +

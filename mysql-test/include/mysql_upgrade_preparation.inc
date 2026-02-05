@@ -35,6 +35,8 @@ if ($VALGRIND_TEST)
 
 --let $saved_sys_timestamp_2 = `SELECT Timestamp from mysql.tables_priv WHERE Host='localhost' AND Db='sys' AND User='mysql.sys' AND Table_name='sys_config'`
 
+--let $saved_villagesql_session_timestamp = `SELECT password_last_changed FROM mysql.user WHERE Host='localhost' AND User='villagesql.session'`
+
 --enable_result_log
 --enable_query_log
 

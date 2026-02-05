@@ -84,6 +84,17 @@
 #      to avoid the test failure on the builds where partial_revokes is
 #      ON by default.
 #
+#   $mask_binlog_filename
+#     Mask the Log_name column (column 1) to make output independent of
+#     the actual binlog filename. Useful when binlog filenames contain
+#     non-deterministic elements.
+#
+#   $binlog_events_assert_no_match
+#     If specified, the test will fail if this regex pattern is found
+#     anywhere in the binlog events output. Useful for asserting that
+#     certain strings don't appear in the binlog.
+#     Example: --let $binlog_events_assert_no_match= villagesql
+#
 --let $include_filename= rpl/deprecated/show_binlog_events.inc
 --source include/begin_include_file.inc
 

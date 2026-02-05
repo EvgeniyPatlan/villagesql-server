@@ -1,4 +1,5 @@
 /* Copyright (c) 2015, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -325,6 +326,9 @@ static void prepare_default_value_string(uchar *buf, TABLE *table,
       tmp[1] = '\'';
       tmp[length] = '\'';
       type.length(length + 1);
+    } else if (f->has_type_context()) {
+      // Custom types: decode binary representation to string format.
+      f->val_custom_str(&type);
     } else if (is_binary_type) {
       String type2;
       char *ptr = type.c_ptr_safe();

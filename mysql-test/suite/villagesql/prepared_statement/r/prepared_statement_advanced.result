@@ -1,0 +1,92 @@
+CREATE TABLE t1 (
+id INT PRIMARY KEY,
+name VARCHAR(50),
+val COMPLEX
+);
+CREATE TABLE t2 (
+id INT PRIMARY KEY,
+description VARCHAR(100),
+val2 COMPLEX
+);
+INSERT INTO t1 VALUES (1, 'Alice', '(1.0,2.0)');
+INSERT INTO t1 VALUES (2, 'Bob', '(3.0,4.0)');
+INSERT INTO t2 VALUES (1, 'First', '(5.0,6.0)');
+INSERT INTO t2 VALUES (2, 'Second', '(7.0,8.0)');
+PREPARE stmt1 FROM 'SELECT t1.id, t1.name, t2.description FROM t1 JOIN t2 ON t1.id = t2.id WHERE t1.id = ?';
+SET @id = 1;
+EXECUTE stmt1 USING @id;
+id	name	description
+1	Alice	First
+DEALLOCATE PREPARE stmt1;
+# Test 2: JOIN selecting custom column
+PREPARE stmt2 FROM 'SELECT t1.val FROM t1 JOIN t2 ON t1.id = t2.id';
+ERROR HY000: Custom types are not yet supported in prepared statements
+# Test 3: JOIN with custom column in ON clause
+PREPARE stmt3 FROM 'SELECT t1.id FROM t1 JOIN t2 ON t1.val = t2.val2';
+ERROR HY000: Custom types are not yet supported in prepared statements
+# Test 4: ORDER BY custom column
+PREPARE stmt4 FROM 'SELECT id FROM t1 ORDER BY val';
+ERROR HY000: Custom types are not yet supported in prepared statements
+PREPARE stmt5 FROM 'SELECT id, name FROM t1 ORDER BY name';
+EXECUTE stmt5;
+id	name
+1	Alice
+2	Bob
+DEALLOCATE PREPARE stmt5;
+# Test 6: GROUP BY custom column
+PREPARE stmt6 FROM 'SELECT val, COUNT(*) FROM t1 GROUP BY val';
+ERROR HY000: Custom types are not yet supported in prepared statements
+PREPARE stmt7 FROM 'SELECT name, COUNT(*) FROM t1 GROUP BY name';
+EXECUTE stmt7;
+name	COUNT(*)
+Alice	1
+Bob	1
+DEALLOCATE PREPARE stmt7;
+# Test 8: COUNT with custom column
+PREPARE stmt8 FROM 'SELECT COUNT(val) FROM t1';
+ERROR HY000: Custom types are not yet supported in prepared statements
+# Test 9: DISTINCT on custom column
+PREPARE stmt9 FROM 'SELECT DISTINCT val FROM t1';
+ERROR HY000: Custom types are not yet supported in prepared statements
+PREPARE stmt10 FROM 'SELECT DISTINCT name FROM t1';
+EXECUTE stmt10;
+name
+Alice
+Bob
+DEALLOCATE PREPARE stmt10;
+# Test 11: UNION selecting custom column
+PREPARE stmt11 FROM 'SELECT val FROM t1 UNION SELECT val2 FROM t2';
+ERROR HY000: Custom types are not yet supported in prepared statements
+PREPARE stmt12 FROM 'SELECT id, name FROM t1 UNION SELECT id, description FROM t2';
+EXECUTE stmt12;
+id	name
+1	Alice
+2	Bob
+1	First
+2	Second
+DEALLOCATE PREPARE stmt12;
+# Test 13: Multiple custom columns in SELECT
+PREPARE stmt13 FROM 'SELECT val, val2 FROM t1 JOIN t2 ON t1.id = t2.id';
+ERROR HY000: Custom types are not yet supported in prepared statements
+# Test 14: INSERT INTO ... SELECT with custom column
+CREATE TABLE t3 (id INT, val COMPLEX);
+PREPARE stmt14 FROM 'INSERT INTO t3 SELECT id, val FROM t1';
+ERROR HY000: Custom types are not yet supported in prepared statements
+DROP TABLE t3;
+CREATE TABLE t4 (id INT, name VARCHAR(50));
+PREPARE stmt15 FROM 'INSERT INTO t4 SELECT id, name FROM t1';
+EXECUTE stmt15;
+SELECT * FROM t4;
+id	name
+1	Alice
+2	Bob
+DEALLOCATE PREPARE stmt15;
+DROP TABLE t4;
+# Test 16: HAVING with custom column
+PREPARE stmt16 FROM 'SELECT name FROM t1 GROUP BY name HAVING MAX(val) = ?';
+ERROR HY000: Incorrect usage of max and COMPLEX
+# Test 17: CASE with custom column
+PREPARE stmt17 FROM 'SELECT CASE WHEN val = ? THEN 1 ELSE 0 END FROM t1';
+ERROR HY000: Custom types are not yet supported in prepared statements
+DROP TABLE t1;
+DROP TABLE t2;

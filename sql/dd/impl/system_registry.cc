@@ -1,4 +1,5 @@
 /* Copyright (c) 2014, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -99,6 +100,8 @@
 #include "sql/dd/impl/tables/view_routine_usage.h"      // View_routine_usage
 #include "sql/dd/impl/tables/view_table_usage.h"        // View_table_usage
 #include "sql/table.h"                                  // MYSQL_SYSTEM_SCHEMA
+#include "villagesql/system_views/columns.h"
+#include "villagesql/system_views/extensions.h"
 
 using namespace dd::tables;
 
@@ -267,11 +270,14 @@ void System_views::init() {
   register_view<dd::system_views::Applicable_roles>(non_dd_based_is);
   register_view<dd::system_views::Administrable_role_authorizations>(
       non_dd_based_is);
+  register_view<villagesql::system_views::Extensions>(non_dd_based_is);
   register_view<dd::system_views::Character_sets>(is);
   register_view<dd::system_views::Check_constraints>(is);
   register_view<dd::system_views::Collations>(is);
   register_view<dd::system_views::Collation_charset_applicability>(is);
   register_view<dd::system_views::Columns>(is);
+  // Override the definition after villagesql is up
+  register_view<villagesql::system_views::Columns>(non_dd_based_is);
   register_view<dd::system_views::Columns_extensions>(is);
   register_view<dd::system_views::Column_statistics>(is);
   register_view<dd::system_views::Events>(is);

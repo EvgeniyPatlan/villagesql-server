@@ -2,6 +2,7 @@
 #define TABLE_INCLUDED
 
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -587,7 +588,18 @@ enum enum_table_category {
     For table in this category we will skip row locks when SQL statement
     reads them.
   */
-  TABLE_CATEGORY_ACL_TABLE = 10
+  TABLE_CATEGORY_ACL_TABLE = 10,
+
+  /**
+    VillageSQL system tables.
+    These tables store VillageSQL extension metadata and custom type
+    information. These tables do *not* replicate to avoid leaking
+    VillageSQL implementation details into the binlog.
+    These tables are updated during DDL relating to custom objects but
+    the updates should not appear in the binlog.
+  */
+  // TODO(villagesql-rebase): check this enum value.
+  TABLE_CATEGORY_VILLAGESQL_SYSTEM = 11
 };
 typedef enum enum_table_category TABLE_CATEGORY;
 

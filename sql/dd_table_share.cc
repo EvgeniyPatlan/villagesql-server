@@ -1,4 +1,5 @@
 /* Copyright (c) 2014, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -95,6 +96,7 @@
 #include "sql/table.h"
 #include "sql/thd_raii.h"
 #include "typelib.h"
+#include "villagesql/types/util.h"
 
 extern struct aggregated_stats global_aggregated_stats;
 
@@ -1102,6 +1104,10 @@ static bool fill_column_from_dd(THD *thd, TABLE_SHARE *share,
 
   reg_field->m_secondary_engine_attribute = LexStringDupRootUnlessEmpty(
       &share->mem_root, col_obj->secondary_engine_attribute());
+
+  if (villagesql::MaybeInjectCustomType(thd, *share, reg_field)) {
+    return true;
+  }
 
   // Field is prepared. Store it in 'share'
   share->field[field_nr] = reg_field;

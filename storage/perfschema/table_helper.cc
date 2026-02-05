@@ -1,4 +1,5 @@
 /* Copyright (c) 2010, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License, version 2.0,
@@ -736,7 +737,7 @@ int PFS_object_row::make_row(PFS_program *pfs) {
 }
 
 int PFS_column_row::make_row(const MDL_key *mdl) {
-  static_assert(MDL_key::NAMESPACE_END == 18,
+  static_assert(MDL_key::NAMESPACE_END == 19,
                 "Adjust performance schema when changing enum_mdl_namespace");
 
   bool with_schema = false;
@@ -753,6 +754,10 @@ int PFS_column_row::make_row(const MDL_key *mdl) {
       break;
     case MDL_key::TABLESPACE:
       m_object_type = OBJECT_TYPE_TABLESPACE;
+      with_object = true;
+      break;
+    case MDL_key::EXTENSION:
+      m_object_type = OBJECT_TYPE_EXTENSION;
       with_object = true;
       break;
     case MDL_key::SCHEMA:

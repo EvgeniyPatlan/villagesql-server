@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2020, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -77,7 +78,17 @@ struct Compare_key {
     int cmp;
 
     do {
-      cmp = cmp_dfield_dfield(lhs_f++, rhs_f++, (f++)->is_ascending);
+      if (f->col->get_custom_compare() != nullptr) {
+        cmp = f->col->get_custom_compare()(
+            pointer_cast<const byte *>(lhs_f->data), lhs_f->len,
+            pointer_cast<const byte *>(rhs_f->data), rhs_f->len);
+        if (!f->is_ascending) cmp = -cmp;
+        lhs_f++;
+        rhs_f++;
+        f++;
+      } else {
+        cmp = cmp_dfield_dfield(lhs_f++, rhs_f++, (f++)->is_ascending);
+      }
     } while (cmp == 0 && --n);
 
     if (cmp != 0) {
@@ -106,7 +117,17 @@ struct Compare_key {
     /* The m_n_unique fields were equal, but we compare all fields so
     that we will get the same (internal) order as in the B-tree. */
     for (auto n = m_n_fields - m_n_unique + 1; --n;) {
-      cmp = cmp_dfield_dfield(lhs_f++, rhs_f++, (f++)->is_ascending);
+      if (f->col->get_custom_compare() != nullptr) {
+        cmp = f->col->get_custom_compare()(
+            pointer_cast<const byte *>(lhs_f->data), lhs_f->len,
+            pointer_cast<const byte *>(rhs_f->data), rhs_f->len);
+        if (!f->is_ascending) cmp = -cmp;
+        lhs_f++;
+        rhs_f++;
+        f++;
+      } else {
+        cmp = cmp_dfield_dfield(lhs_f++, rhs_f++, (f++)->is_ascending);
+      }
       if (cmp != 0) {
         return cmp;
       }

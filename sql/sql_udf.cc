@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -84,6 +85,8 @@
 #include "strxnmov.h"
 #include "thr_lock.h"
 #include "udf_registration_imp.h"
+#include "villagesql/include/error.h"
+#include "villagesql/sql/util.h"
 
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
@@ -114,9 +117,38 @@ static mysql_rwlock_t THR_LOCK_udf;
 static constexpr const size_t UDF_ALLOC_BLOCK_SIZE{1024};
 
 static udf_func *add_udf(LEX_STRING *name, Item_result ret, char *dl,
-                         Item_udftype typ);
+                         Item_udftype typ, LEX_STRING *extension = nullptr);
 static void udf_hash_delete(udf_func *udf);
 static void *find_udf_dl(const char *dl);
+
+// VillageSQL: Build and set qualified_name based on extension_name.
+// Assumes extension_name and name are already set.
+// For extension VDFs, builds "extension::function".
+// For system UDFs, sets to nullptr.
+static void set_vdf_qualified_name(udf_func *udf) {
+  if (udf->extension_name.str && udf->extension_name.length > 0) {
+    // Build qualified name: extension::function
+    size_t qualified_len = udf->extension_name.length + 1 + udf->name.length;
+    char *qualified_str =
+        static_cast<char *>(mem.Alloc(qualified_len + 1));  // +1 for null term
+    if (qualified_str) {
+      memcpy(qualified_str, udf->extension_name.str,
+             udf->extension_name.length);
+      qualified_str[udf->extension_name.length] = '.';
+      memcpy(qualified_str + udf->extension_name.length + 1, udf->name.str,
+             udf->name.length);
+      qualified_str[qualified_len] = '\0';
+      udf->qualified_name.str = qualified_str;
+      udf->qualified_name.length = qualified_len;
+    } else {
+      udf->qualified_name.str = nullptr;
+      udf->qualified_name.length = 0;
+    }
+  } else {
+    udf->qualified_name.str = nullptr;
+    udf->qualified_name.length = 0;
+  }
+}
 
 // mysql.func table definition.
 static const int MYSQL_UDF_TABLE_FIELD_COUNT = 4;
@@ -301,7 +333,7 @@ void udf_read_functions_table() {
     }
 
     if (!(tmp = add_udf(&name, (Item_result)table->field[1]->val_int(), dl_name,
-                        udftype))) {
+                        udftype, nullptr))) {
       LogErr(ERROR_LEVEL, ER_UDF_CANT_ALLOC_FOR_FUNCTION, name.str);
       continue;
     }
@@ -403,7 +435,8 @@ static void udf_hash_delete(udf_func *udf) {
 
   mysql_rwlock_wrlock(&THR_LOCK_udf);
 
-  const auto it = udf_hash->find(to_string(udf->name));
+  std::string key = villagesql::make_udf_key(udf->extension_name, udf->name);
+  const auto it = udf_hash->find(key);
   if (it == udf_hash->end()) {
     assert(false);
     return;
@@ -437,7 +470,8 @@ void free_udf(udf_func *udf) {
       We come here when someone has deleted the udf function
       while another thread still was using the udf
     */
-    const auto it = udf_hash->find(to_string(udf->name));
+    std::string key = villagesql::make_udf_key(udf->extension_name, udf->name);
+    const auto it = udf_hash->find(key);
     if (it != udf_hash->end()) udf_hash->erase(it);
 
     using_udf_functions = !udf_hash->empty();
@@ -471,6 +505,33 @@ udf_func *find_udf(const char *name, size_t length, bool mark_used) {
   return udf;
 }
 
+// Find custom VDF by qualified name (extension.function)
+udf_func *find_udf_qualified(const char *extension, size_t ext_len,
+                             const char *function, size_t func_len,
+                             bool mark_used) {
+  udf_func *udf = nullptr;
+  DBUG_TRACE;
+
+  if (!initialized) return nullptr;
+
+  std::string key =
+      villagesql::make_udf_key(extension, ext_len, function, func_len);
+
+  if (mark_used)
+    mysql_rwlock_wrlock(&THR_LOCK_udf);
+  else
+    mysql_rwlock_rdlock(&THR_LOCK_udf);
+
+  const auto it = udf_hash->find(key);
+  if (it != udf_hash->end()) {
+    udf = it->second;
+    if (mark_used) udf->usage_count++;
+  }
+
+  mysql_rwlock_unlock(&THR_LOCK_udf);
+  return udf;
+}
+
 static void *find_udf_dl(const char *dl) {
   DBUG_TRACE;
 
@@ -490,7 +551,7 @@ static void *find_udf_dl(const char *dl) {
 /* Assume that name && dl is already allocated */
 
 static udf_func *add_udf(LEX_STRING *name, Item_result ret, char *dl,
-                         Item_udftype type) {
+                         Item_udftype type, LEX_STRING *extension) {
   if (!name || !dl || !(uint)type || (uint)type > (uint)UDFTYPE_AGGREGATE)
     return nullptr;
 
@@ -502,10 +563,18 @@ static udf_func *add_udf(LEX_STRING *name, Item_result ret, char *dl,
   tmp->returns = ret;
   tmp->type = type;
   tmp->usage_count = 1;
+  if (extension) {
+    tmp->extension_name = *extension;
+    // VillageSQL: Build and set qualified_name
+    set_vdf_qualified_name(tmp);
+  }
 
   mysql_rwlock_wrlock(&THR_LOCK_udf);
 
-  udf_hash->emplace(to_string(tmp->name), tmp);
+  std::string key = villagesql::make_udf_key(
+      extension ? extension->str : nullptr, extension ? extension->length : 0,
+      name->str, name->length);
+  udf_hash->emplace(key, tmp);
   using_udf_functions = true;
 
   mysql_rwlock_unlock(&THR_LOCK_udf);
@@ -538,8 +607,18 @@ static bool udf_end_transaction(THD *thd, bool rollback, udf_func *udf,
   if (!rollback_transaction && insert_udf) {
     udf->name.str = strdup_root(&mem, udf->name.str);
     udf->dl = strdup_root(&mem, udf->dl);
-    // create entry in mysql.func table
-    u_f = add_udf(&udf->name, udf->returns, udf->dl, udf->type);
+
+    // Check if this is a custom VDF
+    LEX_STRING *extension_ptr = nullptr;
+
+    if (udf->extension_name.str && udf->extension_name.length > 0) {
+      // Custom UDF - allocate extension_name from mem root
+      udf->extension_name.str = strdup_root(&mem, udf->extension_name.str);
+      extension_ptr = &udf->extension_name;
+    }
+
+    // Add to in-memory hash (system or custom VDF)
+    u_f = add_udf(&udf->name, udf->returns, udf->dl, udf->type, extension_ptr);
     if (u_f != nullptr) {
       u_f->dlhandle = udf->dlhandle;
       u_f->func = udf->func;
@@ -966,4 +1045,133 @@ ulong udf_hash_size(void) { return udf_hash->size(); }
 
 void udf_hash_for_each(udf_hash_for_each_func_t *func, void *arg) {
   for (auto it : *udf_hash) func(it.second, arg);
+}
+
+// Convert VEF type to MySQL Item_result
+static Item_result vef_type_to_item_result(const vef_type_t &type) {
+  switch (type.id) {
+    case VEF_TYPE_STRING:
+      return STRING_RESULT;
+    case VEF_TYPE_REAL:
+      return REAL_RESULT;
+    case VEF_TYPE_INT:
+      return INT_RESULT;
+    case VEF_TYPE_CUSTOM:
+      // Custom types are passed as binary strings
+      return STRING_RESULT;
+    default:
+      return STRING_RESULT;
+  }
+}
+
+bool register_vdf(const vef_func_desc_t *func_desc, const char *extension_name,
+                  size_t extension_name_len) {
+  DBUG_TRACE;
+
+  if (!func_desc || !func_desc->name || !func_desc->signature ||
+      !func_desc->vdf) {
+    LogVSQL(ERROR_LEVEL, "register_vdf: invalid func_desc");
+    return true;
+  }
+
+  // Allocate udf_func from the global mem root
+  // TODO(villagesql-beta): cleanup memory allocation for VDFs - having them
+  // allocated on this one MEM_ROOT means they don't clean up if unloaded.
+  udf_func *tmp = (udf_func *)mem.Alloc(sizeof(udf_func));
+  if (!tmp) {
+    LogVSQL(ERROR_LEVEL, "register_vdf: failed to allocate udf_func");
+    return true;
+  }
+  memset(tmp, 0, sizeof(*tmp));
+
+  // Set the function name
+  tmp->name.str = strdup_root(&mem, func_desc->name);
+  tmp->name.length = strlen(func_desc->name);
+
+  // Set extension name
+  tmp->extension_name.str =
+      strmake_root(&mem, extension_name, extension_name_len);
+  tmp->extension_name.length = extension_name_len;
+
+  // VillageSQL: Build and set qualified_name
+  set_vdf_qualified_name(tmp);
+
+  // Convert return type from VEF signature
+  tmp->returns = vef_type_to_item_result(func_desc->signature->return_type);
+  tmp->type = UDFTYPE_FUNCTION;
+  tmp->usage_count = 1;
+
+  // VDF-specific fields
+  tmp->calling_convention = UdfCallingConvention::VDF;
+  tmp->vdf_func_desc = func_desc;
+  tmp->vdf_protocol = func_desc->protocol;
+
+  // Build qualified key and add to hash
+  std::string key = villagesql::make_udf_key(extension_name, extension_name_len,
+                                             tmp->name.str, tmp->name.length);
+
+  mysql_rwlock_wrlock(&THR_LOCK_udf);
+  udf_hash->emplace(key, tmp);
+  using_udf_functions = true;
+  mysql_rwlock_unlock(&THR_LOCK_udf);
+
+  LogVSQL(INFORMATION_LEVEL, "register_vdf: registered '%s::%s'",
+          extension_name, func_desc->name);
+
+  return false;
+}
+
+bool unregister_vdf(const char *extension_name, size_t extension_name_len,
+                    const char *func_name, size_t func_name_len) {
+  DBUG_TRACE;
+
+  // Build qualified key
+  std::string key = villagesql::make_udf_key(extension_name, extension_name_len,
+                                             func_name, func_name_len);
+
+  mysql_rwlock_wrlock(&THR_LOCK_udf);
+
+  auto it = udf_hash->find(key);
+  if (it == udf_hash->end()) {
+    mysql_rwlock_unlock(&THR_LOCK_udf);
+    LogVSQL(WARNING_LEVEL, "unregister_vdf: '%.*s::%.*s' not found",
+            (int)extension_name_len, extension_name, (int)func_name_len,
+            func_name);
+    return true;  // Not found
+  }
+
+  udf_func *udf = it->second;
+
+  // Verify it's a VDF
+  if (udf->calling_convention != UdfCallingConvention::VDF) {
+    mysql_rwlock_unlock(&THR_LOCK_udf);
+    LogVSQL(WARNING_LEVEL, "unregister_vdf: '%.*s::%.*s' is not a VDF",
+            (int)extension_name_len, extension_name, (int)func_name_len,
+            func_name);
+    return true;  // Not a VDF
+  }
+
+  // Remove from hash
+  udf_hash->erase(it);
+
+  // Handle in-use functions: if usage_count > 1, someone is still using it.
+  // Rename to an unfindable name so existing users can finish.
+  if (udf->usage_count > 1) {
+    char new_name[32];
+    snprintf(new_name, sizeof(new_name), "*<%p>", udf);
+    udf_hash->emplace(new_name, udf);
+    LogVSQL(INFORMATION_LEVEL,
+            "unregister_vdf: '%.*s::%.*s' still in use (count=%lu), renamed",
+            (int)extension_name_len, extension_name, (int)func_name_len,
+            func_name, udf->usage_count);
+  } else {
+    LogVSQL(INFORMATION_LEVEL, "unregister_vdf: unregistered '%.*s::%.*s'",
+            (int)extension_name_len, extension_name, (int)func_name_len,
+            func_name);
+  }
+
+  using_udf_functions = !udf_hash->empty();
+  mysql_rwlock_unlock(&THR_LOCK_udf);
+
+  return false;  // Success
 }

@@ -1,0 +1,46 @@
+# Test prepared statements with subqueries and CTEs selecting custom columns
+
+--source include/villagesql/install_complex_extension.inc
+
+CREATE TABLE t1 (
+  id INT PRIMARY KEY,
+  name VARCHAR(50),
+  val COMPLEX
+);
+
+INSERT INTO t1 VALUES (1, 'Alice', '(1.0,2.0)');
+INSERT INTO t1 VALUES (2, 'Bob', '(3.0,4.0)');
+
+# Test 1: Subquery selecting only non-custom columns
+PREPARE stmt1 FROM 'SELECT id FROM (SELECT id, name FROM t1) AS sub WHERE id = 1';
+EXECUTE stmt1;
+DEALLOCATE PREPARE stmt1;
+
+# Test 2: Subquery selecting custom column
+--echo # Test 2: Subquery selecting custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt2 FROM 'SELECT id FROM (SELECT id, val FROM t1) AS sub WHERE id = 1';
+
+# Test 3: Subquery with custom column in WHERE
+--echo # Test 3: Subquery with custom column in WHERE
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt3 FROM 'SELECT id FROM (SELECT * FROM t1 WHERE val = ?) AS sub';
+
+# Test 4: CTE selecting only non-custom columns
+PREPARE stmt4 FROM 'WITH cte AS (SELECT id, name FROM t1) SELECT id FROM cte';
+EXECUTE stmt4;
+DEALLOCATE PREPARE stmt4;
+
+# Test 5: CTE selecting custom column
+--echo # Test 5: CTE selecting custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt5 FROM 'WITH cte AS (SELECT id, val FROM t1) SELECT id FROM cte';
+
+# Test 6: CTE with custom column in WHERE
+--echo # Test 6: CTE with custom column in WHERE
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt6 FROM 'WITH cte AS (SELECT * FROM t1 WHERE val = ?) SELECT id FROM cte';
+
+DROP TABLE t1;
+
+--source include/villagesql/uninstall_complex_extension.inc

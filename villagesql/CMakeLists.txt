@@ -1,0 +1,152 @@
+# Copyright (c) 2026 VillageSQL Contributors
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, see <https://www.gnu.org/licenses/>.
+
+# All VillageSQL subdirectories are managed by sql/CMakeLists.txt to avoid circular dependencies
+
+# Add VillageSQL example extensions
+IF(NOT WITHOUT_SERVER)
+  include(ExternalProject)
+
+  ExternalProject_Add(vsql_simple_extension
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples/vsql-simple
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-simple-build
+    CMAKE_GENERATOR ${CMAKE_GENERATOR}
+    CMAKE_ARGS
+      "-DMYSQL_INCLUDE_FLAGS=-I${CMAKE_SOURCE_DIR}/include -I${CMAKE_BINARY_DIR}/include"
+      "-DMYSQL_CXXFLAGS=-I${CMAKE_SOURCE_DIR}/include -I${CMAKE_BINARY_DIR}/include"
+      "-DMYSQL_LIBS=-L${CMAKE_BINARY_DIR}/library_output_directory -lmysqlclient"
+      "-DVEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      -DVSQL_BUILD_DIR=${CMAKE_BINARY_DIR}
+    BUILD_ALWAYS ON
+    INSTALL_COMMAND ""
+  )
+
+  add_custom_target(copy_vsql_simple_veb
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/veb_output_directory
+    COMMAND ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-simple-build/vsql_simple.veb
+      ${CMAKE_BINARY_DIR}/veb_output_directory/
+    DEPENDS vsql_simple_extension
+    COMMENT "Copying vsql_simple.veb to veb_output_directory"
+  )
+
+  add_custom_target(simple_veb ALL)
+  add_dependencies(simple_veb copy_vsql_simple_veb)
+
+  # Install VEB to lib/veb directory
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-simple-build/vsql_simple.veb
+    DESTINATION ${INSTALL_VEBDIR}
+  )
+
+  ExternalProject_Add(vsql_complex_extension
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples/vsql-complex
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-complex-build
+    CMAKE_GENERATOR ${CMAKE_GENERATOR}
+    CMAKE_ARGS
+      "-DMYSQL_INCLUDE_FLAGS=-I${CMAKE_SOURCE_DIR}/include -I${CMAKE_BINARY_DIR}/include"
+      "-DMYSQL_CXXFLAGS=-I${CMAKE_SOURCE_DIR}/include -I${CMAKE_BINARY_DIR}/include"
+      "-DMYSQL_LIBS=-L${CMAKE_BINARY_DIR}/library_output_directory -lmysqlclient"
+      "-DVEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      -DVSQL_BUILD_DIR=${CMAKE_BINARY_DIR}
+    BUILD_ALWAYS ON
+    INSTALL_COMMAND ""
+  )
+
+  add_custom_target(copy_vsql_complex_veb
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/veb_output_directory
+    COMMAND ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-complex-build/vsql_complex.veb
+      ${CMAKE_BINARY_DIR}/veb_output_directory/
+    DEPENDS vsql_complex_extension
+    COMMENT "Copying vsql_complex.veb to veb_output_directory"
+  )
+
+  add_custom_target(complex_veb ALL)
+  add_dependencies(complex_veb copy_vsql_complex_veb)
+
+  # Install VEB to lib/veb directory
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-complex-build/vsql_complex.veb
+    DESTINATION ${INSTALL_VEBDIR}
+  )
+ENDIF()
+
+# =============================================================================
+# VillageSQL Extension SDK Packaging
+# =============================================================================
+# Creates a standalone SDK tarball for extension developers.
+# Built automatically as part of 'make' (or explicitly with 'make sdk').
+#
+# The tarball follows the standard CMake package layout so that
+# find_package(VillageSQLExtensionFramework) works automatically when
+# CMAKE_PREFIX_PATH points to the extracted SDK directory.
+
+set(SDK_VERSION "0.0.1-dev")
+set(SDK_NAME "villagesql-extension-sdk-${SDK_VERSION}")
+set(SDK_STAGING_DIR "${CMAKE_BINARY_DIR}/${SDK_NAME}")
+
+# Generate villagesql_config script with version substituted
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/sdk/bin/villagesql_config.in"
+  "${CMAKE_BINARY_DIR}/villagesql_config"
+  @ONLY
+)
+
+# SDK packaging target - built by default (ALL)
+add_custom_target(sdk ALL
+  # Clean and create staging directory structure
+  COMMAND ${CMAKE_COMMAND} -E remove_directory "${SDK_STAGING_DIR}"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${SDK_STAGING_DIR}/bin"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${SDK_STAGING_DIR}/lib/cmake/VillageSQLExtensionFramework"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${SDK_STAGING_DIR}/include/villagesql/abi"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${SDK_STAGING_DIR}/template/src"
+
+  # Copy villagesql_config script and make executable
+  COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_BINARY_DIR}/villagesql_config"
+    "${SDK_STAGING_DIR}/bin/"
+  COMMAND chmod +x "${SDK_STAGING_DIR}/bin/villagesql_config"
+
+  # Copy CMake files
+  COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_SOURCE_DIR}/cmake/VillageSQLExtensionFrameworkConfig.cmake"
+    "${CMAKE_SOURCE_DIR}/cmake/FindVillageSQL.cmake"
+    "${SDK_STAGING_DIR}/lib/cmake/VillageSQLExtensionFramework/"
+
+  # Copy SDK headers
+  COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/extension.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/extension_builder.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/func_builder.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/type_builder.h"
+    "${SDK_STAGING_DIR}/include/villagesql/"
+  COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/abi/types.h"
+    "${SDK_STAGING_DIR}/include/villagesql/abi/"
+
+  # Copy template project
+  COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/template/CMakeLists.txt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/template/manifest.json"
+    "${SDK_STAGING_DIR}/template/"
+  COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/template/src/extension.cc"
+    "${SDK_STAGING_DIR}/template/src/"
+
+  # Create the tarball
+  COMMAND tar -czf "${CMAKE_BINARY_DIR}/${SDK_NAME}.tar.gz" -C "${CMAKE_BINARY_DIR}" "${SDK_NAME}"
+
+  COMMENT "Creating VillageSQL Extension SDK: ${SDK_NAME}.tar.gz"
+  VERBATIM
+)

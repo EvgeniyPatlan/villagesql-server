@@ -55,6 +55,7 @@
 # - INSTALL_LIBDIR          (directory with client libraries)
 # - INSTALL_PRIV_LIBDIR     (directory with mysql private libraries)
 # - INSTALL_PLUGINDIR       (directory for plugins)
+# - INSTALL_VEBDIR          (directory for VillageSQL extension bundles)
 #
 # - INSTALL_INCLUDEDIR      (directory for MySQL headers)
 #
@@ -150,6 +151,7 @@ SET(INSTALL_SBINDIR_STANDALONE          "bin")
 SET(INSTALL_LIBDIR_STANDALONE           "lib")
 SET(INSTALL_PRIV_LIBDIR_STANDALONE      "lib/private")
 SET(INSTALL_PLUGINDIR_STANDALONE        "lib/plugin")
+SET(INSTALL_VEBDIR_STANDALONE           "lib/veb")
 #
 SET(INSTALL_INCLUDEDIR_STANDALONE       "include")
 #
@@ -176,6 +178,7 @@ SET(INSTALL_SBINDIR_TARGZ          "bin")
 SET(INSTALL_LIBDIR_TARGZ           "lib")
 SET(INSTALL_PRIV_LIBDIR_TARGZ      "lib/mysql/private")
 SET(INSTALL_PLUGINDIR_TARGZ        "lib/plugin")
+SET(INSTALL_VEBDIR_TARGZ           "lib/veb")
 #
 SET(INSTALL_INCLUDEDIR_TARGZ       "include")
 #
@@ -211,6 +214,7 @@ IF(CMAKE_SYSTEM_PROCESSOR IN_LIST KNOWN_64BIT_ARCHITECTURES)
   ELSE()
     SET(INSTALL_PLUGINDIR_RPM           "lib64/mysql/plugin")
   ENDIF()
+  SET(INSTALL_VEBDIR_RPM                "lib64/mysql/veb")
 ELSE()
   SET(INSTALL_LIBDIR_RPM                "lib/mysql")
   SET(INSTALL_PRIV_LIBDIR_RPM           "lib/mysql/private")
@@ -219,6 +223,7 @@ ELSE()
   ELSE()
     SET(INSTALL_PLUGINDIR_RPM           "lib/mysql/plugin")
   ENDIF()
+  SET(INSTALL_VEBDIR_RPM                "lib/mysql/veb")
 ENDIF()
 #
 SET(INSTALL_INCLUDEDIR_RPM              "include/mysql")
@@ -250,6 +255,7 @@ IF(CMAKE_BUILD_TYPE_UPPER STREQUAL "DEBUG")
 ELSE()
   SET(INSTALL_PLUGINDIR_DEB             "lib/mysql/plugin")
 ENDIF()
+SET(INSTALL_VEBDIR_DEB                  "lib/mysql/veb")
 #
 SET(INSTALL_INCLUDEDIR_DEB              "include/mysql")
 #
@@ -276,6 +282,7 @@ SET(INSTALL_SBINDIR_SVR4                "bin")
 SET(INSTALL_LIBDIR_SVR4                 "lib")
 SET(INSTALL_PRIV_LIBDIR_SVR4            "lib/private")
 SET(INSTALL_PLUGINDIR_SVR4              "lib/plugin")
+SET(INSTALL_VEBDIR_SVR4                 "lib/veb")
 #
 SET(INSTALL_INCLUDEDIR_SVR4             "include")
 #
@@ -324,6 +331,7 @@ FOREACH(var
     SECURE_FILE_PRIV
     SHARE
     SUPPORTFILES
+    VEB
     )
   SET(INSTALL_${var}DIR
     ${INSTALL_${var}DIR_${INSTALL_LAYOUT}}

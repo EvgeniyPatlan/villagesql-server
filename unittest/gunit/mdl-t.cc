@@ -1,4 +1,5 @@
 /* Copyright (c) 2009, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -3855,6 +3856,7 @@ TEST_F(MDLHtonNotifyTest, NotifyNamespaces) {
       false,  // GLOBAL
       false,  // BACKUP_LOCK
       true,   // TABLESPACE
+      false,  // EXTENSION
       true,   // SCHEMA
       true,   // TABLE
       true,   // FUNCTION

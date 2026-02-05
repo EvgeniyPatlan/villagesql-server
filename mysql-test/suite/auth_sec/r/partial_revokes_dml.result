@@ -309,6 +309,7 @@ partial_revokes_db_2
 performance_schema
 sys
 test
+villagesql
 SET ROLE r3;
 SHOW DATABASES;
 Database
@@ -320,6 +321,7 @@ partial_revokes_db_2
 performance_schema
 sys
 test
+villagesql
 GRANT INSERT ON `partial_revokes_db`.* TO baz@localhost;
 SHOW GRANTS;
 Grants for baz@localhost
@@ -336,6 +338,7 @@ partial_revokes_db_2
 performance_schema
 sys
 test
+villagesql
 SET ROLE r3;
 SHOW DATABASES;
 Database
@@ -347,6 +350,7 @@ partial_revokes_db_2
 performance_schema
 sys
 test
+villagesql
 GRANT SELECT ON `partial_revokes_db`.* TO baz@localhost;
 SHOW GRANTS;
 Grants for baz@localhost
@@ -362,6 +366,7 @@ partial_revokes_db_2
 performance_schema
 sys
 test
+villagesql
 SET ROLE r3;
 SHOW DATABASES;
 Database
@@ -373,6 +378,7 @@ partial_revokes_db_2
 performance_schema
 sys
 test
+villagesql
 # -----------------------------------------------------------------------
 DROP USER baz@localhost;
 DROP ROLE r3;

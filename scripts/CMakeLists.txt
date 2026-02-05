@@ -1,4 +1,5 @@
 # Copyright (c) 2006, 2025, Oracle and/or its affiliates.
+# Copyright (c) 2026 VillageSQL Contributors
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2.0,
@@ -206,6 +207,17 @@ ADD_CUSTOM_COMMAND(
   ${CMAKE_CURRENT_SOURCE_DIR}/firewall/firewall_sp_firewall_group_delist.sql
 )
 
+ADD_CUSTOM_COMMAND(
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/sql_commands_villagesql_schema.h
+  COMMAND comp_sql
+  villagesql_schema
+  ${CMAKE_BINARY_DIR}/${INSTALL_MYSQLSHAREDIR}/villagesql_schema.sql
+  sql_commands_villagesql_schema.h
+  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+  DEPENDS comp_sql
+  ${CMAKE_BINARY_DIR}/${INSTALL_MYSQLSHAREDIR}/villagesql_schema.sql
+)
+
 # Add target for the above to be built
 IF(NOT WITHOUT_SERVER)
   MY_ADD_CUSTOM_TARGET(GenBootstrapPriv
@@ -222,6 +234,7 @@ IF(NOT WITHOUT_SERVER)
     ${CMAKE_CURRENT_BINARY_DIR}/sql_firewall_sp_reload_firewall_group_rules.h
     ${CMAKE_CURRENT_BINARY_DIR}/sql_firewall_sp_firewall_group_enlist.h
     ${CMAKE_CURRENT_BINARY_DIR}/sql_firewall_sp_firewall_group_delist.h
+    ${CMAKE_CURRENT_BINARY_DIR}/sql_commands_villagesql_schema.h
   )
 ENDIF()
 

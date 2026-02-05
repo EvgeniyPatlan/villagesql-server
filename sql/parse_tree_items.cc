@@ -1,4 +1,5 @@
 /* Copyright (c) 2013, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -56,6 +57,7 @@
 #include "sql/trigger_def.h"
 #include "sql_string.h"
 #include "template_utils.h"
+#include "villagesql/sql/parse_tree_items.h"
 
 /**
   Apply a truth test to given expression. Either the expression can implement
@@ -289,6 +291,12 @@ void PTI_function_call_generic_2d::add_json_info(Json_object *obj) {
 
 bool PTI_function_call_generic_2d::do_itemize(Parse_context *pc, Item **res) {
   if (super::do_itemize(pc, res)) return true;
+
+  // First, try to resolve as a custom VDF (extension.function)
+  bool vdf_error;
+  if (try_itemize_custom_vdf(pc, db, func, opt_expr_list, res, &vdf_error)) {
+    return vdf_error;  // Handled as VDF
+  }
 
   /*
     The following in practice calls:

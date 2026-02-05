@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -198,6 +199,8 @@
 #include "template_utils.h"
 #include "thr_lock.h"
 #include "typelib.h"
+#include "villagesql/sql/metadata_modifier.h"
+#include "villagesql/types/util.h"
 
 namespace dd {
 class View;
@@ -1031,6 +1034,8 @@ static bool rea_create_tmp_table(
                              tmp_table_ptr.get());
     return true;
   }
+
+  villagesql::AnnotateCustomColumnsInTmpTable(table, create_fields);
 
   // Transfer ownership of dd::Table object to TABLE_SHARE.
   table->s->tmp_table_def = tmp_table_ptr.release();
@@ -3390,6 +3395,11 @@ bool mysql_rm_table_no_locks(THD *thd, Table_ref *tables, bool if_exists,
 
   if (drop_ctx.has_base_atomic_tables() || drop_ctx.has_views() ||
       drop_ctx.has_base_nonexistent_tables()) {
+    // VillageSQL: Track custom columns and acquire necessary MDL locks.
+    if (villagesql::Metadata_modifier::process_drop(
+            thd, drop_temporary, drop_ctx.base_atomic_tables)) {
+      goto err_with_rollback;
+    }
     /*
       Handle base tables in SEs which support atomic DDL, as well as views
       and non-existent tables.
@@ -3506,6 +3516,17 @@ bool mysql_rm_table_no_locks(THD *thd, Table_ref *tables, bool if_exists,
 
       if (built_query.write_bin_log()) goto err_with_rollback;
 
+      // VillageSQL: Write uncommitted systable entries before commit.
+      // At this point, all tables have been dropped and marked for deletion,
+      // binlog has been written, and we're about to commit. Write the systable
+      // deletions now so they're part of the same transaction that gets
+      // committed.
+      if (!drop_temporary) {
+        if (villagesql::Metadata_modifier::store(thd)) {
+          goto err_with_rollback;
+        }
+      }
+
       if (drop_ctx.has_no_gtid_single_table_group() ||
           drop_ctx.has_gtid_single_table_group()) {
         /*
@@ -3582,6 +3603,13 @@ bool mysql_rm_table_no_locks(THD *thd, Table_ref *tables, bool if_exists,
     built_query.add_array(drop_ctx.nonexistent_tables);
 
     if (built_query.write_bin_log()) goto err_with_rollback;
+
+    // VillageSQL: Write uncommitted systable entries before commit
+    if (!drop_temporary) {
+      if (villagesql::Metadata_modifier::store(thd)) {
+        goto err_with_rollback;
+      }
+    }
 
     /*
       Commit our changes to the binary log (if any) and mark GTID
@@ -8964,7 +8992,8 @@ static bool create_table_impl(
     Alter_info::enum_enable_or_disable keys_onoff, FOREIGN_KEY **fk_key_info,
     uint *fk_key_count, FOREIGN_KEY *existing_fk_info, uint existing_fk_count,
     const dd::Table *existing_fk_table, uint fk_max_generated_name_number,
-    std::unique_ptr<dd::Table> *table_def, handlerton **post_ddl_ht) {
+    std::unique_ptr<dd::Table> *table_def, handlerton **post_ddl_ht,
+    bool *table_created = nullptr) {
   DBUG_TRACE;
   DBUG_PRINT("enter", ("db: '%s'  table: '%s'  tmp: %d", db, table_name,
                        internal_tmp_table));
@@ -9135,6 +9164,7 @@ static bool create_table_impl(
     return true;
   }
   if (ter.m_table_exists) {
+    if (table_created) *table_created = false;
     return false;
   }
 
@@ -9243,6 +9273,7 @@ static bool create_table_impl(
     */
     thd->server_status |= SERVER_STATUS_IN_TRANS;
   }
+  if (table_created) *table_created = true;
   return false;
 }
 
@@ -9343,6 +9374,11 @@ bool mysql_create_table_no_lock(THD *thd, const char *db,
                                 Alter_info *alter_info, uint select_field_count,
                                 bool find_parent_keys, bool *is_trans,
                                 handlerton **post_ddl_ht) {
+  // VillageSQL: Track custom columns and acquire necessary MDL locks.
+  if (villagesql::Metadata_modifier::process_create(
+          thd, create_info, alter_info, db, table_name)) {
+    return true;
+  }
   KEY *not_used_1;
   uint not_used_2;
   FOREIGN_KEY *not_used_3 = nullptr;
@@ -9448,11 +9484,21 @@ bool mysql_create_table_no_lock(THD *thd, const char *db,
 
   if (thd->is_plugin_fake_ddl()) no_ha_table = true;
 
-  return create_table_impl(
+  bool table_created = false;
+  bool error = create_table_impl(
       thd, *schema, db, table_name, table_name, path, create_info, alter_info,
       false, select_field_count, find_parent_keys, no_ha_table, false, is_trans,
       &not_used_1, &not_used_2, Alter_info::ENABLE, &not_used_3, &not_used_4,
-      nullptr, 0, nullptr, 0, &not_used_5, post_ddl_ht);
+      nullptr, 0, nullptr, 0, &not_used_5, post_ddl_ht, &table_created);
+
+  // VillageSQL: If table was not created (IF NOT EXISTS case), rollback
+  // the custom column modifications
+  if (!error && !table_created) {
+    assert(create_info->options & HA_LEX_CREATE_IF_NOT_EXISTS);
+    villagesql::Metadata_modifier::rollback(thd);
+  }
+
+  return error;
 }
 
 typedef std::set<std::pair<dd::String_type, dd::String_type>>
@@ -10403,9 +10449,13 @@ bool mysql_create_table(THD *thd, Table_ref *create_table,
         necessary to correctly binlog/replicate such statements, as we don't
         write to binary log value of @@sql_generate_invisible_primary_key
         variable, but rely on logging what really has been done instead.
+
+        VillageSQL: We also use store_create_info() when the table has custom
+        type columns, to ensure the binlog contains fully qualified type names.
       */
       if ((create_table->table == nullptr && !create_table->is_view()) &&
-          is_pk_generated) {
+          (is_pk_generated ||
+           villagesql::HasCustomTypeColumns(alter_info->create_list))) {
         /*
           Open table to generate CREATE TABLE statement. For non-temporary
           table we already have exclusive lock here.
@@ -10532,7 +10582,8 @@ bool mysql_create_table(THD *thd, Table_ref *create_table,
       transactional DDL.
     */
     if (!result && !thd->is_plugin_fake_ddl())
-      result = trans_commit_stmt(thd) ||
+      result = villagesql::Metadata_modifier::store(thd) ||
+               trans_commit_stmt(thd) ||
                (create_info->m_transactional_ddl ? false
                                                  : trans_commit_implicit(thd));
 
@@ -11418,7 +11469,9 @@ bool mysql_create_like_table(THD *thd, Table_ref *table, Table_ref *src_table,
         goto err;
     }
 
-    if (trans_commit_stmt(thd) || trans_commit_implicit(thd)) goto err;
+    if (villagesql::Metadata_modifier::store(thd) || trans_commit_stmt(thd) ||
+        trans_commit_implicit(thd))
+      goto err;
 
     if (post_ddl_ht) post_ddl_ht->post_ddl(thd);
   }
@@ -14078,6 +14131,9 @@ static bool mysql_inplace_alter_table(
     */
     const Implicit_substatement_state_guard guard(thd, mode);
 
+    // VillageSQL: Write uncommitted system table changes before success
+    if (villagesql::Metadata_modifier::store(thd)) goto cleanup2;
+
     /*
       Commit ALTER TABLE. Needs to be done here and not in the callers
       (which do it anyway) to be able notify SE about changed table.
@@ -16138,8 +16194,10 @@ static bool simple_rename_or_index_change(
       Commit changes to data-dictionary, SE and binary log if it was not done
       earlier. We need to do this before releasing/downgrading MDL.
     */
-    if (!error && atomic_ddl)
-      error = (trans_commit_stmt(thd) || trans_commit_implicit(thd));
+    if (!error && atomic_ddl) {
+      error = (villagesql::Metadata_modifier::store(thd) ||
+               trans_commit_stmt(thd) || trans_commit_implicit(thd));
+    }
 
     if (!error) fk_invalidator.invalidate(thd);
   }
@@ -17018,6 +17076,12 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
         }
       }
     }
+  }
+
+  // VillageSQL: Track custom columns and acquire necessary MDL locks.
+  if (villagesql::Metadata_modifier::process_alter(thd, table_list,
+                                                   alter_info)) {
+    return true;
   }
 
   /*
@@ -18362,7 +18426,8 @@ end_inplace_noop:
   }
 
   // Commit if it was not done before in order to be able to reopen tables.
-  if (atomic_replace && (trans_commit_stmt(thd) || trans_commit_implicit(thd)))
+  if (atomic_replace && (villagesql::Metadata_modifier::store(thd) ||
+                         trans_commit_stmt(thd) || trans_commit_implicit(thd)))
     goto err_with_mdl;
 
   if ((new_db_type->flags & HTON_SUPPORTS_ATOMIC_DDL) && new_db_type->post_ddl)

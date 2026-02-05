@@ -73,6 +73,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 ∀p∊ℙ
 use `∀p∊ℙ`;
 INSERT IGNORE INTO performance_schema.setup_objects VALUES

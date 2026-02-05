@@ -1,5 +1,6 @@
 # -*- cperl -*-
 # Copyright (c) 2007, 2025, Oracle and/or its affiliates.
+# Copyright (c) 2026 VillageSQL Contributors
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2.0,
@@ -204,6 +205,12 @@ sub fix_tmpdir {
   return "$dir/$group_name";
 }
 
+sub fix_veb_dir {
+  my ($self, $config, $group_name, $group) = @_;
+  my $vardir = $self->{ARGS}->{vardir};
+  return "$vardir/$group_name/veb";
+}
+
 sub fix_log_error {
   my ($self, $config, $group_name, $group) = @_;
   my $dir = $self->{ARGS}->{vardir};
@@ -337,6 +344,7 @@ my @mysqld_rules = (
   { 'ssl-cert'                                     => \&fix_ssl_server_cert },
   { 'ssl-key'                                      => \&fix_ssl_server_key },
   { 'tmpdir'                                       => \&fix_tmpdir },
+  { 'veb-dir'                                      => \&fix_veb_dir },
   { 'loose-sha256_password_auto_generate_rsa_keys' => "0" },
   { 'loose-caching_sha2_password_auto_generate_rsa_keys' => "0" },
   { 'loose-mysql-native-password' => "ON" },

@@ -1,4 +1,5 @@
 /* Copyright (c) 2016, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -62,6 +63,10 @@
 #include "sql/system_variables.h"
 
 class String;
+
+namespace villagesql {
+class TypeContext;
+}
 
 /**
   Parse context for column type attribute specific parse tree nodes.
@@ -644,6 +649,13 @@ class PT_type : public Parse_tree_node {
   virtual uint get_uint_geom_type() const { return 0; }
   virtual List<String> *get_interval_list() const { return nullptr; }
   virtual bool is_serial_type() const { return false; }
+
+  // Should return true iff a custom type is represented, in which case
+  // get_type_context must return a non-nullptr TypeContext.
+  virtual bool is_custom_type() const { return false; }
+  virtual const villagesql::TypeContext *get_type_context() const {
+    return nullptr;
+  }
 };
 
 /**
@@ -1021,6 +1033,13 @@ class PT_field_def_base : public Parse_tree_node {
         Sql_check_constraint_spec_list(pc->thd->mem_root);
     if (check_const_spec_list == nullptr) return true;  // OOM
     return false;
+  }
+
+  // These should only be called after we have contextualized type_node, which
+  // in practice means that we should be contextualized already.
+  virtual bool is_custom_type() const { return type_node->is_custom_type(); }
+  virtual const villagesql::TypeContext *get_type_context() const {
+    return type_node->get_type_context();
   }
 
  private:

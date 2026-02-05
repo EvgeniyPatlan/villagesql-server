@@ -19,7 +19,7 @@ exec $MYSQLD_BOOTSTRAP_CMD --datadir=$TMP_DATADIR --symbolic-links=0 --lower-cas
 perl;
   # Variables which we don't want to display in the result file since
   # their paths may vary or their value is machine specific:
-  @skipvars=qw/basedir open-files-limit general-log-file plugin-dir
+  @skipvars=qw/basedir open-files-limit general-log-file plugin-dir veb-dir
                pid-file slow-query-log-file
                language lc-messages-dir
                datadir replica-load-tmpdir slave-load-tmpdir tmpdir socket table-definition-cache table-open-cache

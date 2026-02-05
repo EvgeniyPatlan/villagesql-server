@@ -2,6 +2,7 @@
 #define ITEM_FUNC_INCLUDED
 
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -30,6 +31,7 @@
 #include <cmath>  // isfinite
 #include <cstddef>
 #include <functional>
+#include <memory>
 
 #include "decimal.h"
 #include "field_types.h"
@@ -2190,6 +2192,10 @@ class Item_udf_func : public Item_func {
 
   bool do_itemize(Parse_context *pc, Item **res) override;
   const char *func_name() const override { return udf.name(); }
+  // VillageSQL: Qualified name if available, else null
+  const char *qualified_name() const { return udf.qualified_name(); }
+  // VillageSQL: Returns true if this is a VDF (VillageSQL Defined Function)
+  bool is_vdf() const { return udf.is_vdf(); }
   enum Functype functype() const override { return UDF_FUNC; }
   table_map get_initial_pseudo_tables() const override {
     return m_non_deterministic ? RAND_TABLE_BIT : 0;
@@ -3126,6 +3132,7 @@ class user_var_entry {
     by Item_func_get_user_var (because that's not necessary).
   */
   query_id_t m_used_query_id;
+  std::shared_ptr<const villagesql::TypeContext> m_type_context;
 
  public:
   user_var_entry() = default; /* Remove gcc warning */
@@ -3197,7 +3204,10 @@ class user_var_entry {
   */
   void destroy() {
     assert_locked();
-    free_value();   // Free the external value buffer
+    free_value();  // Free the external value buffer
+    // Explicitly destroy the shared_ptr since it was constructed with
+    // placement new (user_var_entry uses my_malloc, not C++ new).
+    m_type_context.~shared_ptr();
     my_free(this);  // Free the instance itself
   }
 
@@ -3209,6 +3219,13 @@ class user_var_entry {
   size_t length() const { return m_length; }
   /// The data type of this variable.
   Item_result type() const { return m_type; }
+  /// The custom type context (for VillageSQL custom types).
+  const villagesql::TypeContext *type_context() const {
+    return m_type_context.get();
+  }
+  void set_type_context(std::shared_ptr<const villagesql::TypeContext> tc) {
+    m_type_context = std::move(tc);
+  }
   /* Item-alike routines to access the value */
   double val_real(bool *null_value) const;
   longlong val_int(bool *null_value) const;

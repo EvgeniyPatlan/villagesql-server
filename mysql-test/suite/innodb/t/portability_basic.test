@@ -18,6 +18,7 @@ let $MYSQLD_NEW_DATADIR = $MYSQL_TMP_DIR/new_datadir/data;
 --mkdir $MYSQLD_NEW_DATADIR/test
 --mkdir $MYSQLD_NEW_DATADIR/mysql
 --mkdir $MYSQLD_NEW_DATADIR/sys
+--mkdir $MYSQLD_NEW_DATADIR/villagesql
 --mkdir $MYSQLD_NEW_DATADIR/performance_schema
 --mkdir $MYSQLD_NEW_DATADIR/mtr
 
@@ -60,6 +61,7 @@ SELECT  file_name,file_type,tablespace_name FROM
 --copy_files_wildcard $MYSQLD_OLD_DATADIR/sys/  $MYSQLD_NEW_DATADIR/sys/ *.*
 --copy_files_wildcard $MYSQLD_OLD_DATADIR/performance_schema/  $MYSQLD_NEW_DATADIR/performance_schema/ *.*
 --copy_files_wildcard $MYSQLD_OLD_DATADIR/mysql/  $MYSQLD_NEW_DATADIR/mysql/ *.*
+--copy_files_wildcard $MYSQLD_OLD_DATADIR/villagesql/  $MYSQLD_NEW_DATADIR/villagesql/ *.*
 --copy_files_wildcard $MYSQLD_OLD_DATADIR/mtr/  $MYSQLD_NEW_DATADIR/mtr/ *.*
 
 --echo ## Start with new --datadir

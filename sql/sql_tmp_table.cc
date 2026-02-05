@@ -1,4 +1,5 @@
 /* Copyright (c) 2011, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -320,6 +321,9 @@ static Field *create_tmp_field_for_schema(const Item *item, TABLE *table) {
           item->max_length, item->is_nullable(), item->item_name.ptr(),
           table->s, item->collation.collation);
       table->s->db_create_options |= HA_OPTION_PACK_RECORD;
+      if (item->has_type_context()) {
+        field->set_type_context(item->get_type_context());
+      }
     }
     if (field) field->init(table);
     return field;
@@ -426,6 +430,9 @@ Field *create_tmp_field(THD *thd, TABLE *table, Item *item, Item::Type type,
           orig_item->set_result_field(result);
         else
           item_field->set_result_field(result);
+      }
+      if (item->has_type_context()) {
+        result->set_type_context(item->get_type_context());
       }
       /*
         Fields that are used as arguments to the DEFAULT() function already have

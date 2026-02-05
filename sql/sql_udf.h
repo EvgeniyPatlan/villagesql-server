@@ -2,6 +2,7 @@
 #define SQL_UDF_INCLUDED
 
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -33,6 +34,13 @@
 #include "my_inttypes.h"
 #include "my_table_map.h"
 #include "mysql/udf_registration_types.h"
+#include "villagesql/sdk/include/villagesql/abi/types.h"
+
+namespace villagesql {
+namespace vdf {
+class vdf_handler;
+}
+}  // namespace villagesql
 
 class Item;
 class Item_result_field;
@@ -40,6 +48,13 @@ class String;
 class THD;
 class my_decimal;
 struct CHARSET_INFO;
+struct TABLE;
+
+// Calling convention for UDFs
+enum class UdfCallingConvention {
+  CLASSIC,  // Traditional MySQL UDF calling convention
+  VDF,      // VillageSQL Defined Function (uses VEF ABI)
+};
 
 struct udf_func {
   LEX_STRING name;
@@ -53,6 +68,23 @@ struct udf_func {
   Udf_func_clear func_clear;
   Udf_func_add func_add;
   ulong usage_count;
+
+  // Empty/nullptr for system UDFs, populated for VDFs
+  LEX_STRING extension_name{nullptr, 0};
+
+  // VillageSQL: Fully qualified name for custom VDF, empty/nullptr for system
+  // UDFs
+  LEX_STRING qualified_name{nullptr, 0};
+
+  // Calling convention - CLASSIC for traditional UDFs, VDF for VillageSQL
+  // Defined Functions using the VEF ABI.
+  UdfCallingConvention calling_convention;
+
+  // For VDF functions, points to the function descriptor from the extension.
+  const vef_func_desc_t *vdf_func_desc{nullptr};
+
+  // Protocol version for this VDF function
+  vef_protocol_t vdf_protocol;
 };
 
 /*
@@ -99,6 +131,12 @@ class udf_handler {
   Udf_return_value_extension
       m_return_value_extension; /**< A struct that holds the extension arguments
                                    for return value */
+
+  // VDF (VillageSQL Defined Function) support - handler allocated only for VDF
+  // functions. All VDF-specific state and logic is encapsulated in vdf_handler.
+  // Allocated from THR_MALLOC arena, not owned by this class.
+  villagesql::vdf::vdf_handler *m_vdf{nullptr};
+
  public:
   table_map used_tables_cache{0};
   bool m_original{true};
@@ -114,7 +152,12 @@ class udf_handler {
 
   bool is_initialized() const { return m_initialized; }
 
+  bool is_vdf() const { return m_vdf != nullptr; }
+
+  bool is_vdf_returns_string() const;
+
   const char *name() const { return u_d ? u_d->name.str : "?"; }
+  const char *qualified_name() const { return u_d->qualified_name.str; }
   Item_result result_type() const {
     return (Item_result)(u_d ? (u_d->returns) : STRING_RESULT);
   }
@@ -142,12 +185,29 @@ void udf_read_functions_table();
 void udf_unload_udfs();
 void udf_deinit_globals();
 udf_func *find_udf(const char *name, size_t len = 0, bool mark_used = false);
+
+// Find a UDF that's qualified with an extension name.
+// e.g. for "vsql_complex.complex_real"
+// extension would be "vsql_complex" and function would be "complex_real"
+udf_func *find_udf_qualified(const char *extension, size_t ext_len,
+                             const char *function, size_t func_len,
+                             bool mark_used = false);
 void free_udf(udf_func *udf);
 bool mysql_create_function(THD *thd, udf_func *udf, bool if_not_exists);
 bool mysql_drop_function(THD *thd, const LEX_STRING *name);
+
 ulong udf_hash_size(void);
 void udf_hash_rlock(void);
 void udf_hash_unlock(void);
 typedef void udf_hash_for_each_func_t(udf_func *, void *);
 void udf_hash_for_each(udf_hash_for_each_func_t *func, void *arg);
+
+// VDF (VillageSQL Defined Function) registration
+// These functions are called by the extension loading code to register/
+// unregister functions that use the VEF ABI calling convention.
+bool register_vdf(const vef_func_desc_t *func_desc, const char *extension_name,
+                  size_t extension_name_len);
+bool unregister_vdf(const char *extension_name, size_t extension_name_len,
+                    const char *func_name, size_t func_name_len);
+
 #endif /* SQL_UDF_INCLUDED */

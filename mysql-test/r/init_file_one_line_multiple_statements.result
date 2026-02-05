@@ -17,6 +17,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 # 'test'@'localhost' user should be able to log in using new password
 SELECT USER();
 USER()

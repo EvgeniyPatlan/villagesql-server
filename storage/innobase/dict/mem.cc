@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1996, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 Copyright (c) 2012, Facebook Inc.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -220,10 +221,10 @@ dict_table_t *dict_mem_table_create(const char *name, space_id_t space,
   table->n_cols = table->n_t_cols - table->n_v_cols;
   table->n_instant_cols = table->n_cols;
 
-  table->cols = static_cast<dict_col_t *>(
-      mem_heap_alloc(heap, (table->n_cols + n_drop_cols) * sizeof(dict_col_t)));
+  table->cols = static_cast<dict_col_t *>(mem_heap_zalloc(
+      heap, (table->n_cols + n_drop_cols) * sizeof(dict_col_t)));
   table->v_cols = static_cast<dict_v_col_t *>(
-      mem_heap_alloc(heap, n_v_cols * sizeof(*table->v_cols)));
+      mem_heap_zalloc(heap, n_v_cols * sizeof(*table->v_cols)));
 
 #ifndef UNIV_HOTBACKUP
 #ifndef UNIV_LIBRARY
@@ -376,4 +377,6 @@ void dict_mem_fill_column_struct(dict_col_t *column, ulint col_pos, ulint mtype,
   column->set_mbminmaxlen(mbminlen, mbmaxlen);
 #endif /* !UNIV_LIBRARY */
 #endif /* !UNIV_HOTBACKUP */
+  // Initialize custom_compare to nullptr
+  column->set_custom_compare(nullptr);
 }

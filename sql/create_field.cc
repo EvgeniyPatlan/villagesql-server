@@ -1,4 +1,5 @@
 /* Copyright (c) 2018, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -73,6 +74,9 @@ Create_field::Create_field(Field *old_field, Field *orig_field)
       is_explicit_collation(false),
       geom_type(Field::GEOM_GEOMETRY),
       field(old_field),
+      custom_type_context(old_field->has_type_context()
+                              ? old_field->get_type_context()
+                              : nullptr),
       is_nullable(old_field->is_nullable()),
       is_zerofill(false),  // Init to avoid UBSAN warnings
       is_unsigned(false),  // Init to avoid UBSAN warnings

@@ -1,6 +1,7 @@
 #ifndef MDL_H
 #define MDL_H
 /* Copyright (c) 2009, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -379,6 +380,7 @@ struct MDL_key {
        inconsistent backup. Such operations are most DDL statements,
        and some administrative statements.
      - TABLESPACE is for tablespaces.
+     - EXTENSION is for VillageSQL extensions.
      - SCHEMA is for schemas (aka databases).
      - TABLE is for tables and views.
      - FUNCTION is for stored functions.
@@ -401,6 +403,7 @@ struct MDL_key {
     GLOBAL = 0,
     BACKUP_LOCK,
     TABLESPACE,
+    EXTENSION,
     SCHEMA,
     TABLE,
     FUNCTION,

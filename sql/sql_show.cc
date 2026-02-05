@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -147,6 +148,7 @@
 #include "strmake.h"
 #include "template_utils.h"
 #include "thr_lock.h"
+#include "villagesql/types/util.h"
 
 /* @see dynamic_privileges_table.cc */
 bool iterate_all_dynamic_privileges(THD *thd,
@@ -1707,8 +1709,12 @@ static bool print_default_clause(THD *thd, Field *field, String *def_value,
         tmp[length] = '\'';
         type.length(length + 1);
         quoted = false;
-      } else
+      } else if (field->has_type_context()) {
+        // VillageSQL: For custom types, decode binary to string representation
+        field->val_custom_str(&type);
+      } else {
         field->val_str(&type);
+      }
 
       if (type.length()) {
         /*
@@ -2062,8 +2068,12 @@ bool store_create_info(THD *thd, Table_ref *table_list, String *packet,
     else
       type.set_charset(system_charset_info);
 
-    field->sql_type(type);
-    packet->append(type.ptr(), type.length(), system_charset_info);
+    if (field->has_type_context()) {
+      villagesql::AppendFullyQualifiedName(*field->get_type_context(), packet);
+    } else {
+      field->sql_type(type);
+      packet->append(type.ptr(), type.length(), system_charset_info);
+    }
 
     bool column_has_explicit_collation = false;
     /* We may not have a table_obj for schema_tables. */

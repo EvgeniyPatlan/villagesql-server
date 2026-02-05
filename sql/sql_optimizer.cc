@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License, version 2.0,
@@ -11863,6 +11864,17 @@ bool IsHashEquijoinCondition(const Item_eq_base *item, table_map left_side,
   // We are not able to create hash join conditions from row values consisting
   // of multiple columns, so let them be added as extra conditions instead.
   if (item->get_comparator()->get_child_comparator_count() > 1) {
+    return false;
+  }
+
+  // Custom types require semantic comparison where equal values may have
+  // different binary representations (e.g., 0.0 vs -0.0). Hash join assumes
+  // equal values hash to the same bucket, which doesn't hold for custom types.
+  // Exclude them from hash join to force nested loop comparison.
+  // TODO(villagesql-performance): consider supporting hash joins for custom
+  // types by having them provide a canonical hash function where semantically
+  // equal values produce the same hash.
+  if (item->get_comparator()->compare_as_custom_type()) {
     return false;
   }
 

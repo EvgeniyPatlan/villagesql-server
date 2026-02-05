@@ -1,0 +1,46 @@
+# Test prepared statements with UPDATE and DELETE on custom type columns
+
+--source include/villagesql/install_complex_extension.inc
+
+CREATE TABLE t1 (
+  id INT PRIMARY KEY,
+  name VARCHAR(50),
+  val COMPLEX
+);
+
+INSERT INTO t1 VALUES (1, 'Alice', '(1.0,2.0)');
+INSERT INTO t1 VALUES (2, 'Bob', '(3.0,4.0)');
+
+# Test 1: UPDATE non-custom column
+PREPARE stmt1 FROM 'UPDATE t1 SET name = ? WHERE id = ?';
+SET @name = 'Charlie';
+SET @id = 1;
+EXECUTE stmt1 USING @name, @id;
+SELECT id, name FROM t1 WHERE id = 1;
+DEALLOCATE PREPARE stmt1;
+
+# Test 2: UPDATE custom column
+--echo # Test 2: UPDATE custom column
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt2 FROM 'UPDATE t1 SET val = ? WHERE id = ?';
+
+# Test 3: UPDATE with custom column in WHERE
+--echo # Test 3: UPDATE with custom column in WHERE
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt3 FROM 'UPDATE t1 SET name = ? WHERE val = ?';
+
+# Test 4: DELETE with non-custom WHERE
+PREPARE stmt4 FROM 'DELETE FROM t1 WHERE id = ?';
+SET @id = 2;
+EXECUTE stmt4 USING @id;
+SELECT COUNT(*) FROM t1;
+DEALLOCATE PREPARE stmt4;
+
+# Test 5: DELETE with custom column in WHERE
+--echo # Test 5: DELETE with custom column in WHERE
+--error ER_VILLAGESQL_GENERIC_ERROR
+PREPARE stmt5 FROM 'DELETE FROM t1 WHERE val = ?';
+
+DROP TABLE t1;
+
+--source include/villagesql/uninstall_complex_extension.inc

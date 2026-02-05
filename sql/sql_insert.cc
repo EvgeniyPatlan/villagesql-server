@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -109,6 +110,7 @@
 #include "string_with_len.h"
 #include "template_utils.h"
 #include "thr_lock.h"
+#include "villagesql/sql/metadata_modifier.h"
 
 namespace dd {
 class Table;
@@ -3133,7 +3135,8 @@ bool Query_result_create::send_eof(THD *thd) {
     */
     if (!table->s->tmp_table) {
       thd->get_stmt_da()->set_overwrite_status(true);
-      error = trans_commit_stmt(thd) || trans_commit_implicit(thd);
+      error = villagesql::Metadata_modifier::store(thd) ||
+              trans_commit_stmt(thd) || trans_commit_implicit(thd);
       thd->get_stmt_da()->set_overwrite_status(false);
     }
 

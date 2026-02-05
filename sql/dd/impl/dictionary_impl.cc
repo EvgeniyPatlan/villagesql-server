@@ -1,4 +1,5 @@
 /* Copyright (c) 2014, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -75,6 +76,7 @@
 #include "sql/thd_raii.h"                       // Disable_autocommit_guard
 #include "sql/transaction.h"                    // trans_commit()
 #include "storage/perfschema/pfs_dd_version.h"  // PFS_DD_VERSION
+#include "villagesql/schema/schema_manager.h"
 
 extern Cost_constant_cache *cost_constant_cache;  // defined in
                                                   // opt_costconstantcache.cc
@@ -138,10 +140,10 @@ bool Dictionary_impl::init(enum_dd_init_type dd_init) {
   bool result = false;
 
   // Creation of Data Dictionary through current server
-  if (dd_init == enum_dd_init_type::DD_INITIALIZE)
+  if (dd_init == enum_dd_init_type::DD_INITIALIZE) {
     result = ::bootstrap::run_bootstrap_thread(
         nullptr, nullptr, &bootstrap::initialize, SYSTEM_THREAD_DD_INITIALIZE);
-
+  }
   // Creation of INFORMATION_SCHEMA system views.
   else if (dd_init == enum_dd_init_type::DD_INITIALIZE_SYSTEM_VIEWS)
     result = ::bootstrap::run_bootstrap_thread(nullptr, nullptr,
@@ -152,10 +154,14 @@ bool Dictionary_impl::init(enum_dd_init_type dd_init) {
     Creation of Dictionary Tables in old Data Directory
     This function also takes care of normal server restart.
   */
-  else if (dd_init == enum_dd_init_type::DD_RESTART_OR_UPGRADE)
+  else if (dd_init == enum_dd_init_type::DD_RESTART_OR_UPGRADE) {
     result = ::bootstrap::run_bootstrap_thread(nullptr, nullptr,
                                                &bootstrap::restart_dictionary,
                                                SYSTEM_THREAD_DD_INITIALIZE);
+    // We could not move this into restart_dictionary, since we do queries and
+    // autocommit is disabled via RAII in that function.
+    result |= villagesql::SchemaManager::preinit(dd_init);
+  }
 
   // Update server and plugin I_S table metadata into DD tables.
   else if (dd_init == enum_dd_init_type::DD_UPDATE_I_S_METADATA)
@@ -324,6 +330,15 @@ bool Dictionary_impl::is_dd_table_access_allowed(bool is_dd_internal_thread,
                                                  const char *schema_name,
                                                  size_t schema_length,
                                                  const char *table_name) const {
+  // Lockdown access to villagesql.* tables.
+  if (strcmp(schema_name, villagesql::SchemaManager::VILLAGESQL_SCHEMA_NAME) ==
+      0) {
+    // Allow access for internal threads or if running a debug build and the
+    // appropriate session variable is set.
+    return is_dd_internal_thread ||
+           DBUG_EVALUATE_IF("skip_dd_table_access_check", true, false);
+  }
+
   /*
     From WL#6391, we have the following matrix describing access:
 
@@ -735,7 +750,13 @@ template const Object_table &get_dd_table<dd::Table>();
 template const Object_table &get_dd_table<dd::Tablespace>();
 
 void rename_tablespace_mdl_hook(THD *thd, MDL_ticket *src, MDL_ticket *dst) {
-  if (!thd->locked_tables_mode) {
+  // This function is relevant for statements being executed under LOCK TABLES,
+  // i.e. LTM_LOCK_TABLES or LTM_PRELOCKED_UNDER_LOCK_TABLES mode. So, we
+  // should skip for both LTM_NONE and LTM_PRELOCKED modes. VillageSQL
+  // system tables are pre-locked during DDL (LTM_PRELOCKED) and subsequent
+  // RENAME operations in COPY algorithm reaches here with LTM_PRELOCKED mode.
+  if (thd->locked_tables_mode == LTM_NONE ||
+      thd->locked_tables_mode == LTM_PRELOCKED) {
     return;
   }
   thd->locked_tables_list.add_rename_tablespace_mdls(src, dst);

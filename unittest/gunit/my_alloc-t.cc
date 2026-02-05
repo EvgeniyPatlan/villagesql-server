@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2015, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -255,6 +256,104 @@ TEST_F(MyAllocTest, ArrayAllocInitialization) {
   // non-copyable type:
   //
   // alloc.ArrayAlloc<std::unique_ptr<int>>(3, std::make_unique<int>(123));
+}
+
+// Test cleanup callback mechanism
+TEST_F(MyAllocTest, CleanupCallbacksRunOnClear) {
+  MEM_ROOT alloc(PSI_NOT_INSTRUMENTED, 512);
+
+  int counter = 0;
+  auto increment = [](void *arg) { ++*static_cast<int *>(arg); };
+
+  // Register several callbacks
+  EXPECT_FALSE(alloc.register_cleanup(increment, &counter));
+  EXPECT_FALSE(alloc.register_cleanup(increment, &counter));
+  EXPECT_FALSE(alloc.register_cleanup(increment, &counter));
+
+  EXPECT_EQ(0, counter);
+
+  // Clear should run all callbacks
+  alloc.Clear();
+  EXPECT_EQ(3, counter);
+
+  // Calling Clear again should not run callbacks again (they were cleared)
+  alloc.Clear();
+  EXPECT_EQ(3, counter);
+}
+
+TEST_F(MyAllocTest, CleanupCallbacksRunOnClearForReuse) {
+  MEM_ROOT alloc(PSI_NOT_INSTRUMENTED, 512);
+
+  // Allocate something so ClearForReuse has a block to keep
+  (void)alloc.Alloc(100);
+
+  int counter = 0;
+  auto increment = [](void *arg) { ++*static_cast<int *>(arg); };
+
+  EXPECT_FALSE(alloc.register_cleanup(increment, &counter));
+  EXPECT_FALSE(alloc.register_cleanup(increment, &counter));
+
+  EXPECT_EQ(0, counter);
+
+  alloc.ClearForReuse();
+  EXPECT_EQ(2, counter);
+
+  // Callbacks should not run again
+  alloc.ClearForReuse();
+  EXPECT_EQ(2, counter);
+}
+
+TEST_F(MyAllocTest, CleanupCallbacksRunInLIFOOrder) {
+  MEM_ROOT alloc(PSI_NOT_INSTRUMENTED, 512);
+
+  std::string order;
+  auto append_a = [](void *arg) { *static_cast<std::string *>(arg) += "A"; };
+  auto append_b = [](void *arg) { *static_cast<std::string *>(arg) += "B"; };
+  auto append_c = [](void *arg) { *static_cast<std::string *>(arg) += "C"; };
+
+  // Register in order A, B, C
+  EXPECT_FALSE(alloc.register_cleanup(append_a, &order));
+  EXPECT_FALSE(alloc.register_cleanup(append_b, &order));
+  EXPECT_FALSE(alloc.register_cleanup(append_c, &order));
+
+  alloc.Clear();
+
+  // Should run in LIFO order: C, B, A
+  EXPECT_EQ("CBA", order);
+}
+
+TEST_F(MyAllocTest, CleanupCallbacksTransferOnMove) {
+  MEM_ROOT alloc1(PSI_NOT_INSTRUMENTED, 512);
+
+  int counter = 0;
+  auto increment = [](void *arg) { ++*static_cast<int *>(arg); };
+
+  EXPECT_FALSE(alloc1.register_cleanup(increment, &counter));
+
+  // Move to alloc2
+  MEM_ROOT alloc2(std::move(alloc1));
+
+  // Clearing alloc1 should not run the callback (it was moved)
+  alloc1.Clear();
+  EXPECT_EQ(0, counter);
+
+  // Clearing alloc2 should run the callback
+  alloc2.Clear();
+  EXPECT_EQ(1, counter);
+}
+
+TEST_F(MyAllocTest, CleanupCallbacksRunOnDestruction) {
+  int counter = 0;
+  auto increment = [](void *arg) { ++*static_cast<int *>(arg); };
+
+  {
+    MEM_ROOT alloc(PSI_NOT_INSTRUMENTED, 512);
+    EXPECT_FALSE(alloc.register_cleanup(increment, &counter));
+    EXPECT_EQ(0, counter);
+    // Destructor runs here
+  }
+
+  EXPECT_EQ(1, counter);
 }
 
 }  // namespace my_alloc_unittest

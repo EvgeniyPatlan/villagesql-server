@@ -2321,7 +2321,7 @@ begin
 DECLARE céèçà foo CONDITION FOR SQLSTATE '12345';
 SIGNAL céèçà SET MYSQL_ERRNO = 1000;
 end $$
-ERROR 42000: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'foo CONDITION FOR SQLSTATE '12345';
+ERROR 42000: Expected a type or a custom type instead of "foo" near 'foo CONDITION FOR SQLSTATE '12345';
 SIGNAL céèçà SET MYSQL_ERRNO = 1000;
 end' at line 3
 create procedure test_signal()

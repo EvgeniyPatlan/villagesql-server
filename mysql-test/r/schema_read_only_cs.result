@@ -100,6 +100,7 @@ def	mysql
 def	performance_schema	
 def	sys	
 def	test	
+def	villagesql	
 ALTER SCHEMA S READ ONLY=1;
 SELECT * FROM information_schema.schemata_extensions ORDER BY SCHEMA_NAME;
 CATALOG_NAME	SCHEMA_NAME	OPTIONS
@@ -110,6 +111,7 @@ def	mysql
 def	performance_schema	
 def	sys	
 def	test	
+def	villagesql	
 ALTER SCHEMA S READ ONLY=0;
 SELECT * FROM information_schema.schemata_extensions ORDER BY SCHEMA_NAME;
 CATALOG_NAME	SCHEMA_NAME	OPTIONS
@@ -120,6 +122,7 @@ def	mysql
 def	performance_schema	
 def	sys	
 def	test	
+def	villagesql	
 DROP SCHEMA S;
 #--------------------------------------------------------------------
 # FR7: The read only option affects all users.
@@ -243,6 +246,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 # Schema operations.
 CREATE SCHEMA S;
 ERROR HY000: Can't create database 'S'; database exists
@@ -704,11 +708,12 @@ ALTER SCHEMA S READ ONLY=1;;
 # Verify lock state and let the INSERT continue.
 connection default;
 SELECT object_schema, object_name, lock_type, lock_status
-FROM performance_schema.metadata_locks WHERE object_schema in ('s', 'S');
+FROM performance_schema.metadata_locks WHERE object_schema in ('s', 'S')
+ORDER BY object_schema, object_name, lock_type, lock_status;
 object_schema	object_name	lock_type	lock_status
-S	t	SHARED_WRITE	GRANTED
 S	NULL	EXCLUSIVE	GRANTED
 S	t	EXCLUSIVE	PENDING
+S	t	SHARED_WRITE	GRANTED
 SET DEBUG_SYNC = 'now SIGNAL continue';
 # Verify that the statements complete. Note deadlock for the insert
 # due to acquiring IX on schema name.
@@ -732,7 +737,8 @@ INSERT INTO S.t VALUES (1);;
 # Verify lock state and let the ALTER continue.
 connection default;
 SELECT object_schema, object_name, lock_type, lock_status
-FROM performance_schema.metadata_locks WHERE object_schema in ('s', 'S');
+FROM performance_schema.metadata_locks WHERE object_schema in ('s', 'S')
+ORDER BY object_schema, object_name, lock_type, lock_status;
 object_schema	object_name	lock_type	lock_status
 S	NULL	EXCLUSIVE	GRANTED
 S	t	EXCLUSIVE	GRANTED

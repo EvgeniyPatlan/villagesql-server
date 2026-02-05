@@ -166,12 +166,14 @@ Note: YYTHD is passed as an argument to yyparse(), and subsequently to yylex().
 #include "sql/window_lex.h"
 #include "sql/xa/sql_cmd_xa.h"                   // Sql_cmd_xa...
 #include "sql_string.h"
+#include "villagesql/veb/sql_extension.h"
 #include "strcont.h"
 #include "strings/sql_chars.h"
 #include "strxnmov.h"
 #include "thr_lock.h"
 #include "violite.h"
 #include "sql/tablesample.h"
+#include "villagesql/types/pt_custom_type.h"
 
 /* this is to get the bison compilation windows warnings out */
 #ifdef _MSC_VER
@@ -1454,6 +1456,8 @@ void warn_on_deprecated_user_defined_collation(
 %token<lexer.keyword> MANUAL_SYM                 1212   /* MYSQL */
 %token<lexer.keyword> BERNOULLI_SYM              1213  /* SQL-2016-N */
 %token<lexer.keyword> TABLESAMPLE_SYM            1214  /* SQL-2016-R */
+// TODO(villagesql-rebase): Check if token number needs updating during MySQL rebase
+%token<lexer.keyword> EXTENSION_SYM              1215  /* VILLAGESQL */
 
 /*
   NOTE! When adding new non-standard keywords, make sure they are added to the
@@ -3922,6 +3926,18 @@ sp_pdparam:
             }
 
             CONTEXTUALIZE($3);
+
+            // TODO(villagesql-beta): Support custom type parameters
+            // Reject custom type parameters
+            if ($3->is_custom_type())
+            {
+              villagesql_error(
+                  "Custom types are not yet supported in stored "
+                  "procedures/functions",
+                  MYF(0));
+              MYSQL_YYABORT;
+            }
+
             enum_field_types field_type= $3->type;
             const CHARSET_INFO *cs= $3->get_charset();
             if (merge_sp_var_charset_and_collation(cs, $4, &cs))
@@ -4018,6 +4034,18 @@ sp_decl:
             pctx->declare_var_boundary($2);
 
             CONTEXTUALIZE($3);
+
+            // TODO(villagesql-beta): Support custom type DECLARE variables
+            // Reject custom type DECLARE variables
+            if ($3->is_custom_type())
+            {
+              villagesql_error(
+                  "Custom types are not yet supported in stored "
+                  "procedures/functions",
+                  MYF(0));
+              MYSQL_YYABORT;
+            }
+
             enum enum_field_types var_type= $3->type;
             const CHARSET_INFO *cs= $3->get_charset();
             if (merge_sp_var_charset_and_collation(cs, $4, &cs))
@@ -7090,6 +7118,16 @@ type:
         | JSON_SYM
           {
             $$= NEW_PTN PT_json_type(@$);
+          }
+        | IDENT_sys opt_field_length
+          {
+            // Custom data type, potentially - we will find out when constructing.
+            $$= villagesql::PT_custom_type::create(YYMEM_ROOT, @$, Lex->thd, {}, $1, $2);
+          }
+        | IDENT_sys '.' IDENT_sys opt_field_length
+          {
+            // Qualified custom type: extension_name.type_name
+            $$= villagesql::PT_custom_type::create(YYMEM_ROOT, @$, Lex->thd, $1, $3, $4);
           }
         ;
 
@@ -15408,6 +15446,7 @@ ident_keywords_unambiguous:
         | EXPIRE_SYM
         | EXPORT_SYM
         | EXTENDED_SYM
+        | EXTENSION_SYM
         | EXTENT_SIZE_SYM
         | FACTOR_SYM
         | FAILED_LOGIN_ATTEMPTS_SYM
@@ -17806,6 +17845,18 @@ sf_tail:
             sp_head *sp= lex->sphead;
 
             CONTEXTUALIZE($10);
+
+            // TODO(villagesql-beta): Support custom type function return values
+            // Reject custom type function return values
+            if ($10->is_custom_type())
+            {
+              villagesql_error(
+                  "Custom types are not yet supported in stored "
+                  "procedures/functions",
+                  MYF(0));
+              MYSQL_YYABORT;
+            }
+
             enum_field_types field_type= $10->type;
             const CHARSET_INFO *cs= $10->get_charset();
             if (merge_sp_var_charset_and_collation(cs, $11, &cs))
@@ -18144,6 +18195,14 @@ install_stmt:
             lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_install_plugin(to_lex_cstring($3), $5);
             $$ = nullptr;
           }
+        // TODO(villagesql-rebase): INSTALL EXTENSION grammar rule, check placement during MySQL rebase
+        | INSTALL_SYM EXTENSION_SYM IDENT_sys
+          {
+            LEX *lex= Lex;
+            lex->sql_command= SQLCOM_INSTALL_EXTENSION;
+            lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_install_extension(to_lex_cstring($3));
+            $$ = nullptr;
+          }
         | INSTALL_SYM COMPONENT_SYM TEXT_STRING_sys_list opt_install_set_value_list
           {
             $$ = NEW_PTN PT_install_component(@$, YYTHD, $3, $4);
@@ -18156,6 +18215,13 @@ uninstall:
             LEX *lex= Lex;
             lex->sql_command= SQLCOM_UNINSTALL_PLUGIN;
             lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_uninstall_plugin(to_lex_cstring($3));
+          }
+       // TODO(villagesql-rebase): UNINSTALL EXTENSION grammar rule, check placement during MySQL rebase
+       | UNINSTALL_SYM EXTENSION_SYM IDENT_sys
+          {
+            LEX *lex= Lex;
+            lex->sql_command= SQLCOM_UNINSTALL_EXTENSION;
+            lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_uninstall_extension(to_lex_cstring($3));
           }
        | UNINSTALL_SYM COMPONENT_SYM TEXT_STRING_sys_list
           {

@@ -1,4 +1,5 @@
 /* Copyright (c) 2010, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -56,6 +57,10 @@ class String;
 class THD;
 struct CHARSET_INFO;
 class Table_ref;
+
+namespace villagesql {
+class TypeContext;
+}
 
 /**
   Class representing DROP COLUMN, DROP KEY, DROP FOREIGN KEY, DROP CHECK
@@ -498,7 +503,8 @@ class Alter_info {
                  Value_generator *default_val_expr, const char *opt_after,
                  std::optional<gis::srid_t> srid,
                  Sql_check_constraint_spec_list *check_cons_list,
-                 dd::Column::enum_hidden_type hidden, bool is_array = false);
+                 dd::Column::enum_hidden_type hidden, bool is_array = false,
+                 const villagesql::TypeContext *type_context = nullptr);
 
  private:
   Alter_info &operator=(const Alter_info &rhs);  // not implemented

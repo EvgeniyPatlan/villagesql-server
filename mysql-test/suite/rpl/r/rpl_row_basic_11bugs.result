@@ -16,6 +16,7 @@ performance_schema
 sys
 test
 test_ignore
+villagesql
 USE test;
 CREATE TABLE t1 (a INT, b INT);
 SHOW TABLES;
@@ -45,6 +46,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 USE test;
 SHOW TABLES;
 Tables_in_test

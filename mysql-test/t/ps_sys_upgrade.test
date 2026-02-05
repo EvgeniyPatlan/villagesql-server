@@ -1,3 +1,4 @@
+--source include/villagesql/too_old_upgrade.inc
 #Performance schema upgrade/downgrade tests
 -- source include/big_test.inc
 #Memory checks will be done by ASAN builds, valgrind timeout on this test.

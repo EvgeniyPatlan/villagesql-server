@@ -238,6 +238,8 @@ INSERT INTO global_suppressions VALUES
  ("==[0-9]*== I   refs:      [0-9]+"),
  ("==[0-9]*== Massif"),
  ("==[0-9]*== Helgrind"),
+ /* valgrind warnings for unhandled syscalls */
+ ("--[0-9]+-- WARNING: unhandled .*-linux syscall: [0-9]+"),
 
  /* Suppress warnings caused by foreign clients, see Bug#31893901 */
 

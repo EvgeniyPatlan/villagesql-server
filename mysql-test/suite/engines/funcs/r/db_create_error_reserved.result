@@ -6,6 +6,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 CREATE DATABASE mysql;
 ERROR HY000: Access to system schema 'mysql' is rejected.
 SHOW DATABASES;
@@ -16,3 +17,4 @@ mysql
 performance_schema
 sys
 test
+villagesql

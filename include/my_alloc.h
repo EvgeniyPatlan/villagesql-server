@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -87,6 +88,14 @@ struct MEM_ROOT {
     char *end{nullptr};   /** One byte past the end; used for Contains(). */
   };
 
+  // Cleanup callback node, allocated on the MEM_ROOT itself.
+  // Forms a singly-linked list of callbacks to run before memory is freed.
+  struct CleanupCallback {
+    void (*fn)(void *);    /** Function to call. */
+    void *arg;             /** Argument to pass to fn. */
+    CleanupCallback *next; /** Next callback in the list. */
+  };
+
  public:
   MEM_ROOT() : MEM_ROOT(0, 512) {}  // 0 = PSI_NOT_INSTRUMENTED.
 
@@ -101,8 +110,7 @@ struct MEM_ROOT {
 
   // MEM_ROOT is movable but not copyable.
   MEM_ROOT(const MEM_ROOT &) = delete;
-  MEM_ROOT(MEM_ROOT &&other)
-  noexcept
+  MEM_ROOT(MEM_ROOT &&other) noexcept
       : m_current_block(other.m_current_block),
         m_current_free_start(other.m_current_free_start),
         m_current_free_end(other.m_current_free_end),
@@ -112,12 +120,14 @@ struct MEM_ROOT {
         m_allocated_size(other.m_allocated_size),
         m_error_for_capacity_exceeded(other.m_error_for_capacity_exceeded),
         m_error_handler(other.m_error_handler),
-        m_psi_key(other.m_psi_key) {
+        m_psi_key(other.m_psi_key),
+        m_cleanup_callbacks(other.m_cleanup_callbacks) {
     other.m_current_block = nullptr;
     other.m_allocated_size = 0;
     other.m_block_size = m_orig_block_size;
     other.m_current_free_start = &s_dummy_target;
     other.m_current_free_end = &s_dummy_target;
+    other.m_cleanup_callbacks = nullptr;
   }
 
   MEM_ROOT &operator=(const MEM_ROOT &) = delete;
@@ -279,6 +289,31 @@ struct MEM_ROOT {
   }
 
   /**
+   * Register a cleanup callback to be called when this MEM_ROOT is cleared.
+   * Callbacks are called in reverse order of registration (LIFO), before the
+   * memory is freed. This is useful for releasing external resources (like
+   * reference counts) that are associated with objects allocated on this
+   * MEM_ROOT.
+   *
+   * The callback structure is allocated on this MEM_ROOT, so there's no need
+   * to free it separately.
+   *
+   * @param fn   The function to call. Must not be nullptr.
+   * @param arg  The argument to pass to fn. May be nullptr.
+   * @return     false on success, true if allocation failed.
+   */
+  bool register_cleanup(void (*fn)(void *), void *arg) {
+    assert(fn != nullptr);
+    auto *cb = static_cast<CleanupCallback *>(Alloc(sizeof(CleanupCallback)));
+    if (cb == nullptr) return true;
+    cb->fn = fn;
+    cb->arg = arg;
+    cb->next = m_cleanup_callbacks;
+    m_cleanup_callbacks = cb;
+    return false;
+  }
+
+  /**
    * Amount of memory we have allocated from the operating system, not including
    * overhead.
    */
@@ -417,6 +452,10 @@ struct MEM_ROOT {
   void (*m_error_handler)(void) = nullptr;
 
   PSI_memory_key m_psi_key = 0;
+
+  /** Head of the cleanup callback list. Callbacks run before memory is freed.
+   */
+  CleanupCallback *m_cleanup_callbacks = nullptr;
 };
 
 /**

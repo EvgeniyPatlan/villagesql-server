@@ -1,5 +1,6 @@
 # Copyright (c) 2006, 2025, Oracle and/or its affiliates.
-# 
+#    Copyright (c) 2026 VillageSQL Contributors
+#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2.0,
 # as published by the Free Software Foundation.
@@ -24,6 +25,8 @@
 MESSAGE(STATUS "Running cmake version ${CMAKE_VERSION}")
 
 IF(WIN32)
+  MESSAGE(FATAL_ERROR "VillageSQL does not currently support Windows. Please use Linux or macOS.")
+
   # Load policies. This is needed in order to parse the wmic version check.
   CMAKE_MINIMUM_REQUIRED(VERSION 3.5.1)
   EXECUTE_PROCESS(COMMAND wmic os get version
@@ -112,7 +115,7 @@ FIND_PACKAGE(Git)
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake)
 
 # First, decide about build type (debug or release)
-# If cmake is invoked with -DCMAKE_BUILD_TYPE, 
+# If cmake is invoked with -DCMAKE_BUILD_TYPE,
 # respect user wishes and do not (re)define CMAKE_BUILD_TYPE. If WITH_DEBUG
 # is given, set CMAKE_BUILD_TYPE = Debug. Otherwise, use Relwithdebinfo.
 
@@ -126,7 +129,7 @@ OPTION(CHECK_ERRMSG_FORMAT "Check printf format for English error messages" OFF)
 # Use a default manufacturer if no manufacturer was identified.
 SET(MANUFACTURER_DOCSTRING
   "Set the entity that appears as the manufacturer of packages that support a manufacturer field.")
-IF(NOT DEFINED MANUFACTURER) 
+IF(NOT DEFINED MANUFACTURER)
   SET(MANUFACTURER "Built from Source" CACHE  STRING ${MANUFACTURER_DOCSTRING})
   MARK_AS_ADVANCED(MANUFACTURER)
 ENDIF()
@@ -152,9 +155,9 @@ ELSEIF(MAX_INDEXES LESS 64)
 ENDIF()
 
 # We choose to provide WITH_DEBUG as alias to standard CMAKE_BUILD_TYPE=Debug
-# which turns out to be not trivial, as this involves synchronization 
+# which turns out to be not trivial, as this involves synchronization
 # between CMAKE_BUILD_TYPE and WITH_DEBUG. Besides, we have to deal with cases
-# where WITH_DEBUG is  reset from ON to OFF  and here we need to reset 
+# where WITH_DEBUG is  reset from ON to OFF  and here we need to reset
 # CMAKE_BUILD_TYPE to either none or default RelWithDebInfo
 
 SET(BUILDTYPE_DOCSTRING
@@ -166,7 +169,7 @@ IF(WITH_DEBUG)
   SET(OLD_WITH_DEBUG 1 CACHE INTERNAL "" FORCE)
 ELSEIF(NOT HAVE_CMAKE_BUILD_TYPE OR OLD_WITH_DEBUG)
   IF(CMAKE_BUILD_TYPE MATCHES "Debug" OR NOT HAVE_CMAKE_BUILD_TYPE)
-    SET(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING 
+    SET(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING
        ${BUILDTYPE_DOCSTRING} FORCE)
   ENDIF()
   SET(OLD_WITH_DEBUG 0 CACHE INTERNAL "" FORCE)
@@ -1509,7 +1512,7 @@ IF(WITH_TEST_TRACE_PLUGIN AND NOT WITH_CLIENT_PROTOCOL_TRACING)
 ENDIF()
 
 IF(WITH_TEST_TRACE_PLUGIN AND NOT CMAKE_BUILD_TYPE_UPPER STREQUAL "DEBUG")
-  MESSAGE(SEND_ERROR 
+  MESSAGE(SEND_ERROR
     "Test trace plugin was selected but it can be included only in
      debug binaries. Set WITH_TEST_TRACE_PLUGIN to OFF or WITH_DEBUG to ON.")
 ENDIF()
@@ -1551,6 +1554,7 @@ ENDIF()
 
 SET(DEFAULT_CHARSET_HOME "${DEFAULT_MYSQL_HOME}")
 SET(PLUGINDIR "${DEFAULT_MYSQL_HOME}/${INSTALL_PLUGINDIR}")
+SET(VEBDIR "${DEFAULT_MYSQL_HOME}/${INSTALL_VEBDIR}")
 IF(SYSCONFDIR)
   SET(DEFAULT_SYSCONFDIR "${SYSCONFDIR}")
 ENDIF()
@@ -2288,6 +2292,19 @@ ADD_DEPENDENCIES(clang_tidy_prerequisites GenError)
 
 ADD_SUBDIRECTORY(include)
 ADD_SUBDIRECTORY(strings)
+IF(MY_COMPILER_IS_GNU_OR_CLANG)
+  # libarchive uses '#if HAVE_*' for many undefined macros which fails with -Wundef
+  # Suppress for the entire libarchive library instead of individual files
+  MY_CHECK_CXX_COMPILER_WARNING("undef" NO_UNDEF_WARN_FLAG)
+  IF(NO_UNDEF_WARN_FLAG)
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${NO_UNDEF_WARN_FLAG}")
+  ENDIF()
+ENDIF()
+ADD_SUBDIRECTORY(extra/libarchive)
+IF(MY_COMPILER_IS_GNU_OR_CLANG AND NO_UNDEF_WARN_FLAG)
+  # Restore original flags after libarchive
+  STRING(REPLACE "${NO_UNDEF_WARN_FLAG}" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+ENDIF()
 ADD_SUBDIRECTORY(extra/unordered_dense)
 ADD_SUBDIRECTORY(extra/xxhash)
 ADD_SUBDIRECTORY(vio)
@@ -2297,6 +2314,10 @@ ADD_SUBDIRECTORY(libmysql)
 ADD_SUBDIRECTORY(libs/mysql)
 ADD_SUBDIRECTORY(libchangestreams)
 ADD_SUBDIRECTORY(sql-common/oci)
+
+# VillageSQL subdirectories managed by sql/CMakeLists.txt to avoid
+# circular dependencies.
+ADD_SUBDIRECTORY(villagesql)
 
 IF(NOT WITHOUT_SERVER)
   IF(WITH_UNIT_TESTS)
@@ -2441,6 +2462,8 @@ CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/include/mysql_version.h.in
                ${CMAKE_BINARY_DIR}/include/mysql_version.h )
 CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/include/mysql_server_suffix.h.in
                ${CMAKE_BINARY_DIR}/include/mysql_server_suffix.h)
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/villagesql/include/version.h.in
+               ${CMAKE_BINARY_DIR}/villagesql/include/version.h )
 CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/sql/sql_builtin.cc.in
     ${CMAKE_BINARY_DIR}/sql/sql_builtin.cc)
 
@@ -2613,7 +2636,7 @@ IF(WIN32)
   SET(CPACK_GENERATOR "ZIP")
 ELSE()
   SET(CPACK_GENERATOR "TGZ")
-ENDIF() 
+ENDIF()
 IF(WIN32)
   ADD_SUBDIRECTORY(packaging/WiX)
 ENDIF()
@@ -2729,6 +2752,20 @@ IF(UNIX AND BUILD_IS_SINGLE_CONFIG)
     COMMAND ${CMAKE_COMMAND} -E create_symlink
     ${CMAKE_BINARY_DIR}/plugin_output_directory ${INSTALL_PLUGINDIR_NAME}
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/${INSTALL_PLUGINDIR_PATH}
+    )
+
+  # Same for VEB directory: create lib/veb symlink to veb_output_directory
+  GET_FILENAME_COMPONENT(INSTALL_VEBDIR_PATH ${INSTALL_VEBDIR} PATH)
+  GET_FILENAME_COMPONENT(INSTALL_VEBDIR_NAME ${INSTALL_VEBDIR} NAME)
+  IF(NOT IS_DIRECTORY ${CMAKE_BINARY_DIR}/${INSTALL_VEBDIR_PATH})
+    MESSAGE(STATUS "MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${INSTALL_VEBDIR_PATH}")
+    FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${INSTALL_VEBDIR_PATH})
+  ENDIF()
+
+  EXECUTE_PROCESS(
+    COMMAND ${CMAKE_COMMAND} -E create_symlink
+    ${CMAKE_BINARY_DIR}/veb_output_directory ${INSTALL_VEBDIR_NAME}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/${INSTALL_VEBDIR_PATH}
     )
 ENDIF()
 

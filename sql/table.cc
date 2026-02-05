@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -131,6 +132,7 @@
 #include "strxnmov.h"
 #include "template_utils.h"  // down_cast
 #include "thr_mutex.h"
+#include "villagesql/schema/schema_manager.h"
 
 /* INFORMATION_SCHEMA name */
 LEX_CSTRING INFORMATION_SCHEMA_NAME = {STRING_WITH_LEN("information_schema")};
@@ -355,6 +357,13 @@ TABLE_CATEGORY get_table_category(const LEX_CSTRING &db,
 
     if (dd::get_dictionary()->is_dd_table_name(MYSQL_SCHEMA_NAME.str, name.str))
       return TABLE_CATEGORY_DICTIONARY;
+  }
+
+  // Check for VillageSQL system tables
+  if (my_strcasecmp(system_charset_info,
+                    villagesql::SchemaManager::VILLAGESQL_SCHEMA_NAME,
+                    db.str) == 0) {
+    return TABLE_CATEGORY_VILLAGESQL_SYSTEM;
   }
 
   return TABLE_CATEGORY_USER;

@@ -6,6 +6,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 select count(*) from performance_schema.performance_timers;
 count(*)
 5
@@ -130,6 +131,7 @@ COUNT_STAR
 select COUNT_STAR from performance_schema.table_io_waits_summary_by_index_usage
 where INDEX_NAME!='NULL';
 COUNT_STAR
+305
 1
 FLUSH TABLES;
 select COUNT_STAR from performance_schema.table_io_waits_summary_by_table

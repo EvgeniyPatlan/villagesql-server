@@ -35,6 +35,7 @@ eval INSERT INTO $I_S_view_names (name) VALUES
   ('COLUMNS_EXTENSIONS'),
   ('COLUMN_STATISTICS'),
   ('EVENTS'),
+  ('EXTENSIONS'),
   ('FILES'),
   ('INNODB_DATAFILES'),
   ('INNODB_FOREIGN'),

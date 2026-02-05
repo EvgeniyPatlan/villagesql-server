@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2012, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -1762,6 +1763,11 @@ dberr_t row_import::add_instant_dropped_columns(dict_table_t *target_table) {
     index->fields = (dict_field_t *)mem_heap_alloc(
         index->heap, 1 + (total_fields) * sizeof(dict_field_t));
     memcpy(index->fields, fields, 1 + index->n_fields * sizeof(dict_field_t));
+
+    // Initialize the fields beyond the original ones.
+    for (uint32_t i = index->n_fields; i < total_fields; ++i) {
+      new (&index->fields[i]) dict_field_t();
+    }
 
     /* Fix field->col pointers with the mapping created. */
     for (size_t i = 0; i < index->n_fields; i++) {

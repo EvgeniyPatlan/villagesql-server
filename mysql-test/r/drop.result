@@ -53,6 +53,7 @@ mysqltest
 performance_schema
 sys
 test
+villagesql
 flush tables with read lock;
 drop database mysqltest;
 Got one of the listed errors
@@ -66,6 +67,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 drop database mysqltest;
 ERROR HY000: Can't drop database 'mysqltest'; database doesn't exist
 drop table t1;

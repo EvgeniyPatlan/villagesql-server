@@ -1,4 +1,4 @@
-
+--source include/villagesql/too_old_upgrade.inc
 --source include/not_valgrind.inc
 --source include/have_debug_sync.inc
 
@@ -2231,7 +2231,7 @@ WHERE table_schema = 'mysql' AND
                      'proxies_priv', 'tables_priv')
 ORDER BY table_name;
 
---echo # 
+--echo #
 --echo # Clean-up. Restore original state of privilege tables.
 
 DROP TABLES mysql.user, mysql.db, mysql.columns_priv, mysql.procs_priv,

@@ -1,0 +1,23 @@
+# Test SELECT ... INTO with COMPLEX type
+# Grammar: SELECT ... INTO ...
+
+--source include/villagesql/not_implemented_complex_type.inc
+
+--source include/villagesql/install_complex_extension.inc
+
+CREATE TABLE t1 (val COMPLEX);
+INSERT INTO t1 VALUES ('(1.0,2.0)');
+
+# Select into variable
+SELECT val INTO @var FROM t1;
+SELECT @var;
+
+# TODO(villagesql): Add more comprehensive SELECT INTO tests including:
+# - SELECT INTO OUTFILE with COMPLEX types (serialization format)
+# - SELECT INTO DUMPFILE with COMPLEX types
+# - Multiple variables with SELECT INTO
+# - SELECT INTO with expressions involving COMPLEX types
+
+DROP TABLE t1;
+
+--source include/villagesql/uninstall_complex_extension.inc

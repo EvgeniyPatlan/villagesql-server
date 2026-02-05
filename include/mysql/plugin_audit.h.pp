@@ -336,6 +336,8 @@ enum enum_sql_command {
   SQLCOM_CREATE_SRS,
   SQLCOM_DROP_SRS,
   SQLCOM_SHOW_PARSE_TREE,
+  SQLCOM_INSTALL_EXTENSION,
+  SQLCOM_UNINSTALL_EXTENSION,
   SQLCOM_END
 };
 #include "plugin_audit_message_types.h"

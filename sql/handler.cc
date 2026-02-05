@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -7870,6 +7871,13 @@ static int write_locked_table_maps(THD *thd) {
             which calls the current function, we check the type of the table
             of the current row.
           */
+
+          // Don't generate table map events for VillageSQL system tables.
+          // We need to prevent it explicitly for cases when we log table maps
+          // for all tables that are locked e.g. in CREATE TABLE... SELECT.
+          if (table->s->table_category == TABLE_CATEGORY_VILLAGESQL_SYSTEM) {
+            return 0;
+          }
           bool const has_trans = thd->lex->sql_command == SQLCOM_CREATE_TABLE ||
                                  table->file->has_transactions();
           int const error = thd->binlog_write_table_map(table, has_trans,
@@ -7938,6 +7946,10 @@ class Binlog_log_row_cleanup {
 
 int binlog_log_row(TABLE *table, const uchar *before_record,
                    const uchar *after_record, Log_func *log_func) {
+  // Don't generate binlog events for VillageSQL system tables.
+  if (table->s->table_category == TABLE_CATEGORY_VILLAGESQL_SYSTEM) {
+    return 0;
+  }
   bool error = false;
   THD *const thd = table->in_use;
 

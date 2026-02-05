@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -59,6 +60,7 @@
 #include "sql/table.h"
 #include "sql/thd_raii.h"
 #include "sql/transaction.h"  // trans_commit_stmt
+#include "villagesql/sql/metadata_modifier.h"
 
 namespace dd {
 class Schema;
@@ -292,6 +294,11 @@ bool mysql_rename_tables(THD *thd, Table_ref *table_list) {
       lock_trigger_names(thd, table_list))
     return true;
 
+  // VillageSQL: Track custom columns and acquire necessary MDL locks.
+  if (villagesql::Metadata_modifier::process_rename(thd, table_list)) {
+    return true;
+  }
+
   const dd::Table *table_def = nullptr;
   for (Table_ref *table = table_list; table && table->next_local;
        table = table->next_local) {
@@ -386,7 +393,8 @@ bool mysql_rename_tables(THD *thd, Table_ref *table_list) {
   }
 
   if (!error && !int_commit_done) {
-    error = (trans_commit_stmt(thd) || trans_commit_implicit(thd));
+    error = (villagesql::Metadata_modifier::store(thd) ||
+             trans_commit_stmt(thd) || trans_commit_implicit(thd));
 
     if (!error) {
       /*

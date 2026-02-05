@@ -33,6 +33,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 #
 # 1.b  create database and table db3.t1 on server_3
 #      and insert values in db3.t1
@@ -58,6 +59,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 #
 # 1.c  sync the slave (server_2) with both masters (server_1 and server_3)
 #
@@ -78,6 +80,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 include/assert.inc [Slave should have 10 rows in db1.t1]
 include/assert.inc [Slave should have 10 rows in db3.t1]
 #
@@ -145,6 +148,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 USE dbcommon;
 SHOW TABLES;
 Tables_in_dbcommon

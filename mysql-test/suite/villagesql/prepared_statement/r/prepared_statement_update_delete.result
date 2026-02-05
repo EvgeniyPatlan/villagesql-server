@@ -1,0 +1,32 @@
+CREATE TABLE t1 (
+id INT PRIMARY KEY,
+name VARCHAR(50),
+val COMPLEX
+);
+INSERT INTO t1 VALUES (1, 'Alice', '(1.0,2.0)');
+INSERT INTO t1 VALUES (2, 'Bob', '(3.0,4.0)');
+PREPARE stmt1 FROM 'UPDATE t1 SET name = ? WHERE id = ?';
+SET @name = 'Charlie';
+SET @id = 1;
+EXECUTE stmt1 USING @name, @id;
+SELECT id, name FROM t1 WHERE id = 1;
+id	name
+1	Charlie
+DEALLOCATE PREPARE stmt1;
+# Test 2: UPDATE custom column
+PREPARE stmt2 FROM 'UPDATE t1 SET val = ? WHERE id = ?';
+ERROR HY000: Custom types are not yet supported in prepared statements
+# Test 3: UPDATE with custom column in WHERE
+PREPARE stmt3 FROM 'UPDATE t1 SET name = ? WHERE val = ?';
+ERROR HY000: Custom types are not yet supported in prepared statements
+PREPARE stmt4 FROM 'DELETE FROM t1 WHERE id = ?';
+SET @id = 2;
+EXECUTE stmt4 USING @id;
+SELECT COUNT(*) FROM t1;
+COUNT(*)
+1
+DEALLOCATE PREPARE stmt4;
+# Test 5: DELETE with custom column in WHERE
+PREPARE stmt5 FROM 'DELETE FROM t1 WHERE val = ?';
+ERROR HY000: Custom types are not yet supported in prepared statements
+DROP TABLE t1;

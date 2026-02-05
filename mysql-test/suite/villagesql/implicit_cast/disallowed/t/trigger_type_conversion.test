@@ -1,0 +1,19 @@
+# Test trigger with type conversion
+
+--source include/villagesql/not_implemented_complex_type.inc
+--source include/villagesql/install_complex_extension.inc
+
+CREATE TABLE trigger_test (id INT, val COMPLEX);
+
+DELIMITER $$
+CREATE TRIGGER test_trigger
+  BEFORE INSERT ON trigger_test
+  FOR EACH ROW
+BEGIN
+  SET NEW.val = 'converted_string';
+END$$
+DELIMITER ;
+
+DROP TABLE trigger_test;
+
+--source include/villagesql/uninstall_complex_extension.inc

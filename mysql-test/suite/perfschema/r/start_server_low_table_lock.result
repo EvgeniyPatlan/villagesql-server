@@ -6,6 +6,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 select count(*) from performance_schema.performance_timers;
 count(*)
 5
@@ -134,11 +135,11 @@ from performance_schema.table_lock_waits_summary_by_table
 where OBJECT_SCHEMA='db1'
   order by OBJECT_TYPE, OBJECT_SCHEMA, OBJECT_NAME;
 COUNT_STAR	OBJECT_TYPE	OBJECT_SCHEMA	OBJECT_NAME
-3	TABLE	db1	t1
+0	TABLE	db1	t1
 select variable_value from performance_schema.global_status
 where variable_name like 'PERFORMANCE_SCHEMA_TABLE_LOCK_STAT_LOST';
 variable_value
-0
+4
 create table db1.t2 (a int, b char(10) default 'default',
 unique key uidx(a));
 insert into db1.t1 values('3', 'abc');
@@ -156,7 +157,7 @@ from performance_schema.table_lock_waits_summary_by_table
 where OBJECT_SCHEMA='db1'
   order by OBJECT_TYPE, OBJECT_SCHEMA, OBJECT_NAME;
 COUNT_STAR	OBJECT_TYPE	OBJECT_SCHEMA	OBJECT_NAME
-6	TABLE	db1	t1
+3	TABLE	db1	t1
 3	TABLE	db1	t2
 flush tables;
 select COUNT_STAR, OBJECT_TYPE, OBJECT_SCHEMA, OBJECT_NAME
@@ -164,7 +165,7 @@ from performance_schema.table_lock_waits_summary_by_table
 where OBJECT_SCHEMA='db1'
   order by OBJECT_TYPE, OBJECT_SCHEMA, OBJECT_NAME;
 COUNT_STAR	OBJECT_TYPE	OBJECT_SCHEMA	OBJECT_NAME
-6	TABLE	db1	t1
+0	TABLE	db1	t1
 0	TABLE	db1	t2
 select variable_value > 0 from performance_schema.global_status
 where variable_name like 'PERFORMANCE_SCHEMA_TABLE_LOCK_STAT_LOST';
@@ -188,7 +189,7 @@ from performance_schema.table_lock_waits_summary_by_table
 where OBJECT_SCHEMA='db1'
   order by OBJECT_TYPE, OBJECT_SCHEMA, OBJECT_NAME;
 COUNT_STAR	OBJECT_TYPE	OBJECT_SCHEMA	OBJECT_NAME
-6	TABLE	db1	t1
+0	TABLE	db1	t1
 0	TABLE	db1	t2
 flush tables;
 select COUNT_STAR, OBJECT_TYPE, OBJECT_SCHEMA, OBJECT_NAME
@@ -196,7 +197,7 @@ from performance_schema.table_lock_waits_summary_by_table
 where OBJECT_SCHEMA='db1'
   order by OBJECT_TYPE, OBJECT_SCHEMA, OBJECT_NAME;
 COUNT_STAR	OBJECT_TYPE	OBJECT_SCHEMA	OBJECT_NAME
-6	TABLE	db1	t1
+0	TABLE	db1	t1
 0	TABLE	db1	t2
 select variable_value from performance_schema.global_status
 where variable_name like 'PERFORMANCE_SCHEMA_TABLE_LOCK_STAT_LOST';

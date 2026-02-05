@@ -2,6 +2,7 @@
 #define ITEM_CMPFUNC_INCLUDED
 
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -53,6 +54,7 @@
 #include "sql/table.h"
 #include "sql_string.h"
 #include "template_utils.h"  // down_cast
+#include "villagesql/types/util.h"
 
 class Arg_comparator;
 class Field;
@@ -150,6 +152,8 @@ class Arg_comparator {
   Item *right_cache{nullptr};
   bool set_null{true};  // true <=> set owner->null_value
                         //   when one of arguments is NULL.
+  // For custom types: stores TypeContext for custom comparison
+  const villagesql::TypeContext *custom_type{nullptr};
 
   bool try_year_cmp_func(Item_result type);
   static bool get_date_from_const(Item *date_arg, Item *str_arg,
@@ -247,6 +251,10 @@ class Arg_comparator {
   Arg_comparator *get_child_comparators() const { return comparators; }
 
   bool compare_as_json() const { return func == &Arg_comparator::compare_json; }
+
+  // Returns true if comparison uses custom type semantics (requires recheck
+  // after hash join lookup, similar to JSON)
+  bool compare_as_custom_type() const { return custom_type != nullptr; }
 
   /// @returns true if the class has decided that values should be extracted
   ///   from the Items using function pointers set up by this class.
@@ -709,6 +717,9 @@ class Item_func_comparison : public Item_bool_func2 {
   bool is_null() override;
 
   bool cast_incompatible_args(uchar *) override;
+
+  // Handle custom type injection for comparisons
+  bool fix_fields(THD *thd, Item **ref) override;
 };
 
 /**
@@ -1864,12 +1875,21 @@ class cmp_item_string final : public cmp_item_scalar {
   const String *value_res;
   StringBuffer<STRING_BUFFER_USUAL_SIZE> value;
   const CHARSET_INFO *cmp_charset;
+  const villagesql::TypeContext *custom_type{nullptr};
 
  public:
   cmp_item_string(const CHARSET_INFO *cs) : value(cs), cmp_charset(cs) {}
 
+  void set_type_context(const villagesql::TypeContext *tc) { custom_type = tc; }
+
   int compare(const cmp_item *ci) const override {
     const cmp_item_string *l_cmp = down_cast<const cmp_item_string *>(ci);
+    // Use custom comparison for custom types
+    auto custom_result = villagesql::TryCompareCustomType(
+        custom_type, *value_res, *l_cmp->value_res);
+    if (custom_result.has_value()) {
+      return custom_result.value();
+    }
     return sortcmp(value_res, l_cmp->value_res, cmp_charset);
   }
 
@@ -2042,6 +2062,7 @@ class Item_func_case final : public Item_func {
   ~Item_func_case() override;
   int get_first_expr_num() const { return first_expr_num; }
   int get_else_expr_num() const { return else_expr_num; }
+  uint get_ncases() const { return ncases; }
   double val_real() override;
   longlong val_int() override;
   String *val_str(String *) override;

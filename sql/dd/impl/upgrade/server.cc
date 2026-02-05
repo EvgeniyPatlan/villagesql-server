@@ -1,4 +1,5 @@
 /* Copyright (c) 2019, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -85,6 +86,7 @@
 #include "sql/trigger.h"  // Trigger
 #include "sql/trigger_def.h"
 #include "string_with_len.h"
+#include "villagesql/schema/schema_manager.h"
 
 using sql_mode_t = uint64_t;
 extern const char *mysql_sys_schema[];
@@ -675,6 +677,8 @@ bool fix_mysql_tables(THD *thd) {
   }
 
   if (upgrade_firewall(thd)) return true;
+
+  if (villagesql::SchemaManager::upgrade_villagesql_schema(thd)) return true;
 
   LogErr(INFORMATION_LEVEL, ER_SERVER_UPGRADE_MYSQL_TABLES);
   const char **query_ptr;
@@ -1392,6 +1396,7 @@ bool no_server_upgrade_required() {
   return !(
       dd::bootstrap::DD_bootstrap_ctx::instance().is_server_upgrade() ||
       bootstrap::DD_bootstrap_ctx::instance().is_server_patch_downgrade() ||
+      villagesql::SchemaManager::is_villagesql_upgrade_needed() ||
       opt_upgrade_mode == UPGRADE_FORCE);
 }
 

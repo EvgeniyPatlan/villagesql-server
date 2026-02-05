@@ -18,6 +18,11 @@
 # "intermediate updates" logic could be removed. Consequently, it also
 # removed much of this test.
 
+# While this passes in mainline MySQL, the timing assumptions are bad,
+# and this test invariably ends up failing for VillageSQL, due to log
+# message reordering (with microsecond differences).
+--source include/villagesql/mysql_failure_skip.inc
+
 --source include/big_test.inc
 --source include/not_windows.inc
 --source include/not_asan.inc

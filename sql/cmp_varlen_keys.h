@@ -1,4 +1,5 @@
 /* Copyright (c) 2016, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -28,8 +29,10 @@
 #include <stdio.h>
 #include <functional>
 
+#include "sql/item.h"
 #include "sql/sort_param.h"
 #include "sql/sql_array.h"
+#include "villagesql/types/util.h"
 
 /**
   A compare function for variable-length keys used by filesort().
@@ -78,7 +81,8 @@ inline bool cmp_varlen_keys(
       kp_len = kp1_len = kp2_len = sort_field.length;
     }
 
-    res = memcmp(kp1, kp2, kp_len);
+    res = villagesql::CustomMemCompare(sort_field.item, kp1, kp1_len, kp2,
+                                       kp2_len, kp_len, sort_field.reverse);
 
     if (res) return res < 0;
     if (kp1_len != kp2_len) {

@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2017, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -79,6 +80,7 @@ Data dictionary interface */
 #include "sql_base.h"
 #include "sql_table.h"
 #include "univ.i"  // Using OS_PATH_SEPARATOR
+#include "villagesql/types/util.h"
 #endif             /* !UNIV_HOTBACKUP */
 
 const char *DD_instant_col_val_coder::encode(const byte *stream, size_t in_len,
@@ -3018,6 +3020,11 @@ template const dict_index_t *dd_find_index<dd::Partition_index>(
     }
 
     col->is_visible = !field->is_hidden_by_system();
+
+    // Set custom comparison function for custom types during index creation
+    // Field should have type context at this point if it is custom
+    col->set_custom_compare(villagesql::GetCompareFunc(*field));
+
     dict_index_add_col(index, table, col, prefix_len, is_asc);
   }
 
@@ -3638,6 +3645,10 @@ static inline void fill_dict_existing_column(
     dict_mem_table_add_col(m_table, heap, field->field_name, mtype, prtype,
                            col_len, !field->is_hidden_by_system(), phy_pos,
                            (uint8_t)v_added, UINT8_UNDEFINED);
+
+    // Note: custom_compare set in ha_innobase::open() after Field type_context
+    // injection
+
   } else {
     dict_mem_table_add_v_col(m_table, heap, field->field_name, mtype, prtype,
                              col_len, pos,

@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -91,6 +92,8 @@
 #include "sql/system_variables.h"
 #include "sql/thd_raii.h"
 #include "string_with_len.h"
+#include "villagesql/include/error.h"
+#include "villagesql/types/util.h"
 
 using std::max;
 using std::min;
@@ -798,6 +801,34 @@ bool Item_bool_func2::resolve_type(THD *thd) {
   return (thd->lex->sql_command != SQLCOM_SHOW_CREATE) ? set_cmp_func() : false;
 }
 
+bool Item_func_comparison::fix_fields(THD *thd, Item **ref) {
+  assert(arg_count == 2);
+
+  // First, fix the fields using parent's implementation
+  if (Item_bool_func2::fix_fields(thd, ref)) return true;
+
+  // Check if either side is a custom type
+  Item *lhs = args[0];
+  Item *rhs = args[1];
+  const villagesql::TypeContext *lhs_tc = lhs->get_type_context();
+  const villagesql::TypeContext *rhs_tc = rhs->get_type_context();
+
+  // If neither side is custom, nothing to do
+  if (lhs_tc == nullptr && rhs_tc == nullptr) return false;
+
+  // If both sides are custom, leave compatibility checking for later
+  if (lhs_tc != nullptr && rhs_tc != nullptr) {
+    return false;
+  }
+
+  // One side is custom, the other is not. Inject type into the other Item, if
+  // appropriate.
+  const villagesql::TypeContext *tc = (lhs_tc != nullptr) ? lhs_tc : rhs_tc;
+  Item *non_custom_arg = (lhs_tc != nullptr) ? args[1] : args[0];
+
+  return villagesql::TryImplicitCastToCustom(non_custom_arg, *tc);
+}
+
 bool Item_func_like::resolve_type(THD *thd) {
   // Function returns 0 or 1
   max_length = 1;
@@ -1270,6 +1301,20 @@ bool Arg_comparator::set_cmp_func(Item_result_field *owner_arg, Item **left_arg,
     (*left)->mark_json_as_scalar();
     (*right)->mark_json_as_scalar();
     return false;
+  }
+
+  // Check for custom types - these need special comparison like JSON.
+  // Custom types can't be compared byte-by-byte; they require semantic
+  // comparison via compare_binary_string() which calls TryCompareCustomType().
+  // By returning early here (like JSON), we ensure hash joins, if supported,
+  // will be handled properly.
+  if (type == STRING_RESULT) {
+    custom_type = villagesql::GetCompatibleCustomType(**left, **right);
+    if (custom_type != nullptr) {
+      func = &Arg_comparator::compare_binary_string;
+      cmp_collation.set(&my_charset_bin);
+      return false;
+    }
   }
 
   /*
@@ -1889,6 +1934,12 @@ int Arg_comparator::compare_binary_string() {
       if (set_null) owner->null_value = false;
       const size_t len1 = res1->length();
       const size_t len2 = res2->length();
+
+      // Use custom comparison function for custom types
+      auto custom_result =
+          villagesql::TryCompareCustomType(*left, *res1, *res2);
+      if (custom_result.has_value()) return custom_result.value();
+
       const size_t min_length = min(len1, len2);
       const int cmp =
           min_length == 0 ? 0 : memcmp(res1->ptr(), res2->ptr(), min_length);
@@ -3114,6 +3165,20 @@ bool Item_func_between::fix_fields(THD *thd, Item **ref) {
 
   update_not_null_tables();
 
+  // Inject custom type context if we can
+  // BETWEEN uses args[0] as the value, args[1] as lower, args[2] as upper
+  auto *tc = args[0]->get_type_context();
+  if (tc) {
+    // Encode lower bound
+    if (villagesql::TryImplicitCastToCustom(args[1], *tc)) {
+      return true;
+    }
+    // Encode upper bound
+    if (villagesql::TryImplicitCastToCustom(args[2], *tc)) {
+      return true;
+    }
+  }
+
   // if 'high' and 'low' are same, convert this to a _eq function
   if (!negated && args[1]->const_item() && args[2]->const_item() &&
       args[1]->eq(args[2], true)) {
@@ -3405,18 +3470,34 @@ longlong Item_func_between::val_int() {  // ANSI BETWEEN
     if (thd->is_error()) {
       return error_int();
     }
-    if (!args[1]->null_value && !args[2]->null_value)
+    if (!args[1]->null_value && !args[2]->null_value) {
+      // Use custom comparison for custom types
+      if (args[0]->has_type_context()) {
+        auto cmp_lower = villagesql::TryCompareCustomType(args[0], *value, *a);
+        auto cmp_upper = villagesql::TryCompareCustomType(args[0], *value, *b);
+        return (longlong)((cmp_lower.value() >= 0 && cmp_upper.value() <= 0) !=
+                          negated);
+      }
       return (longlong)((sortcmp(value, a, cmp_collation.collation) >= 0 &&
                          sortcmp(value, b, cmp_collation.collation) <= 0) !=
                         negated);
+    }
     if (args[1]->null_value && args[2]->null_value)
       null_value = true;
     else if (args[1]->null_value) {
       // Set to not null if false range.
-      null_value = sortcmp(value, b, cmp_collation.collation) <= 0;
+      auto cmp_custom = villagesql::TryCompareCustomType(args[0], *value, *b);
+      int cmp_res = cmp_custom.has_value()
+                        ? cmp_custom.value()
+                        : sortcmp(value, b, cmp_collation.collation);
+      null_value = cmp_res <= 0;
     } else {
       // Set to not null if false range.
-      null_value = sortcmp(value, a, cmp_collation.collation) >= 0;
+      auto cmp_custom = villagesql::TryCompareCustomType(args[0], *value, *a);
+      int cmp_res = cmp_custom.has_value()
+                        ? cmp_custom.value()
+                        : sortcmp(value, a, cmp_collation.collation);
+      null_value = cmp_res >= 0;
     }
   } else if (cmp_type == INT_RESULT) {
     longlong value;
@@ -4161,6 +4242,25 @@ bool Item_func_case::resolve_type_inner(THD *thd) {
 
   if (else_expr_num != -1) agg[nagg++] = args[else_expr_num];
 
+  // Handle custom types: if any THEN/ELSE branch has a custom type, inject
+  // that type into string/null literal branches (like comparisons do).
+  const villagesql::TypeContext *custom_tc = nullptr;
+  for (uint i = 0; i < nagg; i++) {
+    if (agg[i]->has_type_context()) {
+      custom_tc = agg[i]->get_type_context();
+      break;
+    }
+  }
+  if (custom_tc != nullptr) {
+    for (uint i = 0; i < nagg; i++) {
+      if (villagesql::TryImplicitCastToCustom(agg[i], *custom_tc)) {
+        return true;  // Error during implicit cast (e.g., invalid value)
+      }
+    }
+    // Set the custom type on the CASE expression result
+    set_type_context(custom_tc);
+  }
+
   if (aggregate_type(func_name(), agg, nagg)) return true;
 
   cached_result_type = Field::result_merge_type(data_type());
@@ -4182,6 +4282,18 @@ bool Item_func_case::resolve_type_inner(THD *thd) {
   if (first_expr_num != -1) {
     agg[0] = args[first_expr_num];
     left_result_type = agg[0]->result_type();
+
+    // For simple CASE: if first_expr has custom type, inject into WHEN values
+    // WHEN values are at even indices: 0, 2, 4, ... (up to ncases-2)
+    if (args[first_expr_num]->has_type_context()) {
+      const villagesql::TypeContext *expr_custom_tc =
+          args[first_expr_num]->get_type_context();
+      for (uint i = 0; i < ncases; i += 2) {
+        if (villagesql::TryImplicitCastToCustom(args[i], *expr_custom_tc)) {
+          return true;  // Error during implicit cast
+        }
+      }
+    }
 
     /*
       As the first expression and WHEN expressions
@@ -4773,8 +4885,14 @@ cmp_item *cmp_item::new_comparator(THD *thd, Item_result result_type,
       */
       if (item->is_temporal())
         return new (*THR_MALLOC) cmp_item_datetime(item);
-      else
-        return new (*THR_MALLOC) cmp_item_string(cs);
+      else {
+        auto *ret = new (*THR_MALLOC) cmp_item_string(cs);
+        // Set custom type if present
+        if (ret != nullptr && item->has_type_context()) {
+          ret->set_type_context(item->get_type_context());
+        }
+        return ret;
+      }
     case INT_RESULT:
       return new (*THR_MALLOC) cmp_item_int;
     case REAL_RESULT:
@@ -4791,7 +4909,11 @@ cmp_item *cmp_item::new_comparator(THD *thd, Item_result result_type,
 }
 
 cmp_item *cmp_item_string::make_same() {
-  return new (*THR_MALLOC) cmp_item_string(cmp_charset);
+  auto *ret = new (*THR_MALLOC) cmp_item_string(cmp_charset);
+  if (ret != nullptr && custom_type != nullptr) {
+    ret->set_type_context(custom_type);
+  }
+  return ret;
 }
 
 int cmp_item_string::cmp(Item *arg) {
@@ -4799,6 +4921,11 @@ int cmp_item_string::cmp(Item *arg) {
   StringBuffer<STRING_BUFFER_USUAL_SIZE> tmp(cmp_charset);
   String *res = eval_string_arg(cmp_charset, arg, &tmp);
   if (res == nullptr) return UNKNOWN;
+
+  // Use custom comparison for custom types
+  auto custom_result = villagesql::TryCompareCustomType(arg, *value_res, *res);
+  if (custom_result.has_value()) return custom_result.value() != 0;
+
   return sortcmp(value_res, res, cmp_charset) != 0;
 }
 
@@ -5225,6 +5352,17 @@ void Item_func_in::set_no_constant_propagation() {
 bool Item_func_in::fix_fields(THD *thd, Item **ref) {
   if (Item_func_opt_neg::fix_fields(thd, ref)) return true;
   update_not_null_tables();
+
+  // Allow implicit casting of any eligible arguments
+  auto *tc = args[0]->get_type_context();
+  if (tc) {
+    for (uint i = 1; i < arg_count; ++i) {
+      if (villagesql::TryImplicitCastToCustom(args[i], *tc)) {
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -5320,6 +5458,22 @@ bool Item_func_in::resolve_type(THD *thd) {
   bool bisection_possible = type_cnt == 1 &&       // 1
                             m_values_are_const &&  // 2
                             !compare_as_json;      // 3
+
+  // Disable bisection for custom types - force use of cmp_item path instead.
+  // The bisection path (in_string::find_item) uses std::binary_search with
+  // Cmp_string(collation), which performs standard sortcmp/memcmp comparison.
+  // Custom types require their custom comparison functions
+  // which may have different semantics (e.g., complex number comparison, vector
+  // distance metrics, etc.) than byte-by-byte comparison.
+  // TODO(villagesql-performance): Support bisection for custom types by
+  // updating in_string to detect custom types and use the custom comparison
+  // function from TypeContext in both compare_elems() and find_item(). This
+  // would provide O(log n) performance instead of O(n) for large IN lists with
+  // custom types.
+  if (bisection_possible && args[0]->get_type_context() != nullptr) {
+    bisection_possible = false;
+  }
+
   if (bisection_possible) {
     /*
       In the presence of NULLs, the correct result of evaluating this item

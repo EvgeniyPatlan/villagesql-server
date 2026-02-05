@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2009, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -353,6 +354,7 @@ static dict_table_t *dict_stats_table_clone_create(
         heap, idx->n_uniq * sizeof(idx->fields[0]));
 
     for (ulint i = 0; i < idx->n_uniq; i++) {
+      new (&idx->fields[i]) dict_field_t();
       idx->fields[i].name = mem_heap_strdup(heap, index->fields[i].name);
     }
 

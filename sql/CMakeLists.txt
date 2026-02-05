@@ -1,4 +1,5 @@
 ﻿# Copyright (c) 2006, 2025, Oracle and/or its affiliates.
+# Copyright (c) 2026 VillageSQL Contributors
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2.0,
@@ -120,6 +121,13 @@ ADD_CUSTOM_COMMAND(
 ADD_DEFINITIONS(-DMYSQL_SERVER)
 ADD_SUBDIRECTORY(server_component)
 ADD_SUBDIRECTORY(protobuf)
+ADD_SUBDIRECTORY(../villagesql/common ${CMAKE_CURRENT_BINARY_DIR}/villagesql/common)
+ADD_SUBDIRECTORY(../villagesql/schema ${CMAKE_CURRENT_BINARY_DIR}/villagesql/schema)
+ADD_SUBDIRECTORY(../villagesql/sql ${CMAKE_CURRENT_BINARY_DIR}/villagesql/sql)
+ADD_SUBDIRECTORY(../villagesql/system_views ${CMAKE_CURRENT_BINARY_DIR}/villagesql/system_views)
+ADD_SUBDIRECTORY(../villagesql/types ${CMAKE_CURRENT_BINARY_DIR}/villagesql/types)
+ADD_SUBDIRECTORY(../villagesql/vdf ${CMAKE_CURRENT_BINARY_DIR}/villagesql/vdf)
+ADD_SUBDIRECTORY(../villagesql/veb ${CMAKE_CURRENT_BINARY_DIR}/villagesql/veb)
 
 SET(DD_SOURCES
   dd/collection.cc
@@ -658,7 +666,7 @@ ENDIF()
 # BISON_TARGET(<Name> <YaccInput> <CodeOutput>
 #              [COMPILE_FLAGS <flags>]
 #              [DEFINES_FILE <file>]
-#              [VERBOSE <file>]
+#              [VERBOSE REPORT_FILE <file>]
 #              )
 # FLEX_TARGET(Name FlexInput FlexOutput
 #             [COMPILE_FLAGS <string>]
@@ -915,10 +923,27 @@ IF(HAVE_NO_BUILTIN_MEMCMP)
 ENDIF()
 
 ADD_STATIC_LIBRARY(sql_main ${SQL_SOURCE} LINK_LIBRARIES ext::icu ext::xxhash)
+
+# Include VillageSQL object files
+TARGET_SOURCES(sql_main PRIVATE
+  $<TARGET_OBJECTS:villagesql_common>
+  $<TARGET_OBJECTS:villagesql_schema>
+  $<TARGET_OBJECTS:villagesql_sql>
+  $<TARGET_OBJECTS:villagesql_system_views>
+  $<TARGET_OBJECTS:villagesql_types>
+  $<TARGET_OBJECTS:villagesql_vdf>
+)
+
 ADD_DEPENDENCIES(sql_main GenServerSource)
 ADD_DEPENDENCIES(sql_main GenDigestServerSource)
 ADD_DEPENDENCIES(sql_main GenBootstrapPriv)
 ADD_DEPENDENCIES(sql_main GenSysSchema)
+ADD_DEPENDENCIES(sql_main villagesql_common)
+ADD_DEPENDENCIES(sql_main villagesql_schema)
+ADD_DEPENDENCIES(sql_main villagesql_sql)
+ADD_DEPENDENCIES(sql_main villagesql_system_views)
+ADD_DEPENDENCIES(sql_main villagesql_types)
+ADD_DEPENDENCIES(sql_main villagesql_vdf)
 
 MYSQL_ADD_PLUGIN(mysql_native_password
   auth/mysql_native_password.cc
@@ -1106,7 +1131,9 @@ IF(HAS_WARN_FLAG)
 ENDIF()
 
 # All these libraries depend on each other.
-TARGET_LINK_LIBRARIES(sql_main rpl rpl_source rpl_replica binlog)
+# villagesql_veb provides opt_veb_dir symbols used in mysqld.cc and sys_vars.cc
+# archive_static needed for VEB file operations in villagesql_veb
+TARGET_LINK_LIBRARIES(sql_main rpl rpl_source rpl_replica binlog villagesql_veb archive_static)
 
 IF(WIN32)
   SET(MYSQLD_SOURCE
@@ -1324,6 +1351,7 @@ ELSE()
     COMPILE_FLAGS
     "--yacc ${BISON_FLAGS_WARNINGS} ${BISON_NO_LINE_OPT}"
     DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/sql_yacc.h
+    VERBOSE REPORT_FILE ${CMAKE_CURRENT_BINARY_DIR}/sql_yacc.output
     )
 
   BISON_TARGET(hints_parser

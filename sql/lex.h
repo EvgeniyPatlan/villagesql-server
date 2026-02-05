@@ -2,6 +2,7 @@
 #define LEX_INCLUDED
 
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -255,6 +256,9 @@ static const SYMBOL symbols[] = {
     {SYM("EXPIRE", EXPIRE_SYM)},
     {SYM("EXPLAIN", DESCRIBE)},
     {SYM("EXTENDED", EXTENDED_SYM)},
+    // TODO(villagesql): adding symbols to this grammar is dangerous. Consider
+    // adding a separate grammar for when we want to extend.
+    {SYM("EXTENSION", EXTENSION_SYM)},
     {SYM("EXTENT_SIZE", EXTENT_SIZE_SYM)},
     {SYM("FACTOR", FACTOR_SYM)},
     {SYM("FAILED_LOGIN_ATTEMPTS", FAILED_LOGIN_ATTEMPTS_SYM)},

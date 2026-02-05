@@ -1585,6 +1585,7 @@ The following options may be given as the first argument:
  Turns on additional validation of authentication plugins
  assigned to user accounts. 
  (Defaults to on; use --skip-validate-user-plugins to disable.)
+ --veb-dir=name      Directory for VillageSQL Extension Bundle (VEB) files
  -v, --verbose       Used with --help option for detailed help.
  -V, --version       Output version information and exit.
  --wait-timeout=#    The number of seconds the server waits for activity on a
@@ -1874,7 +1875,7 @@ performance-schema-max-socket-classes 10
 performance-schema-max-socket-instances -1
 performance-schema-max-sql-text-length 1024
 performance-schema-max-stage-classes 175
-performance-schema-max-statement-classes 220
+performance-schema-max-statement-classes 222
 performance-schema-max-statement-stack 10
 performance-schema-max-table-handles -1
 performance-schema-max-table-instances -1

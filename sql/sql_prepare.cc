@@ -1,4 +1,5 @@
 /* Copyright (c) 2002, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -180,6 +181,7 @@ When one supplies long data for a placeholder:
 #include "sql/window.h"
 #include "sql_string.h"
 #include "string_with_len.h"
+#include "villagesql/types/util.h"
 #include "violite.h"
 
 namespace resourcegroups {
@@ -2468,6 +2470,11 @@ bool Prepared_statement::prepare(THD *thd, const char *query_str,
 
     if (m_lex->opt_hints_global && m_lex->opt_hints_global->sys_var_hint)
       m_lex->opt_hints_global->sys_var_hint->restore_vars(thd);
+
+    // VillageSQL: Check for custom type field references in prepared statements
+    if (!error) {
+      error = villagesql::ValidateCustomTypeFieldsInPreparedStatement(thd);
+    }
   }
   assert(error || !thd->is_error());
 

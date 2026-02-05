@@ -11,6 +11,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 
 CREATE DATABASE mle_db;
 USE mle_db;

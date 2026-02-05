@@ -25,6 +25,7 @@ def	mysql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	performance_schema	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	sys	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 def	test	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
+def	villagesql	utf8mb4	utf8mb4_0900_ai_ci	NULL	NO
 select schema_name from information_schema.schemata ORDER BY schema_name;
 SCHEMA_NAME
 information_schema
@@ -33,6 +34,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 show databases like 't%';
 Database (t%)
 test
@@ -44,6 +46,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 show databases where `database` = 't%';
 Database
 create database mysqltest;
@@ -73,6 +76,7 @@ COLUMN_STATISTICS
 ENABLED_ROLES
 ENGINES
 EVENTS
+EXTENSIONS
 FILES
 KEYWORDS
 KEY_COLUMN_USAGE
@@ -382,6 +386,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 explain select * from v0;
 id	select_type	table	partitions	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	#	NULL	index	PRIMARY	name	194	NULL	#	#	Using index; Using temporary; Using filesort
@@ -794,6 +799,7 @@ where table_schema not in ('performance_schema', 'sys', 'mysql')
 and data_type = 'longtext' order by table_name, column_name;
 TABLE_SCHEMA	TABLE_NAME	COLUMN_NAME
 information_schema	CHECK_CONSTRAINTS	CHECK_CLAUSE
+information_schema	COLUMNS	COLUMN_TYPE
 information_schema	COLUMNS	DATA_TYPE
 information_schema	COLUMNS	GENERATION_EXPRESSION
 information_schema	EVENTS	EVENT_DEFINITION
@@ -885,7 +891,7 @@ table_schema IN ('mysql', 'information_schema', 'test', 'mysqltest')
 AND table_name not like 'ndb%' AND table_name COLLATE utf8mb3_general_ci not like 'innodb_%'
 GROUP BY TABLE_SCHEMA;
 TABLE_SCHEMA	count(*)
-information_schema	47
+information_schema	48
 mysql	35
 create table t1 (i int, j int);
 create trigger trg1 before insert on t1 for each row
@@ -2487,6 +2493,7 @@ COLUMN_STATISTICS	SCHEMA_NAME
 ENABLED_ROLES	ROLE_NAME
 ENGINES	ENGINE
 EVENTS	EVENT_SCHEMA
+EXTENSIONS	EXTENSION_NAME
 FILES	TABLE_SCHEMA
 KEYWORDS	WORD
 KEY_COLUMN_USAGE	CONSTRAINT_SCHEMA
@@ -2553,6 +2560,7 @@ COLUMN_STATISTICS	SCHEMA_NAME
 ENABLED_ROLES	ROLE_NAME
 ENGINES	ENGINE
 EVENTS	EVENT_SCHEMA
+EXTENSIONS	EXTENSION_NAME
 FILES	TABLE_SCHEMA
 KEYWORDS	WORD
 KEY_COLUMN_USAGE	CONSTRAINT_SCHEMA
@@ -2641,6 +2649,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 RENAME USER master@localhost TO root@localhost;
 Warnings:
 Warning	4005	User 'root'@'localhost' is referenced as a definer account in a stored routine.

@@ -95,6 +95,10 @@ if ($show_binlog_events_mask_columns != '')
 if ($show_binlog_events_mask_columns == '')
 {
   --let $mask_columns = 2,4,5
+  if ($mask_binlog_filename)
+  {
+    --let $mask_columns = 1,2,4,5
+  }
 }
 let $script=
   s{/\* xid=.* \*/}{/\* XID # \*/};
@@ -173,11 +177,72 @@ if (!$keep_ddl_xid)
 --delimiter ;
 
 #--let $select_columns= 1 3 6
+
+# Save unmasked output for assertion failure reporting
+if ($binlog_events_assert_no_match != '')
+{
+  --copy_file $output_file $output_file.unmasked
+}
+
 --let $input_file= $output_file
 --source include/filter_file.inc
 
 # Write to result file
 --cat_file $output_file
+
+# Assert pattern doesn't exist if requested (after displaying output)
+if ($binlog_events_assert_no_match != '')
+{
+  --let _ASSERT_OUTPUT_FILE= $output_file
+  --let _ASSERT_UNMASKED_FILE= $output_file.unmasked
+  --let _ASSERT_PATTERN= $binlog_events_assert_no_match
+  --perl
+    use strict;
+    use warnings;
+
+    my $output_file = $ENV{'_ASSERT_OUTPUT_FILE'};
+    my $unmasked_file = $ENV{'_ASSERT_UNMASKED_FILE'};
+    my $pattern     = $ENV{'_ASSERT_PATTERN'};
+
+    # Validate inputs early
+    die "Output file not specified\n"
+      unless defined $output_file && length $output_file;
+
+    die "Forbidden pattern not specified\n"
+      unless defined $pattern && length $pattern;
+
+    open my $fh, '<', $output_file
+      or die "Unable to open '$output_file': $!";
+
+    # Stream through file line-by-line to avoid slurping large outputs
+    my $found_pattern = 0;
+    while (my $line = <$fh>) {
+      if ($line =~ /\Q$pattern\E/i) {
+        $found_pattern = 1;
+        last;
+      }
+    }
+    close $fh;
+
+    if ($found_pattern) {
+      # Read and display unmasked binlog output
+      print "\n==== UNMASKED BINLOG OUTPUT (for debugging) ====\n";
+      open my $unmasked_fh, '<', $unmasked_file
+        or die "Unable to open unmasked file '$unmasked_file': $!";
+      while (my $line = <$unmasked_fh>) {
+        print $line;
+      }
+      close $unmasked_fh;
+      print "==== END UNMASKED BINLOG OUTPUT ====\n\n";
+
+      die "Assertion failed: binlog events output contains forbidden pattern:\n"
+        . "  '$pattern'\n";
+    }
+  EOF
+
+  # Remove the unmasked file
+  --remove_file $output_file.unmasked
+}
 
 # Remove the file
 --remove_file $output_file

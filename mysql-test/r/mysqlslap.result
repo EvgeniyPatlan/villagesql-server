@@ -238,6 +238,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 # 'bug58090' database should be present.
 SHOW DATABASES;
 Database
@@ -248,6 +249,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 DROP DATABASE bug58090;
 #
 # Bug#12688860 : SECURITY RECOMMENDATION: PASSWORDS ON CLI

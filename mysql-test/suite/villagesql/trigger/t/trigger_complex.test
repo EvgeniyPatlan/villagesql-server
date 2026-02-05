@@ -1,0 +1,39 @@
+# Test that triggers accessing custom type columns are blocked at CREATE TRIGGER time
+# but triggers that don't access custom columns are allowed
+
+--source include/villagesql/install_complex_extension.inc
+
+CREATE TABLE t1 (
+  id INT PRIMARY KEY,
+  name VARCHAR(50),
+  val COMPLEX
+);
+
+delimiter //;
+
+# Test 1: Trigger that only accesses non-custom columns - should succeed
+CREATE TRIGGER tr_only_builtin BEFORE INSERT ON t1
+FOR EACH ROW
+BEGIN
+  SET @id = NEW.id;
+  SET @name = NEW.name;
+END//
+
+# Test 2: Trigger that accesses custom column - should fail at CREATE TRIGGER
+--error ER_VILLAGESQL_GENERIC_ERROR
+CREATE TRIGGER tr_with_custom BEFORE INSERT ON t1
+FOR EACH ROW
+BEGIN
+  SET @v = NEW.val;
+END//
+
+delimiter ;//
+
+# Verify the first trigger works
+INSERT INTO t1 VALUES (1, 'test', '(1.0,2.0)');
+SELECT @id, @name;
+
+DROP TRIGGER tr_only_builtin;
+DROP TABLE t1;
+
+--source include/villagesql/uninstall_complex_extension.inc

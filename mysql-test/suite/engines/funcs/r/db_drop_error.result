@@ -9,6 +9,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 DROP DATABASE nond5;
 ERROR HY000: Can't drop database 'nond5'; database doesn't exist
 DROP DATABASE d5;
@@ -20,3 +21,4 @@ mysql
 performance_schema
 sys
 test
+villagesql

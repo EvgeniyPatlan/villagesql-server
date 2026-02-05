@@ -1,4 +1,5 @@
 /* Copyright (c) 2017, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -780,6 +781,8 @@ extern SERVICE_TYPE(log_builtins_string) * log_bs;
 #ifndef DISABLE_ERROR_LOGGING
 
 #if defined(LOG_COMPONENT_TAG)
+
+// VillageSQL logs should use `LogVSQL()` in villagesql/includes/error.h
 
 #define LogErr(severity, ecode, ...) \
   LogEvent()                         \

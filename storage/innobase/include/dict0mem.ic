@@ -54,6 +54,13 @@ static inline void dict_mem_fill_index_struct(
     index->name = mem_heap_strdup(heap, index_name);
     index->fields = (dict_field_t *)mem_heap_alloc(
         heap, 1 + n_fields * sizeof(dict_field_t));
+    // Initialize dict_field_t objects using placement new to call constructors,
+    // but we don't plan on calling the destructor
+    static_assert(std::is_trivially_destructible<dict_field_t>::value,
+                  "dict_field_t should be trivially destructible");
+    for (ulint i = 0; i < n_fields; ++i) {
+      new (&index->fields[i]) dict_field_t();
+    }
   } else {
     index->name = index_name;
     index->heap = nullptr;

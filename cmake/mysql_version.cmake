@@ -1,5 +1,6 @@
 # Copyright (c) 2009, 2025, Oracle and/or its affiliates.
-# 
+# Copyright (c) 2026 VillageSQL Contributors
+#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2.0,
 # as published by the Free Software Foundation.
@@ -19,7 +20,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA 
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
+
+# Include VillageSQL version first - this sets EXTRA_VERSION from VSQL_VERSION
+# before we read MYSQL_VERSION below. The MYSQL_GET_CONFIG_VALUE macro skips
+# variables that are already set, so EXTRA_VERSION won't be overwritten.
+INCLUDE(vsql_version)
 
 #
 # Global constants, only to be changed between major releases.
@@ -74,20 +80,21 @@ MACRO(GET_MYSQL_VERSION)
     MESSAGE(FATAL_ERROR "MYSQL_VERSION_MATURITY can be set to INNOVATION or LTS.")
   ENDIF()
 
-  # Versions like 8.0.x, 8.4.x, and x.7.y (x > 8) should be LTS
-  IF ((MAJOR_VERSION EQUAL "8" AND MINOR_VERSION EQUAL "0" AND PATCH_VERSION GREATER "34") OR
-      (MAJOR_VERSION EQUAL "8" AND MINOR_VERSION EQUAL "4") OR
-      (MAJOR_VERSION GREATER "8" AND MINOR_VERSION EQUAL "7"))
-    IF (NOT MYSQL_VERSION_MATURITY STREQUAL "\"LTS\"")
-      MESSAGE(FATAL_ERROR "Version ${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION} should "
-                          "be an LTS release.")
-    ENDIF()
-  ELSE()
-    IF (NOT MYSQL_VERSION_MATURITY STREQUAL "\"INNOVATION\"")
-      MESSAGE(FATAL_ERROR "Version ${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION} should "
-                          "be an innovation release.")
-    ENDIF()
-  ENDIF()
+  # TODO(villagesql-ga): figure out our strategy for LTS and numbering.
+  ## Versions like 8.0.x, 8.4.x, and x.7.y (x > 8) should be LTS
+  # IF ((MAJOR_VERSION EQUAL "8" AND MINOR_VERSION EQUAL "0" AND PATCH_VERSION GREATER "34") OR
+  #     (MAJOR_VERSION EQUAL "8" AND MINOR_VERSION EQUAL "4") OR
+  #     (MAJOR_VERSION GREATER "8" AND MINOR_VERSION EQUAL "7"))
+  #   IF (NOT MYSQL_VERSION_MATURITY STREQUAL "\"LTS\"")
+  #     MESSAGE(FATAL_ERROR "Version ${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION} should "
+  #                         "be an LTS release.")
+  #   ENDIF()
+  # ELSE()
+  #   IF (NOT MYSQL_VERSION_MATURITY STREQUAL "\"INNOVATION\"")
+  #     MESSAGE(FATAL_ERROR "Version ${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION} should "
+  #                         "be an innovation release.")
+  #   ENDIF()
+  # ENDIF()
 
   SET(VERSION
     "${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}${EXTRA_VERSION}")

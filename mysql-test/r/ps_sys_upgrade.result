@@ -16,6 +16,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 # Now drop procedures and make sure re-install is done
 DROP PROCEDURE sys.ps_setup_save;
 DROP PROCEDURE sys.ps_setup_reload_saved;

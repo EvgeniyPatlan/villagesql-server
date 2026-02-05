@@ -27,6 +27,7 @@ mysqltest
 performance_schema
 sys
 test
+villagesql
 USE test;
 SHOW TABLES;
 Tables_in_test

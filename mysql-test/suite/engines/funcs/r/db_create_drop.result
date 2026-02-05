@@ -9,6 +9,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 SHOW DATABASES LIKE 'd%';
 Database (d%)
 d1
@@ -21,6 +22,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 USE d1;
 DROP DATABASE d1;
 CREATE SCHEMA d1;
@@ -33,6 +35,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 SHOW SCHEMAS LIKE 'd%';
 Database (d%)
 d1
@@ -45,5 +48,6 @@ mysql
 performance_schema
 sys
 test
+villagesql
 USE d1;
 DROP SCHEMA d1;

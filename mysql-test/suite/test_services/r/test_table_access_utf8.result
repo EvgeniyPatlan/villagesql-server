@@ -21,6 +21,7 @@ mysql
 performance_schema
 sys
 test
+villagesql
 ∀p∊ℙ
 CREATE TABLE `∀p∊ℙ`.`∃s∊ℚ`(`s(p)≎⊤` VARCHAR(255) CHARACTER SET `utf8mb4`);
 CREATE TABLE `∀p∊ℙ`.`∃s∊𝕊`(`s(p)≎⊤` VARCHAR(255) CHARACTER SET `utf8mb4`);

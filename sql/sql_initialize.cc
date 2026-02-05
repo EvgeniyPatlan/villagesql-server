@@ -1,4 +1,5 @@
 /* Copyright (c) 2015, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -42,6 +43,7 @@
 #include "scripts/sql_commands_system_data.h"
 #include "scripts/sql_commands_system_tables.h"
 #include "scripts/sql_commands_system_users.h"
+#include "scripts/sql_commands_villagesql_schema.h"
 #include "scripts/sys_schema/sql_commands.h"
 #include "sql/mysqld.h"
 #include "sql/server_component/log_builtins_filter_imp.h"  // verbosity
@@ -75,7 +77,8 @@ static const char *initialization_data[] = {
 static const char **cmds[] = {initialization_cmds, mysql_system_tables,
                               initialization_data, mysql_system_data,
                               fill_help_tables,    mysql_system_users,
-                              mysql_sys_schema,    nullptr};
+                              villagesql_schema,   mysql_sys_schema,
+                              nullptr};
 
 /** keep in sync with the above array */
 static const char *cmd_descs[] = {
@@ -85,6 +88,7 @@ static const char *cmd_descs[] = {
     "Filling in the system tables, part 2",
     "Filling in the mysql.help table",
     "Creating the system users for internal usage",
+    "Creating the VillageSQL schema",
     "Creating the sys schema",
     nullptr};
 

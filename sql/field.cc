@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -88,6 +89,8 @@
 #include "string_with_len.h"
 #include "template_utils.h"  // pointer_cast
 #include "typelib.h"
+#include "villagesql/types/util.h"
+
 namespace dd {
 class Spatial_reference_system;
 }  // namespace dd
@@ -6693,7 +6696,6 @@ my_decimal *Field_varstring::val_decimal(my_decimal *decimal_value) const {
 int Field_varstring::cmp_max(const uchar *a_ptr, const uchar *b_ptr,
                              uint max_len) const {
   uint a_length, b_length;
-  int diff;
 
   if (length_bytes == 1) {
     a_length = (uint)*a_ptr;
@@ -6704,10 +6706,17 @@ int Field_varstring::cmp_max(const uchar *a_ptr, const uchar *b_ptr,
   }
   a_length = std::min(a_length, max_len);
   b_length = std::min(b_length, max_len);
-  diff = field_charset->coll->strnncollsp(field_charset, a_ptr + length_bytes,
+
+  // Use custom comparison function for custom types (e.g., COMPLEX)
+  auto result = villagesql::TryCompareCustomType(
+      this, a_ptr + length_bytes, a_length, b_ptr + length_bytes, b_length);
+  if (result.has_value()) {
+    return result.value();
+  }
+
+  return field_charset->coll->strnncollsp(field_charset, a_ptr + length_bytes,
                                           a_length, b_ptr + length_bytes,
                                           b_length);
-  return diff;
 }
 
 /**
@@ -6716,7 +6725,14 @@ int Field_varstring::cmp_max(const uchar *a_ptr, const uchar *b_ptr,
 */
 
 int Field_varstring::key_cmp(const uchar *key_ptr, uint max_key_length) const {
+  // Use custom comparison for custom types
   uint length = data_length();
+  auto result = villagesql::TryCompareCustomType(
+      this, ptr + length_bytes, length, key_ptr + HA_KEY_BLOB_LENGTH,
+      uint2korr(key_ptr));
+  if (result.has_value()) {
+    return result.value();
+  }
   uint local_char_length = max_key_length / field_charset->mbmaxlen;
 
   local_char_length =
@@ -6737,6 +6753,14 @@ int Field_varstring::key_cmp(const uchar *key_ptr, uint max_key_length) const {
 */
 
 int Field_varstring::key_cmp(const uchar *a, const uchar *b) const {
+  // Use custom comparison for custom types
+  auto result = villagesql::TryCompareCustomType(
+      this, a + HA_KEY_BLOB_LENGTH, uint2korr(a), b + HA_KEY_BLOB_LENGTH,
+      uint2korr(b));
+  if (result.has_value()) {
+    return result.value();
+  }
+
   return field_charset->coll->strnncollsp(field_charset, a + HA_KEY_BLOB_LENGTH,
                                           uint2korr(a), b + HA_KEY_BLOB_LENGTH,
                                           uint2korr(b));
@@ -6774,6 +6798,13 @@ enum ha_base_keytype Field_varstring::key_type() const {
 }
 
 void Field_varstring::sql_type(String &res) const {
+  // VillageSQL: Return fully qualified type name for custom types.
+  if (has_type_context()) {
+    res.length(0);
+    villagesql::AppendFullyQualifiedName(*get_type_context(), &res);
+    return;
+  }
+
   const CHARSET_INFO *cs = res.charset();
   size_t length;
 
@@ -9578,14 +9609,18 @@ Field *make_field(MEM_ROOT *mem_root, TABLE_SHARE *share, uchar *ptr,
 Field *make_field(const Create_field &create_field, TABLE_SHARE *share,
                   const char *field_name, size_t field_length, uchar *ptr,
                   uchar *null_pos, size_t null_bit) {
-  return make_field(*THR_MALLOC, share, ptr, field_length, null_pos, null_bit,
-                    create_field.sql_type, create_field.charset,
-                    create_field.geom_type, create_field.auto_flags,
-                    create_field.interval, field_name, create_field.is_nullable,
-                    create_field.is_zerofill, create_field.is_unsigned,
-                    create_field.decimals, create_field.treat_bit_as_char,
-                    create_field.pack_length_override, create_field.m_srid,
-                    create_field.is_array);
+  Field *f = make_field(
+      *THR_MALLOC, share, ptr, field_length, null_pos, null_bit,
+      create_field.sql_type, create_field.charset, create_field.geom_type,
+      create_field.auto_flags, create_field.interval, field_name,
+      create_field.is_nullable, create_field.is_zerofill,
+      create_field.is_unsigned, create_field.decimals,
+      create_field.treat_bit_as_char, create_field.pack_length_override,
+      create_field.m_srid, create_field.is_array);
+  if (f && create_field.custom_type_context) {
+    f->set_type_context(create_field.custom_type_context);
+  }
+  return f;
 }
 
 Field *make_field(const Create_field &create_field, TABLE_SHARE *share,
@@ -10577,4 +10612,43 @@ const char *get_field_name_or_expression(THD *thd, const Field *field) {
   }
 
   return field->field_name;
+}
+
+String *Field::val_custom_str(String *buf) const {
+  if (!has_type_context()) return val_str(buf);
+
+  // Get the encoded data directly from the field
+  const uchar *encoded_data = data_ptr();
+  size_t encoded_length = data_length();
+
+  bool is_valid = true;
+  if (villagesql::DecodeString(*get_type_context(), encoded_data,
+                               encoded_length, *current_thd->mem_root, buf,
+                               is_valid) &&
+      !is_valid) {
+    THD *thd = current_thd;
+    if (!thd->lex->is_ignore() && thd->is_strict_mode()) {
+      const ErrConvString errmsg(pointer_cast<const char *>(encoded_data),
+                                 encoded_length, &my_charset_bin);
+      const Diagnostics_area *da = thd->get_stmt_da();
+      push_warning_printf(thd, Sql_condition::SL_WARNING,
+                          ER_TRUNCATED_WRONG_VALUE_FOR_FIELD,
+                          ER_THD(thd, ER_TRUNCATED_WRONG_VALUE_FOR_FIELD),
+                          get_type_context()->type_name().c_str(), errmsg.ptr(),
+                          this->field_name, da->current_row_for_condition());
+    }
+    // OOMs will just return nullptr, but have called my_error.
+    return nullptr;
+  }
+
+  // Success: the decoded string is in buf.
+  return buf;
+}
+
+bool Field_varstring::send_to_protocol(Protocol *protocol) const {
+  if (is_null()) return protocol->store_null();
+  char buff[MAX_FIELD_WIDTH];
+  String tmp(buff, sizeof(buff), charset());
+  String *res = val_custom_str(&tmp);
+  return res ? protocol->store(res) : protocol->store_null();
 }

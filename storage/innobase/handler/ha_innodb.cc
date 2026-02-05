@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 Copyright (c) 2008, 2009 Google Inc.
 Copyright (c) 2009, Percona Inc.
 Copyright (c) 2012, Facebook Inc.
@@ -197,6 +198,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ut0mem.h"
 #include "ut0test.h"
 #include "ut0ut.h"
+#include "villagesql/schema/util.h"
 #else
 #include <typelib.h>
 #include "buf0types.h"
@@ -207,6 +209,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "sql-common/json_binary.h"
 #include "sql-common/json_dom.h"
+#include "villagesql/types/util.h"
 
 #include "os0enc.h"
 #include "os0file.h"
@@ -4015,7 +4018,7 @@ static void innobase_dict_cache_reset_tables_and_tablespaces() {
     /* TODO: Remove follow if we have better way to identify
     DD "system table" */
     if (db_str.compare("mysql") == 0 || table->is_dd_table ||
-        table->is_corrupted() ||
+        table->is_corrupted() || db_str.compare("villagesql") == 0 ||
         DICT_TF2_FLAG_IS_SET(table, DICT_TF2_RESURRECT_PREPARED)) {
       continue;
     }
@@ -7877,6 +7880,26 @@ int ha_innobase::open(const char *name, int, uint open_flags,
 
   if (m_prebuilt->table->is_fts_aux()) {
     dict_table_close(m_prebuilt->table, false, false);
+  }
+
+  // Set custom comparison functions on InnoDB dict_col_t after Fields have
+  // type_context. This happens in fill_column_from_dd() in dd_table_share.cc.
+  for (uint i = 0; i < table->s->fields; i++) {
+    Field *field = table->field[i];
+
+    // No need to configure VillageSQL comparison function for virtual columns.
+    if (field->is_virtual_gcol()) {
+      ut_ad(ib_table->n_v_def > 0);
+      continue;
+    }
+    // Get the column index for stored columns. The index could be different
+    // from sql field index, if there are virtual columns.
+    auto col_index =
+        dict_table_mysql_pos_to_innodb(ib_table, field->field_index());
+    ut_a(col_index < ib_table->get_n_user_cols());
+
+    dict_col_t *col = &ib_table->cols[col_index];
+    col->set_custom_compare(villagesql::GetCompareFunc(*field));
   }
 
   return 0;
@@ -19040,7 +19063,8 @@ int ha_innobase::external_lock(THD *thd, /*!< in: handle to the user thread */
         and ACL tables.
        */
       ut_ad(!m_prebuilt->no_read_locking || m_prebuilt->table->is_dd_table ||
-            is_acl_table(table));
+            is_acl_table(table) ||
+            villagesql::is_villagesql_system_table(table));
 
       if (m_prebuilt->table->is_dd_table || m_prebuilt->no_read_locking) {
         m_prebuilt->select_lock_type = LOCK_NONE;

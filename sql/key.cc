@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -322,6 +323,10 @@ void field_unpack(String *to, Field *field, uint max_length, bool prefix_key) {
       return;
     }
     const CHARSET_INFO *cs = field->charset();
+    if (field->has_type_context()) {
+      field->val_custom_str(&tmp);
+      goto finish_append;
+    }
     field->val_str(&tmp);
     /*
       For BINARY(N) strip trailing zeroes to make
@@ -347,6 +352,7 @@ void field_unpack(String *to, Field *field, uint max_length, bool prefix_key) {
                                 char_length)) < tmp.length())
         tmp.length(charpos);
     }
+  finish_append:
     if (max_length < field->pack_length())
       tmp.length(min(tmp.length(), static_cast<size_t>(max_length)));
     const ErrConvString err(&tmp);

@@ -1,5 +1,6 @@
 /*
    Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -99,6 +100,7 @@
 #include "template_utils.h"
 #include "typelib.h"
 #include "unsafe_string_append.h"
+#include "villagesql/types/util.h"
 using std::max;
 using std::min;
 using std::string;
@@ -196,7 +198,8 @@ Item::Item(THD *thd, const Item *item)
       null_value(item->null_value),
       unsigned_flag(item->unsigned_flag),
       m_is_window_function(item->m_is_window_function),
-      m_accum_properties(item->m_accum_properties) {
+      m_accum_properties(item->m_accum_properties),
+      custom_type(item->custom_type) {
 #ifndef NDEBUG
   assert(item->contextualized);
   contextualized = true;
@@ -882,6 +885,11 @@ void Item::print_for_order(const THD *thd, String *str,
 bool Item::visitor_processor(uchar *arg) {
   Select_lex_visitor *visitor = pointer_cast<Select_lex_visitor *>(arg);
   return visitor->visit(this);
+}
+
+bool Item::check_custom_type_usage_processor(uchar *arg) {
+  THD *thd = pointer_cast<THD *>(arg);
+  return villagesql::CheckCustomTypeUsage(this, thd);
 }
 
 /**
@@ -3047,6 +3055,13 @@ void Item_field::set_field(Field *field_par) {
   set_data_type(field_par->type());
   decimals = field->decimals();
   unsigned_flag = field_par->is_flag_set(UNSIGNED_FLAG);
+
+  // Synchronize custom type context from Field
+  if (field_par->has_type_context()) {
+    this->set_type_context(field_par->get_type_context());
+    // VillageSQL: Mark that we found a custom type field during binding
+    current_thd->lex->found_custom_type_in_context = true;
+  }
   max_length = char_to_byte_length_safe(field_par->char_length(),
                                         collation.collation->mbmaxlen);
 
@@ -3585,6 +3600,20 @@ void Item_string::print(const THD *, String *str,
                         enum_query_type query_type) const {
   if (query_type & QT_NORMALIZED_FORMAT) {
     str->append("?");
+    return;
+  }
+
+  // Custom types: decode binary representation to string format.
+  if (has_type_context()) {
+    str->append('\'');
+    String decoded;
+    bool is_valid;
+    if (!villagesql::DecodeString(
+            *get_type_context(), (const uchar *)str_value.ptr(),
+            str_value.length(), *current_thd->mem_root, &decoded, is_valid)) {
+      str->append(decoded);
+    }
+    str->append('\'');
     return;
   }
 
@@ -6790,6 +6819,15 @@ void Item_field::save_org_in_field(Field *to) {
     set_field_to_null_with_conversions(to, true);
   } else {
     to->set_notnull();
+    // VillageSQL: For custom types, try direct binary copy to avoid charset
+    // conversion which would corrupt the binary data. Also validates that
+    // custom-to-non-custom conversions are not allowed.
+    if (field->has_type_context()) {
+      if (!villagesql::TryCopyCustomTypeField(field, to)) {
+        null_value = false;
+        return;
+      }
+    }
     field_conv_with_cache(to, field, &last_org_destination_field,
                           &last_org_destination_field_memcpyable);
     null_value = false;
@@ -6815,6 +6853,24 @@ type_conversion_status Item_field::save_in_field_inner(Field *to,
   if (to == field) {
     return TYPE_OK;
   }
+
+  // VillageSQL: For custom types, try direct binary copy to avoid charset
+  // conversion which would corrupt the binary data. Also validates that
+  // custom-to-non-custom conversions are not allowed.
+  if (field->has_type_context()) {
+    if (!villagesql::TryCopyCustomTypeField(field, to)) {
+      return TYPE_OK;
+    }
+  }
+
+  // VillageSQL: Handle implicit cast from string field to custom type.
+  // This enables CTEs and subqueries with string values to work:
+  // INSERT INTO t1 WITH cte AS (SELECT '(1,2)' AS val) SELECT * FROM cte
+  if (!field->has_type_context() && to->has_type_context() &&
+      result_type() == STRING_RESULT) {
+    return villagesql::TryEncodeStringFieldToCustom(field, to);
+  }
+
   return field_conv_with_cache(to, field, &last_destination_field,
                                &last_destination_field_memcpyable);
 }
@@ -6845,6 +6901,14 @@ type_conversion_status Item_null::save_in_field_inner(Field *field,
 
 type_conversion_status Item::save_in_field(Field *field, bool no_conversions) {
   DBUG_TRACE;
+
+  // Check if storing into a field with a custom type
+  if (field->has_type_context()) {
+    if (villagesql::ValidateAndReportCustomFieldStore(this, field)) {
+      return TYPE_ERR_BAD_VALUE;
+    }
+  }
+
   // In case this is a hidden column used for a functional index, insert
   // an error handler that catches any errors that tries to print out the
   // name of the hidden column. It will instead print out the functional
@@ -6959,6 +7023,21 @@ type_conversion_status Item::save_in_field_inner(Field *field,
     /* NOTE: If null_value == false, "result" must be not NULL.  */
 
     field->set_notnull();
+
+    // For custom types, encode the string value before storing
+    if (!has_type_context() && field->has_type_context()) {
+      bool is_valid = false;
+      String *encoded = villagesql::EncodeStringForField(
+          *field->get_type_context(), *result, *current_thd->mem_root,
+          field->field_name, is_valid);
+      if (encoded == nullptr) {
+        str_value.set_quick(nullptr, 0, cs);
+        return is_valid ? TYPE_ERR_OOM : TYPE_ERR_BAD_VALUE;
+      }
+      result = encoded;
+      cs = &my_charset_bin;
+    }
+
     const type_conversion_status error =
         field->store(result->ptr(), result->length(),
                      field->type() == MYSQL_TYPE_JSON ? result->charset() : cs);
@@ -6991,8 +7070,27 @@ type_conversion_status Item::save_in_field_inner(Field *field,
 }
 
 type_conversion_status Item_string::save_in_field_inner(Field *field, bool) {
-  String *result;
-  result = val_str(&str_value);
+  assert(fixed);
+  if (!has_type_context() && field->has_type_context()) {
+    // Treat this Item as if it were a custom type.
+    auto *tc = field->get_type_context();
+    this->set_type_context(tc);
+
+    // Encode str_value into a new representation, based on the type.
+    bool is_oom = false;
+    String *encoded = villagesql::EncodeStringForField(
+        *tc, str_value, *current_thd->mem_root, field->field_name, is_oom);
+    if (encoded == nullptr) {
+      return is_oom ? TYPE_ERR_OOM : TYPE_ERR_BAD_VALUE;
+    }
+
+    // Now re-cache the new version.
+    // TODO(villagesql-beta): check on the collation settings.
+    fixed = false;
+    init(encoded->ptr(), encoded->length(), &my_charset_bin,
+         collation.derivation, collation.repertoire);
+  }
+  String *result = val_str(&str_value);
   return save_str_value_in_field(field, result);
 }
 
@@ -7566,9 +7664,22 @@ bool Item::send(Protocol *protocol, String *buffer) {
     case MYSQL_TYPE_JSON: {
       const String *res = val_str(buffer);
       assert(null_value == (res == nullptr));
-      if (res != nullptr)
+      if (res != nullptr) {
+        // Custom types need to be decoded from binary to string format
+        if (has_type_context()) {
+          String decoded;
+          bool is_valid = true;
+          if (villagesql::DecodeString(
+                  *get_type_context(), pointer_cast<const uchar *>(res->ptr()),
+                  res->length(), *current_thd->mem_root, &decoded, is_valid)) {
+            return protocol->store_null();
+          }
+          return protocol->store_string(decoded.ptr(), decoded.length(),
+                                        &my_charset_utf8mb4_bin);
+        }
         return protocol->store_string(res->ptr(), res->length(),
                                       res->charset());
+      }
       break;
     }
     case MYSQL_TYPE_TINY: {
@@ -8590,6 +8701,11 @@ void Item_ref::set_properties() {
   if (ref_item()->type() == FIELD_ITEM &&
       down_cast<Item_ident *>(ref_item())->is_alias_of_expr())
     set_alias_of_expr();
+
+  // VillageSQL: Propagate custom type context from referenced item
+  if (ref_item()->has_type_context()) {
+    set_type_context(ref_item()->get_type_context());
+  }
 }
 
 void Item_ref::cleanup() {
@@ -9757,6 +9873,11 @@ int stored_field_cmp_to_item(THD *thd, Field *field, Item *item) {
              item_time.time_type != MYSQL_TIMESTAMP_DATETIME_TZ);
       return my_time_compare(field_time, item_time);
     }
+    // Use custom comparison for custom types
+    auto custom_result =
+        villagesql::TryCompareCustomType(item, *field_result, *item_result);
+    if (custom_result.has_value()) return custom_result.value();
+
     return sortcmp(field_result, item_result, field->charset());
   }
   if (res_type == INT_RESULT) return 0;  // Both are of type int
@@ -10775,6 +10896,12 @@ Field *Item_aggregate_type::make_field_by_type(TABLE *table, bool strict) {
     field->set_flag(NO_DEFAULT_VALUE_FLAG);
   }
   field->set_derivation(collation.derivation);
+
+  // Propagate custom type context to the new field for UNION temp tables
+  if (has_type_context()) {
+    field->set_type_context(get_type_context());
+  }
+
   return field;
 }
 
