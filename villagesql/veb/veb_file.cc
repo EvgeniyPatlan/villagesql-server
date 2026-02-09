@@ -41,6 +41,7 @@
 #include "sql_string.h"
 #include "villagesql/include/error.h"
 #include "villagesql/include/version.h"
+#include "villagesql/schema/descriptor/func_descriptor.h"
 #include "villagesql/schema/descriptor/type_descriptor.h"
 #include "villagesql/schema/victionary_client.h"
 #include "villagesql/veb/sql_extension.h"
@@ -633,7 +634,8 @@ bool load_installed_extensions(THD *thd) {
         return true;
       }
 
-      if (register_vdfs_from_extension(extension_name, registration)) {
+      if (register_funcs_from_extension(*thd, extension_name, expected_version,
+                                        registration)) {
         LogVSQL(ERROR_LEVEL, "Failed to register VDFs for extension '%s'",
                 extension_name.c_str());
         return true;
@@ -804,8 +806,29 @@ bool register_types_from_extension(THD &thd, const std::string &extension_name,
   return false;
 }
 
-bool register_vdfs_from_extension(const std::string &extension_name,
-                                  const ExtensionRegistration &ext_reg) {
+// Convert VEF type to MySQL Item_result
+static Item_result vef_type_to_item_result(const vef_type_t &type) {
+  switch (type.id) {
+    case VEF_TYPE_STRING:
+      return STRING_RESULT;
+    case VEF_TYPE_REAL:
+      return REAL_RESULT;
+    case VEF_TYPE_INT:
+      return INT_RESULT;
+    case VEF_TYPE_CUSTOM:
+      // Custom types are passed as binary strings
+      return STRING_RESULT;
+    default:
+      return STRING_RESULT;
+  }
+}
+
+bool register_funcs_from_extension(THD &thd, const std::string &extension_name,
+                                   const std::string &extension_version,
+                                   const ExtensionRegistration &ext_reg) {
+  auto &victionary = VictionaryClient::instance();
+  victionary.assert_write_lock_held();
+
   if (ext_reg.registration == nullptr ||
       ext_reg.registration->func_count == 0) {
     LogVSQL(INFORMATION_LEVEL, "No VDFs to register for extension '%s'",
@@ -827,13 +850,31 @@ bool register_vdfs_from_extension(const std::string &extension_name,
       return true;
     }
 
+    std::string func_name(func_desc->name);
+
     LogVSQL(INFORMATION_LEVEL, "Registering VDF '%s' from extension '%s'",
             func_desc->name, extension_name.c_str());
 
-    if (register_vdf(func_desc, extension_name.c_str(),
-                     extension_name.length())) {
-      LogVSQL(ERROR_LEVEL, "Failed to register VDF '%s' from extension '%s'",
-              func_desc->name, extension_name.c_str());
+    FuncKey key(func_name, extension_name);
+
+    // Check if VDF already exists
+    const FuncDescriptor *existing = victionary.funcs().get_committed(key);
+    if (existing) {
+      LogVSQL(ERROR_LEVEL, "VDF '%s' from extension '%s' already exists",
+              func_name.c_str(), extension_name.c_str());
+      return true;
+    }
+
+    // Convert return type from VEF signature
+    Item_result return_type =
+        vef_type_to_item_result(func_desc->signature->return_type);
+
+    FuncDescriptor descriptor(key, extension_version, func_desc,
+                              func_desc->protocol, return_type);
+
+    if (victionary.funcs().MarkForInsertion(thd, std::move(descriptor))) {
+      LogVSQL(ERROR_LEVEL, "Failed to mark VDF '%s' for insertion",
+              func_name.c_str());
       return true;
     }
 
@@ -842,51 +883,6 @@ bool register_vdfs_from_extension(const std::string &extension_name,
   }
 
   return false;
-}
-
-bool unregister_vdfs_from_extension(const std::string &extension_name,
-                                    const ExtensionRegistration &ext_reg) {
-  if (ext_reg.registration == nullptr ||
-      ext_reg.registration->func_count == 0) {
-    LogVSQL(INFORMATION_LEVEL, "No VDFs to unregister for extension '%s'",
-            extension_name.c_str());
-    return false;
-  }
-
-  const vef_registration_t &reg = *ext_reg.registration;
-
-  LogVSQL(INFORMATION_LEVEL, "Unregistering %d VDFs from extension '%s'",
-          reg.func_count, extension_name.c_str());
-
-  bool had_error = false;
-  for (unsigned int i = 0; i < reg.func_count; i++) {
-    const vef_func_desc_t *func_desc = reg.funcs[i];
-    if (func_desc == nullptr || func_desc->name == nullptr) {
-      LogVSQL(ERROR_LEVEL,
-              "Extension '%s' has NULL func descriptor at index %u",
-              extension_name.c_str(), i);
-      had_error = true;
-      continue;
-    }
-
-    LogVSQL(INFORMATION_LEVEL, "Unregistering VDF '%s' from extension '%s'",
-            func_desc->name, extension_name.c_str());
-
-    // Exclusive MDL on the extension name prevents the uninstall while any VDFs
-    // are being used.
-    if (unregister_vdf(extension_name.c_str(), extension_name.length(),
-                       func_desc->name, strlen(func_desc->name))) {
-      LogVSQL(ERROR_LEVEL, "Failed to unregister VDF '%s' from extension '%s'",
-              func_desc->name, extension_name.c_str());
-      had_error = true;
-      continue;
-    }
-
-    LogVSQL(INFORMATION_LEVEL, "Successfully unregistered VDF '%s'",
-            func_desc->name);
-  }
-
-  return had_error;
 }
 
 template <typename T>

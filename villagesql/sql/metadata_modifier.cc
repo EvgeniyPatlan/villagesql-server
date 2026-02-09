@@ -36,6 +36,7 @@
 #include "villagesql/schema/systable/extensions.h"
 #include "villagesql/schema/victionary_client.h"
 #include "villagesql/sql/custom_vdf.h"
+#include "villagesql/sql/func_lookup.h"
 
 namespace villagesql {
 
@@ -489,11 +490,8 @@ bool Metadata_modifier::validate_entries() {
       return true;
     }
 
-    // Verify that the function exists in the extension
-    udf_func *udf = find_udf_qualified(
-        routine.extension_name.c_str(), routine.extension_name.length(),
-        routine.function_name.c_str(), routine.function_name.length(), false);
-    if (!udf) {
+    // Verify that the function exists in VictionaryClient
+    if (!func_exists(routine.extension_name, routine.function_name)) {
       villagesql_error("Custom function '%s' not found in extension '%s'",
                        MYF(0), routine.function_name.c_str(),
                        routine.extension_name.c_str());

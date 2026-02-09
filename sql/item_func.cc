@@ -4551,7 +4551,13 @@ void udf_handler::clean_buffers() {
 void udf_handler::free_handler() {
   // deinit() should have been called by cleanup()
   assert(m_original && m_initialized && u_d != nullptr);
-  free_udf(u_d);
+
+  // For VDFs, the udf_func wrapper is allocated on statement MEM_ROOT
+  // and reference counting is managed by VictionaryClient. Don't call
+  // free_udf() which tries to manipulate the UDF hash.
+  if (u_d->calling_convention != UdfCallingConvention::VDF) {
+    free_udf(u_d);
+  }
   u_d = nullptr;
   m_initialized = false;
 }
@@ -4575,23 +4581,22 @@ bool udf_handler::fix_fields(THD *thd, Item_result_field *func, uint arg_count,
   if (check_stack_overrun(thd, STACK_MIN_SIZE, buff))
     return true;  // Fatal error flag is set!
 
-  // For custom VDFs, use find_udf_qualified; for system UDFs, use find_udf
-  udf_func *tmp_udf;
-  if (u_d->extension_name.str) {
-    tmp_udf =
-        find_udf_qualified(u_d->extension_name.str, u_d->extension_name.length,
-                           u_d->name.str, u_d->name.length, true);
-  } else {
-    tmp_udf = find_udf(u_d->name.str, (uint)u_d->name.length, true);
+  // For VDFs, the udf_func wrapper was created during parsing with all
+  // necessary information. Reference counting is managed by VictionaryClient
+  // through MEM_ROOT cleanup callbacks - no additional lookup needed. For
+  // classic UDFs, look up in the UDF hash to get function pointers and
+  // increment usage count.
+  if (u_d->calling_convention == UdfCallingConvention::CLASSIC) {
+    // Classic UDF: look up in hash
+    udf_func *tmp_udf = find_udf(u_d->name.str, (uint)u_d->name.length, true);
+    if (!tmp_udf) {
+      my_error(ER_CANT_FIND_UDF, MYF(0), u_d->name.str);
+      return true;
+    }
+    u_d = tmp_udf;
   }
 
-  if (!tmp_udf) {
-    my_error(ER_CANT_FIND_UDF, MYF(0), u_d->name.str);
-    return true;
-  }
-  u_d = tmp_udf;
   args = arguments;
-
   m_initialized = true;  // Use count was incremented by find_udf()
 
   const bool is_in_prepare =

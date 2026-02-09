@@ -99,16 +99,11 @@ bool register_types_from_extension(THD &thd, const std::string &extension_name,
                                    const ExtensionRegistration &ext_reg);
 
 // Register VDFs (VillageSQL Defined Functions) from an extension.
-// This registers each function with the UDF subsystem.
+// REQUIRES: Caller must hold victionary write lock.
 // Returns false on success, true on error.
-bool register_vdfs_from_extension(const std::string &extension_name,
-                                  const ExtensionRegistration &ext_reg);
-
-// Unregister VDFs (VillageSQL Defined Functions) during extension uninstall.
-// This removes each function from the UDF subsystem.
-// Returns false on success, true on error.
-bool unregister_vdfs_from_extension(const std::string &extension_name,
-                                    const ExtensionRegistration &ext_reg);
+bool register_funcs_from_extension(THD &thd, const std::string &extension_name,
+                                   const std::string &extension_version,
+                                   const ExtensionRegistration &ext_reg);
 
 // Load a VEF extension from a .so file and get the registration.
 //

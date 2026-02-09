@@ -42,6 +42,7 @@
 #include "sql/table.h"
 #include "villagesql/include/error.h"
 #include "villagesql/schema/descriptor/extension_descriptor.h"
+#include "villagesql/schema/descriptor/func_descriptor.h"
 #include "villagesql/schema/descriptor/type_context.h"
 #include "villagesql/schema/descriptor/type_descriptor.h"
 #include "villagesql/schema/systable/custom_columns.h"
@@ -663,6 +664,7 @@ class VictionaryClient {
     return m_extension_descriptors;
   }
   ExtensionObjectMap<TypeContext> &type_contexts() { return m_type_contexts; }
+  ExtensionObjectMap<FuncDescriptor> &funcs() { return m_funcs; }
 
   const SystemTableMap<PropertyEntry> &properties() const {
     return m_properties;
@@ -680,6 +682,7 @@ class VictionaryClient {
   const ExtensionObjectMap<TypeContext> &type_contexts() const {
     return m_type_contexts;
   }
+  const ExtensionObjectMap<FuncDescriptor> &funcs() const { return m_funcs; }
 
   // ===== Convenience query methods =====
 
@@ -768,7 +771,8 @@ class VictionaryClient {
         m_extensions(&m_lock),
         m_type_descriptors(&m_lock),
         m_extension_descriptors(&m_lock),
-        m_type_contexts(&m_lock) {}
+        m_type_contexts(&m_lock),
+        m_funcs(&m_lock) {}
   ~VictionaryClient();
 
   // Disable copy and assignment
@@ -825,6 +829,7 @@ class VictionaryClient {
   ExtensionObjectMap<TypeDescriptor> m_type_descriptors;
   ExtensionObjectMap<ExtensionDescriptor> m_extension_descriptors;
   ExtensionObjectMap<TypeContext> m_type_contexts;
+  ExtensionObjectMap<FuncDescriptor> m_funcs;
 };
 
 // ===== Helper functions =====
