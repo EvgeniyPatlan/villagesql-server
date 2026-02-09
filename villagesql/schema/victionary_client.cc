@@ -142,6 +142,7 @@ void VictionaryClient::commit_all_tables(THD *thd) {
   m_type_descriptors.commit(thd);
   m_extension_descriptors.commit(thd);
   m_type_contexts.commit(thd);
+  m_funcs.commit(thd);
 }
 
 void VictionaryClient::rollback_all_tables(THD *thd) {
@@ -155,6 +156,7 @@ void VictionaryClient::rollback_all_tables(THD *thd) {
   m_type_descriptors.rollback(thd);
   m_extension_descriptors.rollback(thd);
   m_type_contexts.rollback(thd);
+  m_funcs.rollback(thd);
 }
 
 bool VictionaryClient::write_all_uncommitted_entries(THD *thd) {
@@ -248,6 +250,7 @@ void VictionaryClient::clear_all_tables() {
   m_type_descriptors.clear();
   m_extension_descriptors.clear();
   m_type_contexts.clear();
+  m_funcs.clear();
 
   LogVSQL(INFORMATION_LEVEL, "Cleared all system table metadata");
 }

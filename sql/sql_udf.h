@@ -189,12 +189,6 @@ void udf_unload_udfs();
 void udf_deinit_globals();
 udf_func *find_udf(const char *name, size_t len = 0, bool mark_used = false);
 
-// Find a UDF that's qualified with an extension name.
-// e.g. for "vsql_complex.complex_real"
-// extension would be "vsql_complex" and function would be "complex_real"
-udf_func *find_udf_qualified(const char *extension, size_t ext_len,
-                             const char *function, size_t func_len,
-                             bool mark_used = false);
 void free_udf(udf_func *udf);
 bool mysql_create_function(THD *thd, udf_func *udf, bool if_not_exists);
 bool mysql_drop_function(THD *thd, const LEX_STRING *name);
@@ -204,13 +198,5 @@ void udf_hash_rlock(void);
 void udf_hash_unlock(void);
 typedef void udf_hash_for_each_func_t(udf_func *, void *);
 void udf_hash_for_each(udf_hash_for_each_func_t *func, void *arg);
-
-// VDF (VillageSQL Defined Function) registration
-// These functions are called by the extension loading code to register/
-// unregister functions that use the VEF ABI calling convention.
-bool register_vdf(const vef_func_desc_t *func_desc, const char *extension_name,
-                  size_t extension_name_len);
-bool unregister_vdf(const char *extension_name, size_t extension_name_len,
-                    const char *func_name, size_t func_name_len);
 
 #endif /* SQL_UDF_INCLUDED */

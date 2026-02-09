@@ -15,6 +15,7 @@
 
 SET(VILLAGESQL_SQL_SOURCES
   custom_vdf.cc
+  func_lookup.cc
   initialize.cc
   metadata_modifier.cc
   parse_tree_items.cc

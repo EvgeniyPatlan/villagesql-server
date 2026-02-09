@@ -195,8 +195,8 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
       return end_transaction(thd, true);
     }
 
-    if (villagesql::veb::register_vdfs_from_extension(extension_name,
-                                                      registration)) {
+    if (villagesql::veb::register_funcs_from_extension(*thd, extension_name,
+                                                       version, registration)) {
       villagesql_error("Failed to register VDFs for extension '%s'", MYF(0),
                        extension_name.c_str());
       return end_transaction(thd, true);
@@ -322,8 +322,24 @@ bool remove_extension_from_victionary(
     return true;
   }
 
-  // Check for active references to TypeContexts and TypeDescriptors. A
-  // use_count > 1 means something other than the Victionary holds a reference.
+  // Check for active references to VDFs, TypeContexts, and TypeDescriptors.
+  // A use_count > 1 means something other than Victionary holds a reference
+  // (e.g., an executing query).
+  const auto &all_funcs = victionary.funcs().get_all_committed();
+  for (const auto *func : all_funcs) {
+    if (func->extension_name() == extension_name &&
+        func->extension_version() == ext_entry->extension_version) {
+      long use_count = victionary.funcs().get_use_count(func->key().str());
+      if (use_count > 1) {
+        villagesql_error(
+            "Cannot uninstall extension '%s': VDF '%s' is currently in "
+            "use",
+            MYF(0), extension_name.c_str(), func->function_name().c_str());
+        return true;
+      }
+    }
+  }
+
   const auto &all_type_contexts =
       victionary.type_contexts().get_all_committed();
   for (const auto *type_context : all_type_contexts) {
@@ -371,6 +387,14 @@ bool remove_extension_from_victionary(
     if (type_desc->extension_name() == extension_name &&
         type_desc->extension_version() == ext_entry->extension_version) {
       victionary.type_descriptors().MarkForDeletion(*thd, type_desc->key());
+    }
+  }
+
+  // Delete VDFs for this extension
+  for (const auto *func : all_funcs) {
+    if (func->extension_name() == extension_name &&
+        func->extension_version() == ext_entry->extension_version) {
+      victionary.funcs().MarkForDeletion(*thd, func->key());
     }
   }
 
@@ -457,17 +481,6 @@ bool Sql_cmd_uninstall_extension::execute(THD *thd) {
   }
 
   if (to_unregister.has_value()) {
-    // Unregister VDFs before unloading extension (function pointers become
-    // invalid after unload)
-    // TODO(villagesql-beta): Move the unloading into the victionary, so it can
-    // be done as part of atomic commit.
-    if (villagesql::veb::unregister_vdfs_from_extension(extension_name,
-                                                        *to_unregister)) {
-      // Log warning but don't fail - extension tables are already updated
-      LogVSQL(WARNING_LEVEL,
-              "Failed to unregister some VDFs for extension '%s'",
-              extension_name.c_str());
-    }
     villagesql::veb::unload_vef_extension(*to_unregister);
   }
 
