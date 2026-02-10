@@ -43,8 +43,7 @@ SELECT COLLATION(test_vdf_ext.simple_string_func()) AS string_collation;
 --error ER_SP_DOES_NOT_EXIST
 SELECT test_vdf_ext.nonexistent_func() AS result;
 
---echo # Try calling VDF without qualified name (should fail)
---error ER_SP_DOES_NOT_EXIST
+--echo # Call VDF without qualified name (should work - unqualified lookup)
 SELECT simple_int_func() AS result;
 
 --echo # Try to drop custom VDF directly (should fail - not in mysql.func)

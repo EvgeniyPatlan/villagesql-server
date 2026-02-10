@@ -30,9 +30,10 @@ utf8mb4_bin
 # Try calling non-existent VDF on installed extension (should fail - falls through to stored function lookup)
 SELECT test_vdf_ext.nonexistent_func() AS result;
 ERROR 42000: FUNCTION test_vdf_ext.nonexistent_func does not exist
-# Try calling VDF without qualified name (should fail)
+# Call VDF without qualified name (should work - unqualified lookup)
 SELECT simple_int_func() AS result;
-ERROR 42000: FUNCTION test.simple_int_func does not exist
+result
+42
 # Try to drop custom VDF directly (should fail - not in mysql.func)
 DROP FUNCTION simple_int_func;
 ERROR 42000: FUNCTION test.simple_int_func does not exist

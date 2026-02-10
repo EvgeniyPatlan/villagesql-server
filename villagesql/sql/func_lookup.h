@@ -21,6 +21,7 @@
 #ifndef VILLAGESQL_SQL_FUNC_LOOKUP_H_
 #define VILLAGESQL_SQL_FUNC_LOOKUP_H_
 
+#include <string>
 #include <string_view>
 
 struct MEM_ROOT;
@@ -49,6 +50,14 @@ const FuncDescriptor *find_func(std::string_view ext_name,
 //
 // Returns: true if the function exists, false otherwise.
 bool func_exists(std::string_view ext_name, std::string_view func_name);
+
+// Find VDF by function name only (unqualified lookup).
+// Returns the FuncDescriptor if exactly one extension provides the function.
+// Sets *ambiguous_extensions to a comma-separated list if multiple found.
+// Returns nullptr if not found or ambiguous.
+const FuncDescriptor *find_func_unqualified(std::string_view func_name,
+                                            MEM_ROOT &cleanup_scope,
+                                            std::string *ambiguous_extensions);
 
 // Create a udf_func wrapper from a FuncDescriptor.
 // This creates a udf_func structure compatible with the existing UDF handling
