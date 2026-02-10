@@ -34,4 +34,10 @@ bool try_itemize_custom_vdf(Parse_context *pc, const LEX_STRING &extension_name,
                             const LEX_STRING &func, PT_item_list *opt_expr_list,
                             Item **res, bool *error);
 
+// Try to resolve an unqualified function call as a VDF.
+// Returns true if handled (check *error), false to try other resolution.
+bool try_itemize_unqualified_vdf(Parse_context *pc, const LEX_STRING &func,
+                                 PT_item_list *opt_expr_list, Item **res,
+                                 bool *error);
+
 #endif  // VILLAGESQL_SQL_PARSE_TREE_ITEMS_H_

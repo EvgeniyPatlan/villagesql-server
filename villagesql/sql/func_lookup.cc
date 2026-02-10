@@ -70,6 +70,41 @@ bool func_exists(std::string_view ext_name, std::string_view func_name) {
   return victionary.funcs().get_committed(key) != nullptr;
 }
 
+const FuncDescriptor *find_func_unqualified(std::string_view func_name,
+                                            MEM_ROOT &cleanup_scope,
+                                            std::string *ambiguous_extensions) {
+  ambiguous_extensions->clear();
+  if (func_name.empty()) {
+    return nullptr;
+  }
+
+  VictionaryClient &victionary = VictionaryClient::instance();
+
+  // During server bootstrap, VictionaryClient may not be initialized yet.
+  // Return nullptr in this case - VDFs aren't available until extensions load.
+  if (!victionary.is_initialized()) {
+    return nullptr;
+  }
+
+  FuncKeyPrefix prefix{std::string{func_name}};
+  auto lock = victionary.get_read_lock();
+  auto results = victionary.funcs().get_prefix_committed(prefix);
+
+  if (results.empty()) {
+    return nullptr;
+  }
+  if (results.size() > 1) {
+    // Build list of extension names for error message
+    for (size_t i = 0; i < results.size(); i++) {
+      if (i > 0) ambiguous_extensions->append(", ");
+      ambiguous_extensions->append(results[i]->extension_name());
+    }
+    return nullptr;
+  }
+
+  return victionary.funcs().acquire(results[0]->key(), cleanup_scope);
+}
+
 udf_func *make_udf_func_from_vdf(const FuncDescriptor *desc,
                                  MEM_ROOT &mem_root) {
   if (!desc || !desc->func_desc()) {
