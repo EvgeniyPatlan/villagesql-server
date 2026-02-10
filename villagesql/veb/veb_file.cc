@@ -621,7 +621,7 @@ bool load_installed_extensions(THD *thd) {
       }
 
       ExtensionRegistration registration;
-      if (load_vef_extension(so_path, registration)) {
+      if (load_vef_extension(so_path, extension_name, registration)) {
         LogVSQL(ERROR_LEVEL, "Failed to load VEF extension '%s' from '%s'",
                 extension_name.c_str(), so_path.c_str());
         return true;
@@ -902,7 +902,25 @@ static T lookup_symbol(void *handle, const char *so_path,
   return reinterpret_cast<T>(sym);
 }
 
+// Validate a vef_registration_t returned by vef_register().
+// TODO(villagesql-beta): Add more validation of the returned registration
+// object (e.g. func/type descriptors, protocol version, null pointers).
+// Returns false on success, true on error.
+static bool validate_vef_registration(const vef_registration_t *reg,
+                                      const std::string &expected_name) {
+  if (reg->extension_name == nullptr ||
+      std::string(reg->extension_name) != expected_name) {
+    LogVSQL(ERROR_LEVEL,
+            "Extension name mismatch: expected '%s' but .so registers '%s'",
+            expected_name.c_str(),
+            reg->extension_name ? reg->extension_name : "(null)");
+    return true;
+  }
+  return false;
+}
+
 bool load_vef_extension(const std::string &so_path,
+                        const std::string &expected_name,
                         ExtensionRegistration &registration) {
   LogVSQL(INFORMATION_LEVEL, "Loading VEF extension from: %s", so_path.c_str());
 
@@ -961,7 +979,14 @@ bool load_vef_extension(const std::string &so_path,
     return true;
   }
 
-  // TODO(villagesql-beta): Validate the returned registration object.
+  if (validate_vef_registration(reg, expected_name)) {
+    LogVSQL(ERROR_LEVEL, "Extension '%s' failed registration validation",
+            so_path.c_str());
+    vef_unregister_arg_t unregister_arg = {VEF_PROTOCOL_1};
+    vef_unregister(&unregister_arg, reg);
+    dlclose(handle);
+    return true;
+  }
 
   LogVSQL(INFORMATION_LEVEL,
           "Successfully loaded VEF extension '%s' (protocol %d, %d funcs, %d "

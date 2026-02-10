@@ -48,7 +48,7 @@ void simple_test_impl(vef_context_t *ctx, vef_invalue_t *input,
 }
 
 VEF_GENERATE_ENTRY_POINTS(
-    make_extension("simple_udf", "0.0.1-devtest")
+    make_extension(VEF_EXTENSION_NAME, "0.0.1-devtest")
         .func(make_func<&simple_int_func_impl>("simple_int_func")
                   .returns(INT)
                   .build())
