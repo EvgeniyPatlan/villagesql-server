@@ -548,6 +548,11 @@ sub main {
       # Scan all sub-directories for available test suites.
       # The variable $opt_suites is updated by get_all_suites()
       find(\&get_all_suites, "$glob_mysql_test_dir");
+      # Re-scan VillageSQL suite with symlink following to discover
+      # extension test suites symlinked from villagesql/examples/
+      find({ wanted => \&get_all_suites, follow => 1 },
+           "$glob_mysql_test_dir/suite/villagesql")
+        if (-d "$glob_mysql_test_dir/suite/villagesql");
       find({ wanted => \&get_all_suites, follow => 1 },
 	   "$basedir/internal/mysql-test")
         if (-d "$basedir/internal");
