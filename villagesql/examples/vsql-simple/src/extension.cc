@@ -141,7 +141,7 @@ using namespace villagesql::type_builder;
 constexpr const char *BYTEARRAY = "bytearray";
 
 VEF_GENERATE_ENTRY_POINTS(
-    make_extension("vsql_simpler", "0.0.1")
+    make_extension("vsql_simple", "0.0.1")
         .type(make_type(BYTEARRAY)
                   .persisted_length(kBytearrayLen)
                   .max_decode_buffer_length(kBytearrayLen)

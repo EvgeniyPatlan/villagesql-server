@@ -59,7 +59,7 @@ using namespace villagesql::type_builder;
 constexpr const char *TESTTYPE = "TESTTYPE";
 
 VEF_GENERATE_ENTRY_POINTS(
-    make_extension("testtype_short", "0.0.1-devtest")
+    make_extension(VEF_EXTENSION_NAME, "0.0.1-devtest")
         .type(make_type(TESTTYPE)
                   .persisted_length(kTestTypeLen)
                   .max_decode_buffer_length(64)

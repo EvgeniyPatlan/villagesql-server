@@ -179,7 +179,8 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
   }
 
   villagesql::veb::ExtensionRegistration registration;
-  if (villagesql::veb::load_vef_extension(so_path, registration)) {
+  if (villagesql::veb::load_vef_extension(so_path, extension_name,
+                                          registration)) {
     villagesql_error("Failed to load VEF extension '%s' from '%s'", MYF(0),
                      extension_name.c_str(), so_path.c_str());
     return end_transaction(thd, true);

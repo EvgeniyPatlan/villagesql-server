@@ -135,7 +135,7 @@ void byte_array_compare_impl(vef_context_t *ctx, vef_invalue_t *a,
 }
 
 VEF_GENERATE_ENTRY_POINTS(
-    make_extension("vef_byte_array", "0.0.1-devtest")
+    make_extension(VEF_EXTENSION_NAME, "0.0.1-devtest")
         .func(make_func("byte_array_from_string")
                   .from_string<&encode_byte_array>(STRING))
         .func(make_func<&byte_array_compare_impl>("byte_array_compare")
