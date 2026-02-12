@@ -70,18 +70,18 @@ struct udf_func {
   ulong usage_count;
 
   // Empty/nullptr for system UDFs, populated for VDFs
-  LEX_STRING extension_name{nullptr, 0};
+  LEX_STRING extension_name;
 
   // VillageSQL: Fully qualified name for custom VDF, empty/nullptr for system
   // UDFs
-  LEX_STRING qualified_name{nullptr, 0};
+  LEX_STRING qualified_name;
 
   // Calling convention - CLASSIC for traditional UDFs, VDF for VillageSQL
   // Defined Functions using the VEF ABI.
   UdfCallingConvention calling_convention;
 
   // For VDF functions, points to the function descriptor from the extension.
-  const vef_func_desc_t *vdf_func_desc{nullptr};
+  const vef_func_desc_t *vdf_func_desc;
 
   // Protocol version for this VDF function
   vef_protocol_t vdf_protocol;
