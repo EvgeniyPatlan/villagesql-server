@@ -4088,7 +4088,7 @@ struct LEX : public Query_tables_list {
   List<Name_resolution_context> context_stack;
 
   Item_sum *in_sum_func;
-  udf_func udf;
+  udf_func udf{};
   HA_CHECK_OPT check_opt;  // check/repair options
   HA_CREATE_INFO *create_info;
   KEY_CREATE_INFO key_create_info;
