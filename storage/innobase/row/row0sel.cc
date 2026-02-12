@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1997, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 Copyright (c) 2008, Google Inc.
 
 Portions of this file contain modifications contributed and copyrighted by
@@ -156,7 +157,8 @@ static bool row_sel_sec_rec_is_for_blob(
                                     (const char *)buf);
 
   /* We are testing for equality; ASC/DESC does not matter. */
-  return (!cmp_data_data(mtype, prtype, true, buf, len, sec_field, sec_len));
+  return (!cmp_data_data(mtype, prtype, true, buf, len, sec_field, sec_len,
+                         nullptr));
 }
 
 /** Returns true if the user-defined column values in a secondary index record
@@ -332,7 +334,7 @@ static dberr_t row_sel_sec_rec_is_for_clust_rec(
       /* We are testing for equality; ASC/DESC does not
       matter */
       if (0 != cmp_data_data(col->mtype, col->prtype, true, clust_field, len,
-                             sec_field, sec_len)) {
+                             sec_field, sec_len, col->custom_column)) {
         is_equal = false;
         goto func_exit;
       }

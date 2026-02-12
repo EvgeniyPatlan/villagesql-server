@@ -198,6 +198,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ut0mem.h"
 #include "ut0test.h"
 #include "ut0ut.h"
+#include "villagesql/custom_column.h"
 #include "villagesql/schema/util.h"
 #else
 #include <typelib.h>
@@ -209,7 +210,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "sql-common/json_binary.h"
 #include "sql-common/json_dom.h"
-#include "villagesql/types/util.h"
 
 #include "os0enc.h"
 #include "os0file.h"
@@ -4003,6 +4003,7 @@ static void innobase_dict_cache_reset(const char *schema_name,
 /** Invalidate user table dict cache after Replication Plugin recovers. Table
 definition could be different with XA commit/rollback of DDL operations */
 static void innobase_dict_cache_reset_tables_and_tablespaces() {
+  std::vector<dict_table_t *> resurrected_tables;
   dict_sys_mutex_enter();
 
   /* There should be no DDL/DML activity at this stage, so access
@@ -4018,8 +4019,15 @@ static void innobase_dict_cache_reset_tables_and_tablespaces() {
     /* TODO: Remove follow if we have better way to identify
     DD "system table" */
     if (db_str.compare("mysql") == 0 || table->is_dd_table ||
-        table->is_corrupted() || db_str.compare("villagesql") == 0 ||
-        DICT_TF2_FLAG_IS_SET(table, DICT_TF2_RESURRECT_PREPARED)) {
+        table->is_corrupted() || db_str.compare("villagesql") == 0) {
+      continue;
+    }
+
+    if (DICT_TF2_FLAG_IS_SET(table, DICT_TF2_RESURRECT_PREPARED)) {
+      if (!dict_table_is_sdi(table->id)) {
+        table->acquire_with_lock();
+        resurrected_tables.push_back(table);
+      }
       continue;
     }
 
@@ -4030,6 +4038,14 @@ static void innobase_dict_cache_reset_tables_and_tablespaces() {
     dict_table_remove_from_cache(table);
   }
   dict_sys_mutex_exit();
+
+  // VillageSQL: Tables resurrected in dict cache during recovery lack
+  // custom column metadata because the extension system is not initialized
+  // at that time. Load all custom column metadata here.
+  for (auto *table : resurrected_tables) {
+    villagesql::innodb::Custom_column::load_all(table);
+    table->release();
+  }
 }
 
 /** Perform high-level recovery in InnoDB as part of initializing the
@@ -7880,26 +7896,6 @@ int ha_innobase::open(const char *name, int, uint open_flags,
 
   if (m_prebuilt->table->is_fts_aux()) {
     dict_table_close(m_prebuilt->table, false, false);
-  }
-
-  // Set custom comparison functions on InnoDB dict_col_t after Fields have
-  // type_context. This happens in fill_column_from_dd() in dd_table_share.cc.
-  for (uint i = 0; i < table->s->fields; i++) {
-    Field *field = table->field[i];
-
-    // No need to configure VillageSQL comparison function for virtual columns.
-    if (field->is_virtual_gcol()) {
-      ut_ad(ib_table->n_v_def > 0);
-      continue;
-    }
-    // Get the column index for stored columns. The index could be different
-    // from sql field index, if there are virtual columns.
-    auto col_index =
-        dict_table_mysql_pos_to_innodb(ib_table, field->field_index());
-    ut_a(col_index < ib_table->get_n_user_cols());
-
-    dict_col_t *col = &ib_table->cols[col_index];
-    col->set_custom_compare(villagesql::GetCompareFunc(*field));
   }
 
   return 0;
@@ -11914,6 +11910,10 @@ void innodb_base_col_setup_for_stored(const dict_table_t *table,
                             charset_no),
           col_len, !field->is_hidden_by_system(), phy_pos, v_added, v_dropped);
 
+      // Check and load custom column properties for the added column.
+      auto col_no = table->n_def - 1;
+      villagesql::innodb::Custom_column::load(table, table->get_col(col_no),
+                                              field, nullptr);
       if (dd_is_valid_row_version(v_added)) {
         mem_heap_t *instant_heap = mem_heap_create(1000, UT_LOCATION_HERE);
         const dd::Column *old_part_col =

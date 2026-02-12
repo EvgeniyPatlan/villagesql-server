@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1996, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -2997,7 +2998,7 @@ loop:
   if (0 != cmp_data_data(dfield_get_type(dfield)->mtype,
                          dfield_get_type(dfield)->prtype, true,
                          static_cast<const byte *>(dfield_get_data(dfield)),
-                         dfield_get_len(dfield), field, len)) {
+                         dfield_get_len(dfield), field, len, nullptr)) {
     goto load_next_index;
   }
 

@@ -8524,6 +8524,13 @@ static int init_server_components() {
              "default_tmp_storage_engine", default_tmp_storage_engine);
   }
 
+  // Initialize the VillageSQL extension infrastructure. Custom data types
+  // provided by extensions must be available before rolling back uncommitted
+  // recovered transactions in ha_post_recover().
+  if (!opt_initialize && villagesql::init_extension_infrastructure()) {
+    unireg_abort(MYSQLD_ABORT_EXIT);
+  }
+
   DBUG_EXECUTE_IF("total_ha_2pc_equals_2", total_ha_2pc = 2;);
   if (total_ha_2pc > 1 || (1 == total_ha_2pc && opt_bin_log)) {
     if (opt_bin_log)
@@ -9810,12 +9817,6 @@ int mysqld_main(int argc, char **argv)
 
   if (!opt_noacl) {
     udf_read_functions_table();
-  }
-
-  // Initialize VillageSQL extension infrastructure.
-  if (!opt_initialize && !abort &&
-      villagesql::init_extension_infrastructure()) {
-    unireg_abort(MYSQLD_ABORT_EXIT);
   }
 
   init_status_vars();

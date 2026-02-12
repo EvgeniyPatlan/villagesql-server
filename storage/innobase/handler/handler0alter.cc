@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 2005, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -108,6 +109,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "trx0trx.h"
 #include "ut0new.h"
 #include "ut0stage.h"
+#include "villagesql/custom_column.h"
 
 /* For supporting Native InnoDB Partitioning. */
 #include "ha_innopart.h"
@@ -4750,6 +4752,12 @@ template <typename Table>
             dtype_form_prtype(field_type, charset_no), col_len,
             !field->is_hidden_by_system(), UINT32_UNDEFINED, UINT8_UNDEFINED,
             UINT8_UNDEFINED);
+
+        // Check and load custom column properties for the added column.
+        auto col_no = ctx->new_table->n_def - 1;
+        auto *table = ctx->new_table;
+        villagesql::innodb::Custom_column::load(table, table->get_col(col_no),
+                                                field, nullptr);
       }
     }
 

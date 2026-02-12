@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1994, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -40,6 +41,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "dict0dict.h"
 #include "ha_prototypes.h"
 #include "rem0rec.h"
+#include "villagesql/custom_column.h"
 
 /** Disable the min flag during row comparisons. */
 constexpr auto DISABLE_MIN_REC_FLAG_CHECK = ULINT_UNDEFINED;
@@ -66,25 +68,27 @@ bool cmp_cols_are_equal(const dict_col_t *col1, const dict_col_t *col2,
 @param[in]      len1    length of data1 in bytes, or UNIV_SQL_NULL
 @param[in]      data2   data field
 @param[in]      len2    length of data2 in bytes, or UNIV_SQL_NULL
+@param[in]      custom_column custom column descriptor, or nullptr if not custom
 @return the comparison result of data1 and data2
 @retval 0 if data1 is equal to data2
 @retval negative if data1 is less than data2
 @retval positive if data1 is greater than data2 */
-[[nodiscard]] int cmp_data_data(ulint mtype, ulint prtype, bool is_asc,
-                                const byte *data1, ulint len1,
-                                const byte *data2, ulint len2);
+[[nodiscard]] int cmp_data_data(
+    ulint mtype, ulint prtype, bool is_asc, const byte *data1, ulint len1,
+    const byte *data2, ulint len2,
+    villagesql::innodb::Custom_column *custom_column);
 
 /** Compare two data fields.
 @param[in]      dfield1 data field; must have type field set
 @param[in]      dfield2 data field
-@param[in]      is_asc  true=ASC, false=DESC
+@param[in]      field   index field
 @return the comparison result of dfield1 and dfield2
 @retval 0 if dfield1 is equal to dfield2
 @retval negative if dfield1 is less than dfield2
 @retval positive if dfield1 is greater than dfield2 */
 [[nodiscard]] static inline int cmp_dfield_dfield(const dfield_t *dfield1,
                                                   const dfield_t *dfield2,
-                                                  bool is_asc);
+                                                  const dict_field_t *field);
 
 /** Compare two data fields, the first one can be of any form of multi-value
 field, while the second one must be one field from multi-value index
