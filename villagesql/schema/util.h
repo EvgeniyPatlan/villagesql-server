@@ -16,9 +16,20 @@
 #ifndef VILLAGESQL_SCHEMA_UTIL_H
 #define VILLAGESQL_SCHEMA_UTIL_H
 
+#include "mysql/strings/m_ctype.h"
+#include "sql/mysqld_cs.h"
+#include "villagesql/schema/schema_manager.h"
+
 struct TABLE;
 
 namespace villagesql {
+
+// Check if a database name is the 'villagesql' schema. db_name must not be
+// nullptr.
+inline bool is_villagesql_system_table(const char *db_name) {
+  return (my_strcasecmp(system_charset_info,
+                        SchemaManager::VILLAGESQL_SCHEMA_NAME, db_name) == 0);
+}
 
 // Check if a TABLE is in the 'villagesql' schema.
 // All tables in the villagesql schema are system tables that can be accessed
