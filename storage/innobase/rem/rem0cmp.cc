@@ -43,6 +43,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "mysql/strings/m_ctype.h"
 #include "rem0cmp.h"
 #include "srv0srv.h"
+#include "villagesql/custom_column.h"
 namespace dd {
 class Spatial_reference_system;
 }
@@ -65,48 +66,6 @@ Finally, the SQL null is bigger than any other value.
 At the present, the comparison functions return 0 in the case,
 where two records disagree only in the way that one
 has more fields than the other. */
-
-// TODO(villagesql): consider moving these to an innodb-specific villagesql file
-// Helper for InnoDB custom type comparison with NULL handling
-// Handles both SQL NULLs and null pointers before calling custom comparison
-inline int compare_custom_type_with_null_handling(
-    const uchar *data1, ulint len1, const uchar *data2, ulint len2,
-    int (*custom_cmp_func)(const uchar *, size_t, const uchar *, size_t),
-    bool descending) {
-  int ret;
-
-  // Handle SQL NULL values first
-  if (len1 == UNIV_SQL_NULL || len2 == UNIV_SQL_NULL) {
-    if (len1 == len2) {
-      ret = 0;  // both NULL, equal
-    } else {
-      ret = (len1 == UNIV_SQL_NULL) ? -1 : 1;  // SQL null is smallest
-    }
-  } else if (data1 == nullptr || data2 == nullptr) {
-    ret = (data1 == nullptr) ? -1 : 1;  // null sorts first
-  } else {
-    ret = custom_cmp_func(data1, len1, data2, len2);
-  }
-
-  // Handle descending order
-  return descending ? -ret : ret;
-}
-
-// Helper to check if the ith field in the index has a custom comparison
-// function. We skip IBUF indexes, since they aren't fully initialized with
-// fields.
-inline bool HasCustomCompare(const dict_index_t *index, unsigned long int i) {
-  return !dict_index_is_ibuf(index) && index->get_field(i)->col &&
-         index->get_field(i)->col->get_custom_compare() != nullptr;
-}
-
-// Helper to get the custom comparison function - assumes HasCustomCompare was
-// called.
-inline dict_col_t::custom_compare_func GetCustomCompare(
-    const dict_index_t *index, unsigned long int i) {
-  ut_a(HasCustomCompare(index, i));
-  return index->get_field(i)->col->get_custom_compare();
-}
 
 /** Compare two data fields.
 @param[in] prtype precise type
@@ -434,12 +393,14 @@ static int cmp_whole_field(ulint mtype, ulint prtype, bool is_asc,
 @param[in]      len1    length of data1 in bytes, or UNIV_SQL_NULL
 @param[in]      data2   data field
 @param[in]      len2    length of data2 in bytes, or UNIV_SQL_NULL
+@param[in]      custom_column custom column descriptor, or nullptr if not custom
 @return the comparison result of data1 and data2
 @retval 0 if data1 is equal to data2
 @retval negative if data1 is less than data2
 @retval positive if data1 is greater than data2 */
 inline int cmp_data(ulint mtype, ulint prtype, bool is_asc, const byte *data1,
-                    ulint len1, const byte *data2, ulint len2) {
+                    ulint len1, const byte *data2, ulint len2,
+                    villagesql::innodb::Custom_column *custom_column) {
   ut_ad(!(prtype & DATA_MULTI_VALUE) ||
         (len1 != UNIV_MULTI_VALUE_ARRAY_MARKER && len1 != UNIV_NO_INDEX_VALUE &&
          len2 != UNIV_MULTI_VALUE_ARRAY_MARKER && len2 != UNIV_NO_INDEX_VALUE));
@@ -452,6 +413,11 @@ inline int cmp_data(ulint mtype, ulint prtype, bool is_asc, const byte *data1,
     /* We define the SQL null to be the smallest possible
     value of a field. */
     return ((len1 == UNIV_SQL_NULL) == is_asc ? -1 : 1);
+  }
+
+  if (custom_column) {
+    int ret = custom_column->compare()(data1, len1, data2, len2);
+    return (is_asc ? ret : -ret);
   }
 
   ulint pad;
@@ -633,12 +599,14 @@ int cmp_dtuple_rec_with_gis_internal(const dtuple_t *dtuple, const rec_t *rec,
 
   return (cmp_data(dtuple_field->type.mtype, dtuple_field->type.prtype, true,
                    static_cast<const byte *>(dtuple_field->data), dtuple_f_len,
-                   rec_b_ptr, rec_f_len));
+                   rec_b_ptr, rec_f_len, nullptr));
 }
 
 int cmp_data_data(ulint mtype, ulint prtype, bool is_asc, const byte *data1,
-                  ulint len1, const byte *data2, ulint len2) {
-  return (cmp_data(mtype, prtype, is_asc, data1, len1, data2, len2));
+                  ulint len1, const byte *data2, ulint len2,
+                  villagesql::innodb::Custom_column *custom_column) {
+  return (
+      cmp_data(mtype, prtype, is_asc, data1, len1, data2, len2, custom_column));
 }
 
 int cmp_dtuple_rec_with_match_low(const dtuple_t *dtuple, const rec_t *rec,
@@ -714,18 +682,13 @@ int cmp_dtuple_rec_with_match_low(const dtuple_t *dtuple, const rec_t *rec,
             static_cast<multi_value_data *>(dtuple_field->data);
         ret = mv_data->has(type, rec_b_ptr, rec_f_len) ? 0 : 1;
       }
-    } else if (HasCustomCompare(index, i)) {
-      // Use custom comparison function for custom types
-      ret = compare_custom_type_with_null_handling(
-          dtuple_b_ptr, dtuple_f_len, rec_b_ptr, rec_f_len,
-          GetCustomCompare(index, i), !index->get_field(i)->is_ascending);
     } else {
       /* For now, change buffering is only supported on
       indexes with ascending order on the columns. */
-      ret = cmp_data(
-          type->mtype, type->prtype,
-          dict_index_is_ibuf(index) || index->get_field(i)->is_ascending,
-          dtuple_b_ptr, dtuple_f_len, rec_b_ptr, rec_f_len);
+      auto [custom_column, is_ascending] =
+          villagesql::innodb::Custom_column::get_from_position(index, i);
+      ret = cmp_data(type->mtype, type->prtype, is_ascending, dtuple_b_ptr,
+                     dtuple_f_len, rec_b_ptr, rec_f_len, custom_column);
     }
 
     if (ret) {
@@ -811,10 +774,10 @@ int cmp_dtuple_rec_with_match_bytes(const dtuple_t *dtuple, const rec_t *rec,
 
     ut_ad(!rec_offs_nth_default(index, offsets, cur_field));
 
-    /* For now, change buffering is only supported on
-    indexes with ascending order on the columns. */
-    const bool is_ascending =
-        dict_index_is_ibuf(index) || index->fields[cur_field].is_ascending;
+    /* Get custom column and order of the index. For now, change buffering is
+    only supported on indexes with ascending order on the columns. */
+    auto [custom_column, is_ascending] =
+        villagesql::innodb::Custom_column::get_from_position(index, cur_field);
 
     dtuple_b_ptr = static_cast<const byte *>(dfield_get_data(dfield));
     rec_b_ptr = rec_get_nth_field(index, rec, offsets, cur_field, &rec_f_len);
@@ -856,15 +819,8 @@ int cmp_dtuple_rec_with_match_bytes(const dtuple_t *dtuple, const rec_t *rec,
       default:
         ut_ad(!(dfield_is_multi_value(dfield) &&
                 dtuple_f_len == UNIV_MULTI_VALUE_ARRAY_MARKER));
-
-        if (HasCustomCompare(index, cur_field)) {
-          ret = compare_custom_type_with_null_handling(
-              dtuple_b_ptr, dtuple_f_len, rec_b_ptr, rec_f_len,
-              GetCustomCompare(index, cur_field), !is_ascending);
-        } else {
-          ret = cmp_data(type->mtype, type->prtype, is_ascending, dtuple_b_ptr,
-                         dtuple_f_len, rec_b_ptr, rec_f_len);
-        }
+        ret = cmp_data(type->mtype, type->prtype, is_ascending, dtuple_b_ptr,
+                       dtuple_f_len, rec_b_ptr, rec_f_len, custom_column);
 
         if (!ret) {
           goto next_field;
@@ -982,7 +938,7 @@ bool cmp_dtuple_is_prefix_of_rec(const dtuple_t *dtuple, const rec_t *rec,
   rec2_b_ptr = rec_get_nth_field_instant(rec2, offsets2, n, index, &rec2_f_len);
 
   return (cmp_data(col->mtype, col->prtype, field->is_ascending, rec1_b_ptr,
-                   rec1_f_len, rec2_b_ptr, rec2_f_len));
+                   rec1_f_len, rec2_b_ptr, rec2_f_len, col->custom_column));
 }
 
 int cmp_rec_rec_simple(const rec_t *rec1, const rec_t *rec2,
@@ -1084,6 +1040,7 @@ int cmp_rec_rec_with_match(const rec_t *rec1, const rec_t *rec2,
     ulint mtype;
     ulint prtype;
     bool is_asc;
+    villagesql::innodb::Custom_column *custom_column = nullptr;
 
     if (dict_index_is_ibuf(index)) {
       /* This is for the insert buffer B-tree. */
@@ -1108,6 +1065,7 @@ int cmp_rec_rec_with_match(const rec_t *rec1, const rec_t *rec2,
       mtype = col->mtype;
       prtype = col->prtype;
       is_asc = field->is_ascending;
+      custom_column = col->custom_column;
     }
 
     /* If the index is spatial index, we mark the
@@ -1140,14 +1098,8 @@ int cmp_rec_rec_with_match(const rec_t *rec1, const rec_t *rec2,
       return (-1);
     }
 
-    int ret;
-    if (HasCustomCompare(index, i)) {
-      // Use custom comparison function for custom types
-      ret = compare_custom_type_with_null_handling(
-          r1, r1_len, r2, r2_len, GetCustomCompare(index, i), !is_asc);
-    } else {
-      ret = cmp_data(mtype, prtype, is_asc, r1, r1_len, r2, r2_len);
-    }
+    auto ret =
+        cmp_data(mtype, prtype, is_asc, r1, r1_len, r2, r2_len, custom_column);
 
     if (ret != 0) {
       *matched_fields = i;
@@ -1175,7 +1127,7 @@ void test_cmp_data_data(ulint len) {
   ut_chrono_t ch(__func__);
 
   for (int i = 1000000; i > 0; i--) {
-    i += cmp_data(DATA_INT, 0, zeros, len, zeros, len);
+    i += cmp_data(DATA_INT, 0, zeros, len, zeros, len, nullptr);
   }
 }
 

@@ -80,7 +80,7 @@ Data dictionary interface */
 #include "sql_base.h"
 #include "sql_table.h"
 #include "univ.i"  // Using OS_PATH_SEPARATOR
-#include "villagesql/types/util.h"
+#include "villagesql/custom_column.h"
 #endif             /* !UNIV_HOTBACKUP */
 
 const char *DD_instant_col_val_coder::encode(const byte *stream, size_t in_len,
@@ -3020,11 +3020,6 @@ template const dict_index_t *dd_find_index<dd::Partition_index>(
     }
 
     col->is_visible = !field->is_hidden_by_system();
-
-    // Set custom comparison function for custom types during index creation
-    // Field should have type context at this point if it is custom
-    col->set_custom_compare(villagesql::GetCompareFunc(*field));
-
     dict_index_add_col(index, table, col, prefix_len, is_asc);
   }
 
@@ -3645,10 +3640,10 @@ static inline void fill_dict_existing_column(
     dict_mem_table_add_col(m_table, heap, field->field_name, mtype, prtype,
                            col_len, !field->is_hidden_by_system(), phy_pos,
                            (uint8_t)v_added, UINT8_UNDEFINED);
-
-    // Note: custom_compare set in ha_innobase::open() after Field type_context
-    // injection
-
+    // Check and load custom column properties for the added column.
+    auto col_no = m_table->n_def - 1;
+    villagesql::innodb::Custom_column::load(m_table, m_table->get_col(col_no),
+                                            field, column);
   } else {
     dict_mem_table_add_v_col(m_table, heap, field->field_name, mtype, prtype,
                              col_len, pos,

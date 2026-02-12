@@ -68,6 +68,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #endif /* !UNIV_HOTBACKUP */
 #include "dict/mem.h"
 #include "ut0new.h"
+#include "villagesql/custom_column.h"
 
 #include "sql/sql_const.h" /* MAX_KEY_LENGTH */
 #include "sql/table.h"
@@ -539,18 +540,8 @@ struct dict_col_t {
   /* True, if the column is visible */
   bool is_visible;
 
- public:
-  // VillageSQL: Custom comparison function for custom types
-  // Returns <0 when data1<data2, >0 when data1>data2, 0 when equal
-  using custom_compare_func = int (*)(const byte *, size_t, const byte *,
-                                      size_t);
-
- private:
-  custom_compare_func custom_compare{nullptr};
-
- public:
-  void set_custom_compare(custom_compare_func func) { custom_compare = func; }
-  custom_compare_func get_custom_compare() const { return custom_compare; }
+  // Custom column descriptor.
+  villagesql::innodb::Custom_column *custom_column{nullptr};
 
  private:
   /* Position of column on physical row.

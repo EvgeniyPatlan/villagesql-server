@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1997, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -143,7 +144,7 @@ static inline bool eval_cmp_like(que_node_t *arg1, /* !< in: left operand */
                                           que_node_get_val(arg4)));
     case IB_LIKE_EXACT:
       return (!cmp_dfield_dfield(que_node_get_val(arg1), que_node_get_val(arg2),
-                                 true));
+                                 nullptr));
   }
 
   ut_error;
@@ -172,7 +173,7 @@ bool eval_cmp(func_node_t *cmp_node) /*!< in: comparison node */
     case PARS_NE_TOKEN:
     case PARS_GE_TOKEN:
       res = cmp_dfield_dfield(que_node_get_val(arg1), que_node_get_val(arg2),
-                              true);
+                              nullptr);
 
       switch (cmp_node->func) {
         case '<':

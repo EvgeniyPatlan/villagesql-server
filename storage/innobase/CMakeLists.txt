@@ -1,4 +1,5 @@
 # Copyright (c) 2006, 2025, Oracle and/or its affiliates.
+# Copyright (c) 2026 VillageSQL Contributors
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2.0,
@@ -264,7 +265,8 @@ SET(INNOBASE_SOURCES
   ut/ut0test.cc
   ut/ut0ut.cc
   ut/ut0vec.cc
-  ut/ut0wqueue.cc)
+  ut/ut0wqueue.cc
+  villagesql/custom_column.cc)
 
 # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=98753
 IF(MY_COMPILER_IS_GNU AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 11)

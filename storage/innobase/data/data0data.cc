@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1994, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -59,7 +60,8 @@ byte data_error;
 #endif /* UNIV_DEBUG */
 
 #ifndef UNIV_HOTBACKUP
-bool dtuple_coll_eq(const dtuple_t *tuple1, const dtuple_t *tuple2) {
+bool dtuple_coll_eq(const dtuple_t *tuple1, const dtuple_t *tuple2,
+                    const dict_index_t *index) {
   ulint n_fields;
   ulint i;
   int cmp;
@@ -86,8 +88,8 @@ bool dtuple_coll_eq(const dtuple_t *tuple1, const dtuple_t *tuple2) {
     if (dfield_is_multi_value(field1)) {
       cmp = cmp_multi_value_dfield_dfield(field1, field2);
     } else {
-      /* Equality comparison does not care about ASC/DESC. */
-      cmp = cmp_dfield_dfield(field1, field2, true);
+      cmp = cmp_dfield_dfield(field1, field2,
+                              (index ? index->get_field(i) : nullptr));
     }
   }
 
@@ -854,7 +856,7 @@ bool multi_value_data::has(ulint mtype, ulint prtype, const byte *data,
   for (uint32_t i = 0; i < num_v; ++i) {
     if (cmp_data_data(mtype, prtype, true,
                       reinterpret_cast<const byte *>(datap[i]), data_len[i],
-                      data, len) == 0) {
+                      data, len, nullptr) == 0) {
       return (true);
     }
   }

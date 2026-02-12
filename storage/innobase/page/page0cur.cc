@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1994, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 Copyright (c) 2012, Facebook Inc.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -38,6 +39,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ha_prototypes.h"
 #include "log0recv.h"
 #include "mtr0log.h"
+#include "villagesql/custom_column.h"
 
 #include <algorithm>
 #include "page0zip.h"
@@ -266,15 +268,22 @@ static bool page_cur_rec_field_extends(const dtuple_t *tuple, const rec_t *rec,
       type->mtype == DATA_FIXBINARY || type->mtype == DATA_BINARY ||
       type->mtype == DATA_BLOB || DATA_GEOMETRY_MTYPE(type->mtype) ||
       type->mtype == DATA_VARMYSQL || type->mtype == DATA_MYSQL) {
+    // Custom columns are stored internally as VARCHAR, but partial matching
+    // is not meaningful.
+    auto [custom_column, ascending] =
+        villagesql::innodb::Custom_column::get_from_position(index, n);
+    (void)ascending;
+
     if (dfield_get_len(dfield) != UNIV_SQL_NULL && rec_f_len != UNIV_SQL_NULL &&
-        rec_f_len >= dfield_get_len(dfield)
+        rec_f_len >= dfield_get_len(dfield) &&
+        !custom_column
         /* is_ascending parameter in the below call is passed as a
         constant as we are only testing for equality and we are
         not interested in what the nonzero return value actually
         is. */
-        &&
-        !cmp_data_data(type->mtype, type->prtype, true, dfield_get_data(dfield),
-                       dfield_get_len(dfield), rec_f, dfield_get_len(dfield))) {
+        && !cmp_data_data(type->mtype, type->prtype, true,
+                          dfield_get_data(dfield), dfield_get_len(dfield),
+                          rec_f, dfield_get_len(dfield), nullptr)) {
       return true;
     }
   }

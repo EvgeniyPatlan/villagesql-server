@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1997, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -622,7 +623,7 @@ static bool row_vers_non_vc_index_entry_match(dict_index_t *index,
       const dfield_t *field1 = dtuple_get_nth_field(ientry1, i);
       const dfield_t *field2 = dtuple_get_nth_field(ientry2, i);
 
-      if (cmp_dfield_dfield(field1, field2, ind_field->is_ascending) != 0) {
+      if (cmp_dfield_dfield(field1, field2, ind_field) != 0) {
         ret = false;
       }
     }
@@ -878,7 +879,7 @@ static bool row_vers_vc_matches_cluster(
             (dfield_is_multi_value(field2) &&
              cmp_multi_value_dfield_dfield(field2, field1) != 0) ||
             (!dfield_is_multi_value(field2) &&
-             cmp_dfield_dfield(field2, field1, ind_field->is_ascending) != 0)) {
+             cmp_dfield_dfield(field2, field1, ind_field) != 0)) {
           if (v_heap) {
             dtuple_dup_v_fld(*vrow, v_heap);
           }
@@ -1053,7 +1054,7 @@ bool row_vers_old_has_index_entry(
         row_vers_build_clust_v_col(row, clust_index, index, heap);
 
         entry = row_build_index_entry(row, ext, index, heap);
-        if (entry && dtuple_coll_eq(entry, ientry)) {
+        if (entry && dtuple_coll_eq(entry, ientry, index)) {
           mem_heap_free(heap);
 
           if (v_heap) {
@@ -1118,7 +1119,7 @@ bool row_vers_old_has_index_entry(
       the clustered index record has already been updated to
       a different binary value in a char field, but the
       collation identifies the old and new value anyway! */
-      if (entry && dtuple_coll_eq(entry, ientry)) {
+      if (entry && dtuple_coll_eq(entry, ientry, index)) {
         mem_heap_free(heap);
 
         if (v_heap) {
@@ -1210,7 +1211,7 @@ bool row_vers_old_has_index_entry(
       a char field, but the collation identifies the old
       and new value anyway! */
 
-      if (entry && dtuple_coll_eq(entry, ientry)) {
+      if (entry && dtuple_coll_eq(entry, ientry, index)) {
         mem_heap_free(heap);
         if (v_heap) {
           mem_heap_free(v_heap);

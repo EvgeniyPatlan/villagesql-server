@@ -377,6 +377,5 @@ void dict_mem_fill_column_struct(dict_col_t *column, ulint col_pos, ulint mtype,
   column->set_mbminmaxlen(mbminlen, mbmaxlen);
 #endif /* !UNIV_LIBRARY */
 #endif /* !UNIV_HOTBACKUP */
-  // Initialize custom_compare to nullptr
-  column->set_custom_compare(nullptr);
+  column->custom_column = nullptr;
 }

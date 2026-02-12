@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1994, 2025, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -288,9 +289,11 @@ static inline ulint dtuple_get_data_size(const dtuple_t *tuple, ulint comp);
 /** Compare two data tuples.
 @param[in] tuple1 first data tuple
 @param[in] tuple2 second data tuple
+@param[in] index secondary index
 @return whether tuple1==tuple2 */
 [[nodiscard]] bool dtuple_coll_eq(const dtuple_t *tuple1,
-                                  const dtuple_t *tuple2);
+                                  const dtuple_t *tuple2,
+                                  const dict_index_t *index);
 
 /** Compute a hash value of a prefix of an index record.
 @param[in]      tuple           index record
