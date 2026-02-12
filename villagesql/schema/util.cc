@@ -16,7 +16,6 @@
 #include "villagesql/schema/util.h"
 
 #include "sql/table.h"
-#include "villagesql/schema/schema_manager.h"
 
 namespace villagesql {
 
@@ -25,11 +24,7 @@ namespace villagesql {
 // that use the constants from SchemaManager to make sure they use this.
 bool is_villagesql_system_table(const TABLE *table) {
   if (!table || !table->s) return false;
-
-  // Any table in the 'villagesql' schema is a system table
-  return (my_strcasecmp(system_charset_info,
-                        SchemaManager::VILLAGESQL_SCHEMA_NAME,
-                        table->s->db.str) == 0);
+  return is_villagesql_system_table(table->s->db.str);
 }
 
 }  // namespace villagesql
