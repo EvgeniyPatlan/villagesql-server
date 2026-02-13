@@ -52,6 +52,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <string_view>
 #include <utility>
 
@@ -176,6 +177,16 @@ struct FromStringWrapper {
 
     if (failed) {
       result->type = VEF_RESULT_ERROR;
+      constexpr size_t kMaxInputDisplay = 64;
+      size_t display_len = arg->str_len;
+      const char *ellipsis = "";
+      if (display_len > kMaxInputDisplay) {
+        display_len = kMaxInputDisplay;
+        ellipsis = "...";
+      }
+      snprintf(result->error_msg, VEF_MAX_ERROR_LEN,
+               "failed to parse string '%.*s%s'", static_cast<int>(display_len),
+               arg->str_value, ellipsis);
       return;
     }
 

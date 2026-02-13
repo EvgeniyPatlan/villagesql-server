@@ -3,6 +3,17 @@
 
 --source include/villagesql/install_complex_extension.inc
 
+--echo # Test COMPLEX_FROM_STRING with invalid input returns NULL with warning
+SELECT COMPLEX_FROM_STRING('not_a_complex_number') AS result;
+SHOW WARNINGS;
+
+--echo # Test COMPLEX_FROM_STRING with malformed string from table column
+CREATE TABLE t_strings (id INT, str_val VARCHAR(100));
+INSERT INTO t_strings VALUES (1, 'not_a_complex_number');
+SELECT id, COMPLEX_FROM_STRING(str_val) AS result FROM t_strings;
+SHOW WARNINGS;
+DROP TABLE t_strings;
+
 --echo # Test COMPLEX_DIVIDE division by zero returns NULL
 SELECT vsql_complex.COMPLEX_DIVIDE('(1.0,2.0)', '(0.0,0.0)') AS result;
 SELECT vsql_complex.COMPLEX_DIVIDE('(3.0,4.0)', '(0,0)') AS result;
