@@ -1,4 +1,11 @@
+# When changing the version, update these test result files:
+#   mysql-test/suite/sys_vars/r/villagesql_schema_version_basic.result
+#   mysql-test/suite/villagesql/startup/r/init_file_schema_version.result
+#   mysql-test/suite/villagesql/startup/r/init_file_install_extension.result
+#   mysql-test/suite/villagesql/startup/r/upgrade_basic.result
+#   mysql-test/suite/villagesql/startup/r/upgrade_scenarios.result
+#   mysql-test/suite/villagesql/startup/r/upgrade_skip_grant_tables.result
 VSQL_MAJOR_VERSION=0
 VSQL_MINOR_VERSION=0
-VSQL_PATCH_VERSION=1
+VSQL_PATCH_VERSION=2
 VSQL_PRE_RELEASE_VERSION=dev
