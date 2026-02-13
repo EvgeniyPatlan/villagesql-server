@@ -397,6 +397,43 @@ bool AreTypesCompatible(const TypeContext &tc1, const TypeContext &tc2) {
          tc1.extension_version() == tc2.extension_version();
 }
 
+bool MaybeValidateUnionTypeCompatibility(Item *accumulator, Item *item) {
+  const TypeContext *accumulator_tc = accumulator->get_type_context();
+  const TypeContext *item_tc = item->get_type_context();
+
+  // If neither has a custom type, no validation needed
+  if (accumulator_tc == nullptr && item_tc == nullptr) {
+    return false;
+  }
+
+  if (accumulator_tc == nullptr && item_tc != nullptr) {
+    // First join: accumulator has no custom type yet, but incoming item does
+    // Copy type context to accumulator for next join
+    accumulator->set_type_context(item_tc);
+  } else if (item_tc == nullptr && accumulator_tc != nullptr) {
+    // Accumulated type has custom, but incoming doesn't
+    // Allow NULL items (they are compatible with any type including custom)
+    if (item->type() == Item::NULL_ITEM) {
+      return false;
+    }
+    // Other non-custom types are incompatible
+    villagesql_error("Cannot use UNION with mixed custom and non-custom types",
+                     MYF(0));
+    return true;
+  } else if (accumulator_tc != nullptr && item_tc != nullptr &&
+             !AreTypesCompatible(*accumulator_tc, *item_tc)) {
+    // Both have custom types but they're incompatible
+    villagesql_error(
+        "Cannot use UNION with different custom types '%s' and '%s'", MYF(0),
+        accumulator_tc->qualified_name().c_str(),
+        item_tc->qualified_name().c_str());
+    return true;
+  }
+  // Otherwise: both have same custom type - OK
+
+  return false;  // success
+}
+
 const TypeContext *GetCompatibleCustomType(const Item &item1,
                                            const Item &item2) {
   bool has_custom1 = item1.has_type_context();
@@ -461,9 +498,7 @@ bool CanStoreInCustomField(const Item *item, const Field *field) {
       // Allow string fields without custom type context to be implicitly cast.
       // This enables CTEs and subqueries with string literals to work:
       // INSERT INTO t1 WITH cte AS (SELECT '(1,2)' AS val) SELECT * FROM cte
-      auto *field_item = down_cast<const Item_field *>(item);
-      if (!field_item->field->has_type_context() &&
-          item->result_type() == STRING_RESULT) {
+      if (!item->has_type_context() && item->result_type() == STRING_RESULT) {
         return true;
       }
       return false;
@@ -892,12 +927,9 @@ static bool HasCustomTypeField(Item *item) {
     return false;
   }
 
-  // Check if this is a field item with a custom type
-  if (item->type() == Item::FIELD_ITEM) {
-    Item_field *field_item = down_cast<Item_field *>(item);
-    if (field_item->field && field_item->field->has_type_context()) {
-      return true;
-    }
+  // Check if this item has a custom type
+  if (item->has_type_context()) {
+    return true;
   }
 
   // Recursively check child items
