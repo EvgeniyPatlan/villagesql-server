@@ -10744,6 +10744,9 @@ bool Item_aggregate_type::join_types(THD *thd, Item *item) {
               decimals, (item_name.is_set() ? item_name.ptr() : "<NULL>")));
   DBUG_PRINT("info:", ("in type %d len %d, dec %d", real_data_type(item),
                        item->max_length, item->decimals));
+
+  if (villagesql::MaybeValidateUnionTypeCompatibility(this, item)) return true;
+
   /*
     aggregate_type() will modify the data type of this item. Create a copy of
     this item containing the original data type and other properties to ensure

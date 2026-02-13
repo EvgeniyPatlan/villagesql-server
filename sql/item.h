@@ -4659,6 +4659,14 @@ class Item_field : public Item_ident {
 
   void set_can_use_prefix_key() override { can_use_prefix_key = true; }
 
+  // VillageSQL: Override to check underlying field's type context
+  const villagesql::TypeContext *get_type_context() const override {
+    return field ? field->get_type_context() : nullptr;
+  }
+  bool has_type_context() const override {
+    return field && field->has_type_context();
+  }
+
   bool replace_field_processor(uchar *arg) override;
   bool strip_db_table_name_processor(uchar *) override;
 

@@ -213,6 +213,7 @@ class TypeContext {
     return descriptor_->extension_version();
   }
   const std::string &type_name() const { return descriptor_->type_name(); }
+  std::string qualified_name() const { return descriptor_->qualified_name(); }
 
  private:
   // Pointer to the TypeDescriptor in VictionaryClient

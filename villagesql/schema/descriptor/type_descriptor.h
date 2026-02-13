@@ -163,6 +163,11 @@ class TypeDescriptor {
     return key_.extension_version();
   }
 
+  // Returns the fully qualified type name: "extension_name.type_name"
+  std::string qualified_name() const {
+    return extension_name() + "." + type_name();
+  }
+
   // Type implementation details
   unsigned char implementation_type() const { return implementation_type_; }
   int64_t persisted_length() const { return persisted_length_; }
