@@ -40,26 +40,26 @@
 //
 //   // Register the extension with inline function definitions
 //   VEF_GENERATE_ENTRY_POINTS(
-//     make_extension("my_extension", 1, 0, 0)
-//       .func(make_func("add")
+//     make_extension("my_extension", "1.0.0")
+//       .func(make_func<&add_impl>("add")
 //         .returns(INT)
 //         .param(INT)
 //         .param(INT)
-//         .wrap<&add_impl>()))
+//         .build()))
 //
 //
 // DEFINING FUNCTIONS
 // ------------------
 //
-// Functions are defined using make_func("name") and chained builder methods,
-// ending with .wrap<&impl>():
+// Functions are defined using make_func<&impl>("name") and chained builder
+// methods, ending with .build():
 //
-//   make_func("my_func")
+//   make_func<&my_impl>("my_func")
 //     .returns(INT)       // Return type
 //     .param(INT)         // First parameter
 //     .param(STRING)      // Second parameter
 //     .buffer_size(256)        // Optional: output buffer size
-//     .wrap<&my_impl>()        // Bind the implementation
+//     .build()                 // Finalize the function definition
 //
 // Available types (all passed as strings):
 //   - INT    - 64-bit integer
@@ -76,7 +76,7 @@
 //
 // Then use the constant in your function definitions:
 //
-//   make_func("process").returns(MYTYPE).param(STRING).wrap<&process>()
+//   make_func<&process>("process").returns(MYTYPE).param(STRING).build()
 //
 //
 // PRERUN/POSTRUN FUNCTIONS
@@ -84,11 +84,11 @@
 //
 // For prerun/postrun functions (per-statement setup/teardown):
 //
-//   make_func("my_func")
+//   make_func<&my_impl>("my_func")
 //     .returns(STRING)
 //     .prerun<&my_prerun>()   // Called before first row
 //     .postrun<&my_postrun>() // Called after last row
-//     .wrap<&my_impl>()
+//     .build()
 //
 // Note: Prerun and postrun functions can be a cumbersome API. The func builder
 // already handles simple cases (e.g., type checking for functions with fixed
@@ -127,9 +127,9 @@
 // Use VEF_GENERATE_ENTRY_POINTS with make_extension():
 //
 //   VEF_GENERATE_ENTRY_POINTS(
-//     make_extension("my_ext", 1, 0, 0)
-//       .func(make_func("func1").returns(INT).wrap<&func1_impl>())
-//       .func(make_func("func2").returns(STRING).wrap<&func2_impl>())
+//     make_extension("my_ext", "1.0.0")
+//       .func(make_func<&func1_impl>("func1").returns(INT).build())
+//       .func(make_func<&func2_impl>("func2").returns(STRING).build())
 //       .type(make_type("mytype").persisted_length(8)
 //         .encode(&enc).decode(&dec).compare(&cmp).build()))
 //
@@ -190,7 +190,7 @@
 //
 //   // Register everything inline
 //   VEF_GENERATE_ENTRY_POINTS(
-//     make_extension("bytearray_ext", 1, 0, 0)
+//     make_extension("bytearray_ext", "1.0.0")
 //       .type(make_type(BYTEARRAY)
 //         .persisted_length(kBytearrayLen)
 //         .max_decode_buffer_length(kBytearrayLen)
@@ -198,10 +198,10 @@
 //         .decode(&bytearray_decode)
 //         .compare(&bytearray_compare)
 //         .build())
-//       .func(make_func("rot13")
+//       .func(make_func<&rot13_impl>("rot13")
 //         .returns(BYTEARRAY)
 //         .param(BYTEARRAY)
-//         .wrap<&rot13_impl>()))
+//         .build()))
 //
 
 #include <villagesql/extension_builder.h>
