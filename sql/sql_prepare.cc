@@ -2470,11 +2470,6 @@ bool Prepared_statement::prepare(THD *thd, const char *query_str,
 
     if (m_lex->opt_hints_global && m_lex->opt_hints_global->sys_var_hint)
       m_lex->opt_hints_global->sys_var_hint->restore_vars(thd);
-
-    // VillageSQL: Check for custom type field references in prepared statements
-    if (!error) {
-      error = villagesql::ValidateCustomTypeFieldsInPreparedStatement(thd);
-    }
   }
   assert(error || !thd->is_error());
 

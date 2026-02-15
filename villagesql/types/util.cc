@@ -180,27 +180,6 @@ bool ResolveTypeToContext(const LEX_STRING &extension_name,
   return false;
 }
 
-bool TableHasCustomColumns(const char *db_name, const char *table_name) {
-  if (!db_name || !table_name) {
-    return false;  // Invalid parameters - assume no custom columns
-  }
-
-  // Skip special databases
-  if (strcmp(db_name, "mysql") == 0 ||
-      strcmp(db_name, SchemaManager::VILLAGESQL_SCHEMA_NAME) == 0) {
-    return false;
-  }
-
-  auto &vclient = VictionaryClient::instance();
-  if (!vclient.is_initialized()) {
-    return false;  // Not initialized - assume no custom columns
-  }
-
-  auto guard = vclient.get_read_lock();
-  return vclient.columns().has_prefix_committed(
-      ColumnKeyPrefix(db_name, table_name));
-}
-
 bool HasCustomTypeColumns(const List<Create_field> &create_list) {
   for (const Create_field &field : create_list) {
     if (field.custom_type_context != nullptr) {
@@ -479,6 +458,7 @@ bool CanStoreInCustomField(const Item *item, const Field *field) {
     case Item::STRING_ITEM:
     case Item::NULL_ITEM:
     case Item::DEFAULT_VALUE_ITEM:
+    case Item::PARAM_ITEM:
       return true;
     case Item::FUNC_ITEM: {
       // Block functions, mostly, but let some through.
@@ -637,11 +617,48 @@ type_conversion_status TryEncodeStringFieldToCustom(Field *from_field,
   return to_field->store(encoded->ptr(), encoded->length(), &my_charset_bin);
 }
 
+type_conversion_status EncodeAndStoreStringToCustomField(
+    const TypeContext &tc, const String &str_value, Field *field) {
+  bool is_valid = true;
+  String *encoded = EncodeStringForField(tc, str_value, *current_thd->mem_root,
+                                         field->field_name, is_valid);
+  if (encoded == nullptr) {
+    return is_valid ? TYPE_ERR_OOM : TYPE_WARN_OUT_OF_RANGE;
+  }
+  return field->store(encoded->ptr(), encoded->length(), &my_charset_bin);
+}
+
+String *EncodeStringForCustomParam(const TypeContext &tc,
+                                   const String &str_value,
+                                   const char *item_name, bool &null_value) {
+  bool is_valid = true;
+  String *encoded =
+      EncodeString(tc, str_value, *current_thd->mem_root, is_valid);
+  if (encoded == nullptr) {
+    if (!is_valid) {
+      // Invalid value for custom type
+      const ErrConvString errmsg(str_value.ptr(), str_value.length(),
+                                 str_value.charset());
+      villagesql_error("Incorrect %s value: '%s' for parameter '%s'", MYF(0),
+                       tc.qualified_name().c_str(), errmsg.ptr(), item_name);
+    }
+    // else OOM - my_error already called by EncodeString
+    null_value = true;
+    return nullptr;
+  }
+  return encoded;
+}
+
 bool CanImplicitlyCastToCustom(const Item *item) {
   if (item->has_type_context()) return false;
 
   // Allow string and null literals
   if (item->type() == Item::STRING_ITEM || item->type() == Item::NULL_ITEM) {
+    return true;
+  }
+
+  // Allow prepared statement parameters (needed for PS support)
+  if (item->type() == Item::PARAM_ITEM) {
     return true;
   }
 
@@ -888,18 +905,6 @@ bool ValidateCustomTypeContext(THD *thd) {
   // TODO(villagesql-beta): Remove these restrictions once custom types are
   // fully supported in these contexts.
 
-  // Check for prepared statements during PREPARE (blocks preparation)
-  // This early check catches INSERT/UPDATE target columns with custom types via
-  // field binding. It complements ValidateCustomTypeFieldsInPreparedStatement()
-  // in sql_prepare.cc which catches WHERE/JOIN/ORDER BY with custom fields.
-  // Together they provide comprehensive prepared statement blocking.
-  // See ValidateCustomTypeFieldsInPreparedStatement() for detailed explanation.
-  if (thd->stmt_arena && thd->stmt_arena->is_stmt_prepare()) {
-    villagesql_error(
-        "Custom types are not yet supported in prepared statements", MYF(0));
-    return true;
-  }
-
   // Check for triggers during CREATE TRIGGER (blocks creation)
   // Tested by: mysql-test/suite/villagesql/trigger/t/trigger_complex.test
   if (thd->lex->sql_command == SQLCOM_CREATE_TRIGGER) {
@@ -918,146 +923,6 @@ bool ValidateCustomTypeContext(THD *thd) {
   }
 
   return false;  // Context is supported
-}
-
-// Helper function to recursively check if an Item tree contains custom type
-// fields. Returns true if a custom type field is found, false otherwise.
-static bool HasCustomTypeField(Item *item) {
-  if (item == nullptr) {
-    return false;
-  }
-
-  // Check if this item has a custom type
-  if (item->has_type_context()) {
-    return true;
-  }
-
-  // Recursively check child items
-  // TODO(villagesql): This only checks FUNC_ITEM and COND_ITEM, which may miss
-  // other item types with children (e.g., SUM_FUNC_ITEM, ROW_ITEM). Consider
-  // using Item::walk() with a custom processor for comprehensive coverage.
-  if (item->type() == Item::FUNC_ITEM || item->type() == Item::COND_ITEM) {
-    Item_func *func = down_cast<Item_func *>(item);
-    for (uint i = 0; i < func->arg_count; i++) {
-      if (HasCustomTypeField(func->arguments()[i])) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-// Helper function that walks the LEX structure and returns true if any custom
-// type field is referenced, false otherwise.
-// TODO(villagesql): Investigate merging with
-// WalkQueryBlockForCustomTypeValidation.
-static bool HasCustomTypeFieldInLex(LEX *lex) {
-  // Walk through all query blocks (including subqueries and CTEs)
-  for (Query_block *query_block = lex->query_block; query_block != nullptr;
-       query_block = query_block->next_query_block()) {
-    // Check SELECT list
-    for (Item *item : VisibleFields(query_block->fields)) {
-      if (HasCustomTypeField(item)) {
-        return true;
-      }
-    }
-
-    // Check WHERE clause
-    if (HasCustomTypeField(query_block->where_cond())) {
-      return true;
-    }
-
-    // Check JOIN conditions
-    for (Table_ref *table = query_block->get_table_list(); table != nullptr;
-         table = table->next_local) {
-      if (HasCustomTypeField(table->join_cond())) {
-        return true;
-      }
-    }
-
-    // Check GROUP BY
-    for (ORDER *group = query_block->group_list.first; group != nullptr;
-         group = group->next) {
-      if (HasCustomTypeField(*group->item)) {
-        return true;
-      }
-    }
-
-    // Check ORDER BY
-    for (ORDER *order = query_block->order_list.first; order != nullptr;
-         order = order->next) {
-      if (HasCustomTypeField(*order->item)) {
-        return true;
-      }
-    }
-
-    // Check HAVING clause
-    if (HasCustomTypeField(query_block->having_cond())) {
-      return true;
-    }
-  }
-
-  return false;  // No custom types found
-}
-
-bool ValidateCustomTypeFieldsInPreparedStatement(THD *thd) {
-  // This function walks the LEX structure after prepare_query() to catch
-  // custom type field references that the early check in
-  // ValidateCustomTypeContext() misses.
-  //
-  // Division of responsibility between the two checks:
-  // - Early check (ValidateCustomTypeContext during field binding):
-  //   Catches: INSERT/UPDATE target columns with custom types
-  //            e.g., INSERT INTO t1 VALUES (?, ?, ?) where val is custom
-  // - This walker (after prepare_query() completes):
-  //   Catches: DELETE WHERE, JOIN ON, ORDER BY with custom type fields
-  //            e.g., DELETE FROM t1 WHERE val = ?
-  //            e.g., SELECT ... FROM t1 JOIN t2 ON t1.val = t2.val2
-  //            e.g., SELECT id FROM t1 ORDER BY val
-  //
-  // Why both are needed:
-  // - INSERT/UPDATE target columns are not represented as Items in the
-  //   query_block structure (they're in insert_field_list/value_list)
-  // - WHERE/JOIN/ORDER BY with custom fields may not trigger field binding
-  //   if the custom column isn't explicitly selected
-
-  // Only check if we're preparing a statement
-  if (!thd->stmt_arena || !thd->stmt_arena->is_stmt_prepare()) {
-    return false;
-  }
-
-  LEX *lex = thd->lex;
-
-  // Early exit optimization: Check if any tables involved have custom columns
-  // If no tables have custom columns, skip the expensive Item walking
-  bool has_tables_with_custom_columns = false;
-  for (Query_block *query_block = lex->query_block; query_block != nullptr;
-       query_block = query_block->next_query_block()) {
-    for (Table_ref *table = query_block->get_table_list(); table != nullptr;
-         table = table->next_local) {
-      if (table->table_name && table->db &&
-          TableHasCustomColumns(table->db, table->table_name)) {
-        has_tables_with_custom_columns = true;
-        break;
-      }
-    }
-    if (has_tables_with_custom_columns) break;
-  }
-
-  // If no tables have custom columns, no need to check further
-  if (!has_tables_with_custom_columns) {
-    return false;
-  }
-
-  // Walk the LEX structure checking for custom type field references
-  if (HasCustomTypeFieldInLex(lex)) {
-    villagesql_error(
-        "Custom types are not yet supported in prepared statements", MYF(0));
-    return true;
-  }
-
-  return false;
 }
 
 bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,

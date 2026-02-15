@@ -71,9 +71,6 @@ extern bool ResolveTypeToContext(const LEX_STRING &extension_name,
 extern void AnnotateCustomColumnsInTmpTable(TABLE *table,
                                             List<Create_field> &create_fields);
 
-// Check if a table has custom columns (internal helper)
-extern bool TableHasCustomColumns(const char *db_name, const char *table_name);
-
 // Check if any column in a create_list has a custom type.
 // Used to determine if we need to regenerate the CREATE TABLE statement
 // for binlogging (to ensure fully qualified type names are used).
@@ -285,6 +282,19 @@ extern bool TryCopyCustomTypeField(const Field *from, Field *to);
 extern type_conversion_status TryEncodeStringFieldToCustom(Field *from_field,
                                                            Field *to_field);
 
+// Encode and store a string value into a custom type field.
+// Returns appropriate type_conversion_status for the result.
+extern type_conversion_status EncodeAndStoreStringToCustomField(
+    const TypeContext &tc, const String &str_value, Field *field);
+
+// Encode a string value for a custom type, reporting errors appropriately.
+// Returns encoded String* on success, nullptr on error (with error reported).
+// Sets null_value to true on error.
+extern String *EncodeStringForCustomParam(const TypeContext &tc,
+                                          const String &str_value,
+                                          const char *item_name,
+                                          bool &null_value);
+
 // Check if a function is allowed to operate on custom types for the given type
 // context
 // Returns true if function is allowed, false if it should be blocked
@@ -322,11 +332,6 @@ extern bool WalkQueryBlockForCustomTypeValidation(
 // Call this after field binding if custom types were found.
 // Returns false on success, true if error was reported.
 extern bool ValidateCustomTypeContext(THD *thd);
-
-// Walk the LEX structure after prepare_query() and check if any custom type
-// fields are referenced. This catches all field references including those in
-// WHERE, JOIN ON, ORDER BY, etc. Returns false on success, true if error.
-extern bool ValidateCustomTypeFieldsInPreparedStatement(THD *thd);
 
 // Validate VDF arguments against function signature and convert string
 // constants to custom types where appropriate. Returns false on success, true

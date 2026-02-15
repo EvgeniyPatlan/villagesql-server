@@ -4328,9 +4328,14 @@ type_conversion_status Item_param::save_in_field_inner(Field *field,
     case MYSQL_TYPE_DATETIME:
       field->store_time(&value.time);
       return TYPE_OK;
-    case MYSQL_TYPE_VARCHAR:
+    case MYSQL_TYPE_VARCHAR: {
+      if (field->has_type_context()) {
+        return villagesql::EncodeAndStoreStringToCustomField(
+            *field->get_type_context(), str_value, field);
+      }
       return field->store(str_value.ptr(), str_value.length(),
                           str_value.charset());
+    }
     default:
       assert(0);
   }
@@ -4484,8 +4489,13 @@ String *Item_param::val_str(String *str) {
     return nullptr;
   }
   switch (data_type_actual()) {
-    case MYSQL_TYPE_VARCHAR:
+    case MYSQL_TYPE_VARCHAR: {
+      if (has_type_context()) {
+        return villagesql::EncodeStringForCustomParam(
+            *get_type_context(), str_value_ptr, item_name.ptr(), null_value);
+      }
       return &str_value_ptr;
+    }
     case MYSQL_TYPE_DOUBLE:
       str->set_real(value.real, DECIMAL_NOT_SPECIFIED, &my_charset_bin);
       return str;
