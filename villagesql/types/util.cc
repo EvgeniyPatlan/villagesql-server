@@ -821,10 +821,17 @@ bool CheckCustomTypeUsage(Item *item, THD *thd) {
     // Check if any arg is custom type
     for (uint i = 0; i < sum_func->arg_count; i++) {
       if (sum_func->get_arg(i)->has_type_context()) {
-        // Block all aggregate functions on custom types for now
-        my_error(ER_WRONG_USAGE, MYF(0), sum_func->func_name(),
-                 sum_func->get_arg(i)->get_type_context()->type_name().c_str());
-        return true;  // Abort walk
+        // Some aggregates work automatically via the type's compare function
+        switch (sum_func->sum_func()) {
+          case Item_sum::COUNT_DISTINCT_FUNC:
+            continue;  // Allow COUNT(DISTINCT) on custom types
+          default:
+            // Block all other aggregate functions on custom types
+            my_error(
+                ER_WRONG_USAGE, MYF(0), sum_func->func_name(),
+                sum_func->get_arg(i)->get_type_context()->type_name().c_str());
+            return true;  // Abort walk
+        }
       }
     }
   }
