@@ -186,6 +186,7 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
     return end_transaction(thd, true);
   }
 
+  bool mark_success = true;
   {
     auto write_lock = victionary.get_write_lock();
 
@@ -193,25 +194,28 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
                                                        version, registration)) {
       villagesql_error("Failed to register types for extension '%s'", MYF(0),
                        extension_name.c_str());
-      return end_transaction(thd, true);
-    }
+      // Rollback should be done after releasing the victionary lock.
+      mark_success = false;
 
-    if (villagesql::veb::register_funcs_from_extension(*thd, extension_name,
-                                                       version, registration)) {
+    } else if (villagesql::veb::register_funcs_from_extension(
+                   *thd, extension_name, version, registration)) {
       villagesql_error("Failed to register VDFs for extension '%s'", MYF(0),
                        extension_name.c_str());
-      return end_transaction(thd, true);
-    }
+      mark_success = false;
 
-    if (victionary.extension_descriptors().MarkForInsertion(
-            *thd,
-            villagesql::ExtensionDescriptor(
-                villagesql::ExtensionDescriptorKey(extension_name, version),
-                std::move(registration)))) {
+    } else if (victionary.extension_descriptors().MarkForInsertion(
+                   *thd, villagesql::ExtensionDescriptor(
+                             villagesql::ExtensionDescriptorKey(extension_name,
+                                                                version),
+                             std::move(registration)))) {
       villagesql_error("Failed to register descriptor for extension '%s'",
                        MYF(0), extension_name.c_str());
-      return end_transaction(thd, true);
+      mark_success = false;
     }
+  }
+
+  if (!mark_success) {
+    return end_transaction(thd, true);
   }
 
   // Open villagesql.extensions table for writing.
@@ -224,7 +228,7 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
   }
 
   // Check if extension already exists and mark for insertion while holding lock
-  bool mark_success = false;
+  mark_success = false;
   {
     auto write_lock = victionary.get_write_lock();
 
