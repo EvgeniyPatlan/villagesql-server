@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -3630,13 +3631,23 @@ void Item_sum_hybrid::min_max_update_str_field() {
   const String *const res_str = args[0]->val_str(&cmp->value1);
   if (args[0]->null_value) return;
 
-  if (result_field->is_null())
+  if (result_field->is_null()) {
     result_field->set_notnull();
-  else if (!min_max_best_so_far(
-               sortcmp(res_str, result_field->val_str(&cmp->value2),
-                       collation.collation),
-               m_is_min))
-    return;
+  } else {
+    String *field_str = result_field->val_str(&cmp->value2);
+
+    // VillageSQL: Use TryCompareCustomType for custom types, else sortcmp
+    int cmp_result;
+    auto custom_result =
+        villagesql::TryCompareCustomType(args[0], *res_str, *field_str);
+    if (custom_result.has_value()) {
+      cmp_result = custom_result.value();
+    } else {
+      cmp_result = sortcmp(res_str, field_str, collation.collation);
+    }
+
+    if (!min_max_best_so_far(cmp_result, m_is_min)) return;
+  }
 
   result_field->store(res_str->ptr(), res_str->length(), res_str->charset());
 }

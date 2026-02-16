@@ -823,8 +823,10 @@ bool CheckCustomTypeUsage(Item *item, THD *thd) {
       if (sum_func->get_arg(i)->has_type_context()) {
         // Some aggregates work automatically via the type's compare function
         switch (sum_func->sum_func()) {
+          case Item_sum::MIN_FUNC:
+          case Item_sum::MAX_FUNC:
           case Item_sum::COUNT_DISTINCT_FUNC:
-            continue;  // Allow COUNT(DISTINCT) on custom types
+            continue;  // Allow these aggregates on custom types
           default:
             // Block all other aggregate functions on custom types
             my_error(

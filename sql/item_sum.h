@@ -2,6 +2,7 @@
 #define ITEM_SUM_INCLUDED
 
 /* Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -1682,6 +1683,13 @@ class Item_sum_hybrid : public Item_sum {
   TYPELIB *get_typelib() const override {
     assert(sum_func() == MAX_FUNC || sum_func() == MIN_FUNC);
     return arguments()[0]->get_typelib();
+  }
+  // VillageSQL: Propagate TypeContext from argument for custom type support
+  bool has_type_context() const override {
+    return arguments()[0]->has_type_context();
+  }
+  const villagesql::TypeContext *get_type_context() const override {
+    return arguments()[0]->get_type_context();
   }
   void update_field() override;
   void cleanup() override;
