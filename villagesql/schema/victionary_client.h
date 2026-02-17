@@ -693,6 +693,24 @@ class VictionaryClient {
   std::vector<const ColumnEntry *> GetCustomColumnsForTable(
       const std::string &db_name, const std::string &table_name) const;
 
+  // Structure to hold extension reference information for performance
+  // monitoring
+  struct ExtensionReference {
+    std::string extension_name;
+    std::string extension_version;
+    std::string
+        object_type;  // TYPE_CONTEXT, TYPE_DESCRIPTOR, FUNC_DESCRIPTOR, etc.
+    std::string object_key;  // The normalized key string
+    long use_count;          // Reference count from shared_ptr
+    long column_count;  // Number of columns using this type (0 for non-type
+                        // objects)
+  };
+
+  // Get all extension object references across all maps
+  // Caller must hold at least read lock
+  // Returns vector of ExtensionReference structs
+  std::vector<ExtensionReference> GetAllExtensionReferences() const;
+
   // ===== Transaction lifecycle - operates on ALL tables =====
 
   // Commit all uncommitted entries across all tables for this transaction

@@ -1,0 +1,47 @@
+# Verify the table structure
+DESC performance_schema.victionary_columns;
+Field	Type	Null	Key	Default	Extra
+SCHEMA_NAME	varchar(64)	NO		NULL	
+TABLE_NAME	varchar(64)	NO		NULL	
+COLUMN_NAME	varchar(64)	NO		NULL	
+EXTENSION_NAME	varchar(64)	NO		NULL	
+EXTENSION_VERSION	varchar(64)	NO		NULL	
+TYPE_NAME	varchar(64)	NO		NULL	
+# Initially should be empty
+SELECT COUNT(*) FROM performance_schema.victionary_columns;
+COUNT(*)
+0
+# Install an extension
+INSTALL EXTENSION vsql_simple;
+# Create tables with custom type columns
+CREATE TABLE t1 (id INT, data vsql_simple.BYTEARRAY);
+CREATE TABLE t2 (val vsql_simple.BYTEARRAY, name VARCHAR(100));
+# Query victionary_columns
+SELECT SCHEMA_NAME, TABLE_NAME, COLUMN_NAME, EXTENSION_NAME, EXTENSION_VERSION, TYPE_NAME
+FROM performance_schema.victionary_columns
+ORDER BY SCHEMA_NAME, TABLE_NAME, COLUMN_NAME;
+SCHEMA_NAME	TABLE_NAME	COLUMN_NAME	EXTENSION_NAME	EXTENSION_VERSION	TYPE_NAME
+test	t1	data	vsql_simple	0.0.1	bytearray
+test	t2	val	vsql_simple	0.0.1	bytearray
+# Create another table in a different schema
+CREATE DATABASE test2;
+CREATE TABLE test2.t3 (custom_col vsql_simple.BYTEARRAY);
+# Query again to see the new column
+SELECT SCHEMA_NAME, TABLE_NAME, COLUMN_NAME, TYPE_NAME
+FROM performance_schema.victionary_columns
+ORDER BY SCHEMA_NAME, TABLE_NAME, COLUMN_NAME;
+SCHEMA_NAME	TABLE_NAME	COLUMN_NAME	TYPE_NAME
+test	t1	data	bytearray
+test	t2	val	bytearray
+test2	t3	custom_col	bytearray
+# Drop tables
+DROP TABLE t1;
+DROP TABLE t2;
+DROP TABLE test2.t3;
+DROP DATABASE test2;
+# Columns should be gone
+SELECT COUNT(*) FROM performance_schema.victionary_columns;
+COUNT(*)
+0
+# Uninstall the extension
+UNINSTALL EXTENSION vsql_simple;

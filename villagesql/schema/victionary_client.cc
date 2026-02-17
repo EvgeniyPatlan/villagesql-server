@@ -131,6 +131,79 @@ std::vector<const ColumnEntry *> VictionaryClient::GetCustomColumnsForTable(
   return m_columns.get_prefix_committed(ColumnKeyPrefix(db_name, table_name));
 }
 
+std::vector<VictionaryClient::ExtensionReference>
+VictionaryClient::GetAllExtensionReferences() const {
+  std::vector<ExtensionReference> result;
+
+  if (!m_initialized.load()) {
+    return result;
+  }
+
+  // Caller must hold lock - we assert this in the map methods
+
+  // Get all columns to count dependencies per type
+  const auto &all_columns = m_columns.get_all_committed();
+
+  // TypeContext entries
+  const auto &all_type_contexts = m_type_contexts.get_all_committed();
+  for (const auto *entry : all_type_contexts) {
+    long use_count = m_type_contexts.get_use_count(entry->key().str());
+
+    // Count columns using this type
+    long column_count = 0;
+    for (const auto *col : all_columns) {
+      if (col->extension_name == entry->extension_name() &&
+          col->extension_version == entry->extension_version() &&
+          col->type_name == entry->type_name()) {
+        column_count++;
+      }
+    }
+
+    result.push_back({entry->extension_name(), entry->extension_version(),
+                      "TYPE_CONTEXT", entry->type_name(), use_count,
+                      column_count});
+  }
+
+  // TypeDescriptor entries
+  const auto &all_type_descriptors = m_type_descriptors.get_all_committed();
+  for (const auto *entry : all_type_descriptors) {
+    long use_count = m_type_descriptors.get_use_count(entry->key().str());
+
+    // Count columns using this type
+    long column_count = 0;
+    for (const auto *col : all_columns) {
+      if (col->extension_name == entry->extension_name() &&
+          col->extension_version == entry->extension_version() &&
+          col->type_name == entry->type_name()) {
+        column_count++;
+      }
+    }
+
+    result.push_back({entry->extension_name(), entry->extension_version(),
+                      "TYPE_DESCRIPTOR", entry->type_name(), use_count,
+                      column_count});
+  }
+
+  // FuncDescriptor entries (no column dependencies)
+  const auto &all_funcs = m_funcs.get_all_committed();
+  for (const auto *entry : all_funcs) {
+    long use_count = m_funcs.get_use_count(entry->key().str());
+    result.push_back({entry->extension_name(), entry->extension_version(),
+                      "FUNC_DESCRIPTOR", entry->function_name(), use_count, 0});
+  }
+
+  // ExtensionDescriptor entries (no column dependencies)
+  const auto &all_extensions = m_extension_descriptors.get_all_committed();
+  for (const auto *entry : all_extensions) {
+    long use_count = m_extension_descriptors.get_use_count(entry->key().str());
+    result.push_back({entry->extension_name(), entry->extension_version(),
+                      "EXTENSION_DESCRIPTOR", entry->extension_name(),
+                      use_count, 0});
+  }
+
+  return result;
+}
+
 void VictionaryClient::commit_all_tables(THD *thd) {
   if (!m_initialized.load() || !thd) return;
 

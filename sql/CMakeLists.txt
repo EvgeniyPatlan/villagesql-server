@@ -122,6 +122,7 @@ ADD_DEFINITIONS(-DMYSQL_SERVER)
 ADD_SUBDIRECTORY(server_component)
 ADD_SUBDIRECTORY(protobuf)
 ADD_SUBDIRECTORY(../villagesql/common ${CMAKE_CURRENT_BINARY_DIR}/villagesql/common)
+ADD_SUBDIRECTORY(../villagesql/perfschema ${CMAKE_CURRENT_BINARY_DIR}/villagesql/perfschema)
 ADD_SUBDIRECTORY(../villagesql/schema ${CMAKE_CURRENT_BINARY_DIR}/villagesql/schema)
 ADD_SUBDIRECTORY(../villagesql/sql ${CMAKE_CURRENT_BINARY_DIR}/villagesql/sql)
 ADD_SUBDIRECTORY(../villagesql/system_views ${CMAKE_CURRENT_BINARY_DIR}/villagesql/system_views)
@@ -927,6 +928,7 @@ ADD_STATIC_LIBRARY(sql_main ${SQL_SOURCE} LINK_LIBRARIES ext::icu ext::xxhash)
 # Include VillageSQL object files
 TARGET_SOURCES(sql_main PRIVATE
   $<TARGET_OBJECTS:villagesql_common>
+  $<TARGET_OBJECTS:villagesql_perfschema>
   $<TARGET_OBJECTS:villagesql_schema>
   $<TARGET_OBJECTS:villagesql_sql>
   $<TARGET_OBJECTS:villagesql_system_views>
@@ -939,6 +941,7 @@ ADD_DEPENDENCIES(sql_main GenDigestServerSource)
 ADD_DEPENDENCIES(sql_main GenBootstrapPriv)
 ADD_DEPENDENCIES(sql_main GenSysSchema)
 ADD_DEPENDENCIES(sql_main villagesql_common)
+ADD_DEPENDENCIES(sql_main villagesql_perfschema)
 ADD_DEPENDENCIES(sql_main villagesql_schema)
 ADD_DEPENDENCIES(sql_main villagesql_sql)
 ADD_DEPENDENCIES(sql_main villagesql_system_views)
@@ -1281,6 +1284,12 @@ SET_TARGET_PROPERTIES(mysqld PROPERTIES ENABLE_EXPORTS TRUE)
 TARGET_LINK_LIBRARIES(mysqld
   sql_main sql_gis binlog rpl rpl_source rpl_replica sql_dd mysys
   minchassis mysql_binlog_event ext::icu)
+
+# villagesql_perfschema objects define symbols (m_share statics) referenced by
+# libperfschema.a. Include them directly so the linker always extracts them.
+TARGET_SOURCES(mysqld PRIVATE
+  $<TARGET_OBJECTS:villagesql_perfschema>
+)
 
 # Add dependency on ldap library, to ensure it is not unloaded
 # when we shutdown the authentication plugin.

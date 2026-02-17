@@ -1,0 +1,19 @@
+# Test for performance_schema.victionary_statistics table
+
+--echo # Verify the table structure
+DESC performance_schema.victionary_statistics;
+
+--echo # Check that the table is queryable
+SELECT MAP_NAME, COMMITTED_ENTRIES >= 0 as HAS_ENTRIES, UNCOMMITTED_ENTRIES = 0 as NO_UNCOMMITTED, CACHE_HITS >= 0 as HAS_HITS, CACHE_MISSES >= 0 as HAS_MISSES
+FROM performance_schema.victionary_statistics ORDER BY MAP_NAME;
+
+--echo # Install an extension to create some entries
+INSTALL EXTENSION vsql_simple;
+
+--echo # Check statistics after installation
+SELECT MAP_NAME, COMMITTED_ENTRIES >= 0 as HAS_ENTRIES, CACHE_HITS >= 0 as HAS_STATS
+FROM performance_schema.victionary_statistics
+ORDER BY MAP_NAME;
+
+--echo # Uninstall the extension
+UNINSTALL EXTENSION vsql_simple;

@@ -1,0 +1,73 @@
+# Install vsql_simple extension
+INSTALL EXTENSION vsql_simple;
+# Initially, all objects should have 0 external references
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple'
+ORDER BY OBJECT_TYPE, OBJECT_KEY;
+OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
+EXTENSION_DESCRIPTOR	vsql_simple	0	0
+FUNC_DESCRIPTOR	ba_concat	0	0
+FUNC_DESCRIPTOR	bytearray_from_string	0	0
+FUNC_DESCRIPTOR	bytearray_to_string	0	0
+FUNC_DESCRIPTOR	even_chars	0	0
+FUNC_DESCRIPTOR	odd_chars	0	0
+FUNC_DESCRIPTOR	rot13	0	0
+TYPE_DESCRIPTOR	bytearray	0	0
+# Create a table with a custom type - this should increase TYPE_CONTEXT references
+CREATE TABLE t1 (id INT, data vsql_simple.BYTEARRAY);
+# Now TYPE_CONTEXT should show column dependency (table using this type)
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
+TYPE_CONTEXT	bytearray	0	1
+# Even though ref count shows 0, UNINSTALL should fail because of column dependency
+UNINSTALL EXTENSION vsql_simple;
+ERROR HY000: Cannot drop extension `vsql_simple` as 1 column(s) depend on it, e.g. test.t1.data has type bytearray
+# Create another table with the same type
+CREATE TABLE t2 (val vsql_simple.BYTEARRAY);
+# Column count should increase to 2
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
+TYPE_CONTEXT	bytearray	0	2
+# Insert some data
+INSERT INTO t1 VALUES (1, bytearray_from_string('hello')), (2, bytearray_from_string('world'));
+# Set a user variable with custom type - adds another reference
+SET @my_var = bytearray_from_string('test');
+# Check references again (should show user variable reference, column count still 2)
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
+TYPE_CONTEXT	bytearray	2	2
+# Try to uninstall - should fail because columns depend on it
+UNINSTALL EXTENSION vsql_simple;
+ERROR HY000: Cannot drop extension `vsql_simple` as 2 column(s) depend on it, e.g. test.t1.data has type bytearray
+# Clear user variable
+SET @my_var = NULL;
+# Drop one table
+DROP TABLE t1;
+# Column count should decrease to 1, reference count back to 0
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
+TYPE_CONTEXT	bytearray	0	1
+# Drop second table
+DROP TABLE t2;
+# Now TYPE_CONTEXT should be gone (no tables using it)
+SELECT COUNT(*) as TYPE_CONTEXT_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+TYPE_CONTEXT_COUNT
+1
+# Now uninstall should succeed
+UNINSTALL EXTENSION vsql_simple;
+# All references should be gone
+SELECT COUNT(*) FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple';
+COUNT(*)
+0

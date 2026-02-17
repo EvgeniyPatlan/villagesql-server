@@ -1,0 +1,37 @@
+# Test for performance_schema.extension_references table
+# This test verifies that the extension_references table shows reference counts
+# for extension objects like TYPE_CONTEXT, TYPE_DESCRIPTOR, etc.
+
+--echo # Verify the table structure
+DESC performance_schema.extension_references;
+
+--echo # Check that the table exists and is queryable (may be empty initially)
+SELECT COUNT(*) >= 0 FROM performance_schema.extension_references;
+
+--echo # Install vsql_simple extension
+INSTALL EXTENSION vsql_simple;
+
+--echo # Check for vsql_simple extension objects
+SELECT EXTENSION_NAME, EXTENSION_VERSION, OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple'
+ORDER BY OBJECT_TYPE, OBJECT_KEY;
+
+--echo # Create a table using custom type to increase reference count
+CREATE TABLE test_refs (id INT, val vsql_simple.BYTEARRAY);
+
+--echo # Check references for TYPE_CONTEXT (should have column dependency from table)
+SELECT EXTENSION_NAME, OBJECT_TYPE, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT'
+ORDER BY OBJECT_KEY;
+
+--echo # Drop the table
+DROP TABLE test_refs;
+
+--echo # Uninstall the extension
+UNINSTALL EXTENSION vsql_simple;
+
+--echo # After uninstall, references should be gone
+SELECT COUNT(*) FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple';

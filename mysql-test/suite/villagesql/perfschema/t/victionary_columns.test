@@ -1,0 +1,40 @@
+# Test for performance_schema.victionary_columns table
+
+--echo # Verify the table structure
+DESC performance_schema.victionary_columns;
+
+--echo # Initially should be empty
+SELECT COUNT(*) FROM performance_schema.victionary_columns;
+
+--echo # Install an extension
+INSTALL EXTENSION vsql_simple;
+
+--echo # Create tables with custom type columns
+CREATE TABLE t1 (id INT, data vsql_simple.BYTEARRAY);
+CREATE TABLE t2 (val vsql_simple.BYTEARRAY, name VARCHAR(100));
+
+--echo # Query victionary_columns
+SELECT SCHEMA_NAME, TABLE_NAME, COLUMN_NAME, EXTENSION_NAME, EXTENSION_VERSION, TYPE_NAME
+FROM performance_schema.victionary_columns
+ORDER BY SCHEMA_NAME, TABLE_NAME, COLUMN_NAME;
+
+--echo # Create another table in a different schema
+CREATE DATABASE test2;
+CREATE TABLE test2.t3 (custom_col vsql_simple.BYTEARRAY);
+
+--echo # Query again to see the new column
+SELECT SCHEMA_NAME, TABLE_NAME, COLUMN_NAME, TYPE_NAME
+FROM performance_schema.victionary_columns
+ORDER BY SCHEMA_NAME, TABLE_NAME, COLUMN_NAME;
+
+--echo # Drop tables
+DROP TABLE t1;
+DROP TABLE t2;
+DROP TABLE test2.t3;
+DROP DATABASE test2;
+
+--echo # Columns should be gone
+SELECT COUNT(*) FROM performance_schema.victionary_columns;
+
+--echo # Uninstall the extension
+UNINSTALL EXTENSION vsql_simple;

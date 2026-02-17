@@ -1,4 +1,5 @@
 /* Copyright (c) 2008, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License, version 2.0,
@@ -159,6 +160,9 @@
 #include "storage/perfschema/table_variables_info.h"
 #include "thr_lock.h"
 #include "thr_mutex.h"
+#include "villagesql/perfschema/table_extension_references.h"
+#include "villagesql/perfschema/table_victionary_columns.h"
+#include "villagesql/perfschema/table_victionary_statistics.h"
 
 /* clang-format off */
 /**
@@ -607,6 +611,9 @@ static PFS_engine_table_share *all_shares[] = {
     &table_binary_log_transaction_compression_stats::m_share,
     &table_tls_channel_status::m_share,
     &table_keyring_component_status::m_share,
+    &table_extension_references::m_share,
+    &table_victionary_statistics::m_share,
+    &table_victionary_columns::m_share,
     nullptr};
 
 static PSI_mutex_key key_LOCK_pfs_share_list;

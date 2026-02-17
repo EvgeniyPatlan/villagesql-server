@@ -1,0 +1,47 @@
+# Verify the table structure
+DESC performance_schema.extension_references;
+Field	Type	Null	Key	Default	Extra
+EXTENSION_NAME	varchar(64)	NO		NULL	
+EXTENSION_VERSION	varchar(64)	NO		NULL	
+OBJECT_TYPE	varchar(32)	NO		NULL	
+OBJECT_KEY	varchar(512)	NO		NULL	
+REFERENCE_COUNT	bigint unsigned	NO		NULL	
+COLUMN_COUNT	bigint unsigned	NO		NULL	
+# Check that the table exists and is queryable (may be empty initially)
+SELECT COUNT(*) >= 0 FROM performance_schema.extension_references;
+COUNT(*) >= 0
+1
+# Install vsql_simple extension
+INSTALL EXTENSION vsql_simple;
+# Check for vsql_simple extension objects
+SELECT EXTENSION_NAME, EXTENSION_VERSION, OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple'
+ORDER BY OBJECT_TYPE, OBJECT_KEY;
+EXTENSION_NAME	EXTENSION_VERSION	OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
+vsql_simple	0.0.1	EXTENSION_DESCRIPTOR	vsql_simple	0	0
+vsql_simple	0.0.1	FUNC_DESCRIPTOR	ba_concat	0	0
+vsql_simple	0.0.1	FUNC_DESCRIPTOR	bytearray_from_string	0	0
+vsql_simple	0.0.1	FUNC_DESCRIPTOR	bytearray_to_string	0	0
+vsql_simple	0.0.1	FUNC_DESCRIPTOR	even_chars	0	0
+vsql_simple	0.0.1	FUNC_DESCRIPTOR	odd_chars	0	0
+vsql_simple	0.0.1	FUNC_DESCRIPTOR	rot13	0	0
+vsql_simple	0.0.1	TYPE_DESCRIPTOR	bytearray	0	0
+# Create a table using custom type to increase reference count
+CREATE TABLE test_refs (id INT, val vsql_simple.BYTEARRAY);
+# Check references for TYPE_CONTEXT (should have column dependency from table)
+SELECT EXTENSION_NAME, OBJECT_TYPE, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT'
+ORDER BY OBJECT_KEY;
+EXTENSION_NAME	OBJECT_TYPE	REFERENCE_COUNT	COLUMN_COUNT
+vsql_simple	TYPE_CONTEXT	0	1
+# Drop the table
+DROP TABLE test_refs;
+# Uninstall the extension
+UNINSTALL EXTENSION vsql_simple;
+# After uninstall, references should be gone
+SELECT COUNT(*) FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple';
+COUNT(*)
+0

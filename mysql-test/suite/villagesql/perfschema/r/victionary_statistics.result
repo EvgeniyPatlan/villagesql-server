@@ -1,0 +1,35 @@
+# Verify the table structure
+DESC performance_schema.victionary_statistics;
+Field	Type	Null	Key	Default	Extra
+MAP_NAME	varchar(64)	NO		NULL	
+COMMITTED_ENTRIES	bigint unsigned	NO		NULL	
+UNCOMMITTED_ENTRIES	bigint unsigned	NO		NULL	
+CACHE_HITS	bigint unsigned	NO		NULL	
+CACHE_MISSES	bigint unsigned	NO		NULL	
+# Check that the table is queryable
+SELECT MAP_NAME, COMMITTED_ENTRIES >= 0 as HAS_ENTRIES, UNCOMMITTED_ENTRIES = 0 as NO_UNCOMMITTED, CACHE_HITS >= 0 as HAS_HITS, CACHE_MISSES >= 0 as HAS_MISSES
+FROM performance_schema.victionary_statistics ORDER BY MAP_NAME;
+MAP_NAME	HAS_ENTRIES	NO_UNCOMMITTED	HAS_HITS	HAS_MISSES
+columns	1	1	1	1
+extension_descriptors	1	1	1	1
+extensions	1	1	1	1
+funcs	1	1	1	1
+properties	1	1	1	1
+type_contexts	1	1	1	1
+type_descriptors	1	1	1	1
+# Install an extension to create some entries
+INSTALL EXTENSION vsql_simple;
+# Check statistics after installation
+SELECT MAP_NAME, COMMITTED_ENTRIES >= 0 as HAS_ENTRIES, CACHE_HITS >= 0 as HAS_STATS
+FROM performance_schema.victionary_statistics
+ORDER BY MAP_NAME;
+MAP_NAME	HAS_ENTRIES	HAS_STATS
+columns	1	1
+extension_descriptors	1	1
+extensions	1	1
+funcs	1	1
+properties	1	1
+type_contexts	1	1
+type_descriptors	1	1
+# Uninstall the extension
+UNINSTALL EXTENSION vsql_simple;

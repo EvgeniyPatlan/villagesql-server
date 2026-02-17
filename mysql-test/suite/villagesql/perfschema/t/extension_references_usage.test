@@ -1,0 +1,71 @@
+# Test showing reference counts when extension objects are actively in use
+
+--echo # Install vsql_simple extension
+INSTALL EXTENSION vsql_simple;
+
+--echo # Initially, all objects should have 0 external references
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple'
+ORDER BY OBJECT_TYPE, OBJECT_KEY;
+
+--echo # Create a table with a custom type - this should increase TYPE_CONTEXT references
+CREATE TABLE t1 (id INT, data vsql_simple.BYTEARRAY);
+
+--echo # Now TYPE_CONTEXT should show column dependency (table using this type)
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+
+--echo # Even though ref count shows 0, UNINSTALL should fail because of column dependency
+--error ER_VILLAGESQL_GENERIC_ERROR
+UNINSTALL EXTENSION vsql_simple;
+
+--echo # Create another table with the same type
+CREATE TABLE t2 (val vsql_simple.BYTEARRAY);
+
+--echo # Column count should increase to 2
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+
+--echo # Insert some data
+INSERT INTO t1 VALUES (1, bytearray_from_string('hello')), (2, bytearray_from_string('world'));
+
+--echo # Set a user variable with custom type - adds another reference
+SET @my_var = bytearray_from_string('test');
+
+--echo # Check references again (should show user variable reference, column count still 2)
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+
+--echo # Try to uninstall - should fail because columns depend on it
+--error ER_VILLAGESQL_GENERIC_ERROR
+UNINSTALL EXTENSION vsql_simple;
+
+--echo # Clear user variable
+SET @my_var = NULL;
+
+--echo # Drop one table
+DROP TABLE t1;
+
+--echo # Column count should decrease to 1, reference count back to 0
+SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+
+--echo # Drop second table
+DROP TABLE t2;
+
+--echo # Now TYPE_CONTEXT should be gone (no tables using it)
+SELECT COUNT(*) as TYPE_CONTEXT_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
+
+--echo # Now uninstall should succeed
+UNINSTALL EXTENSION vsql_simple;
+
+--echo # All references should be gone
+SELECT COUNT(*) FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple';
