@@ -1,23 +1,16 @@
 CREATE TABLE t1 (
 id INT PRIMARY KEY,
-name VARCHAR(50),
 val COMPLEX
 );
-CREATE TRIGGER tr_only_builtin BEFORE INSERT ON t1
+CREATE TRIGGER tr_before_insert BEFORE INSERT ON t1
 FOR EACH ROW
 BEGIN
-SET @id = NEW.id;
-SET @name = NEW.name;
+SET @inserted_val = NEW.val;
 END//
-CREATE TRIGGER tr_with_custom BEFORE INSERT ON t1
-FOR EACH ROW
-BEGIN
-SET @v = NEW.val;
-END//
-ERROR HY000: Custom types are not yet supported in triggers
-INSERT INTO t1 VALUES (1, 'test', '(1.0,2.0)');
-SELECT @id, @name;
-@id	@name
-1	test
-DROP TRIGGER tr_only_builtin;
+INSERT INTO t1 VALUES (1, '(1.0,2.0)');
+SELECT @inserted_val;
+@inserted_val
+(1,2)
+DROP TRIGGER tr_before_insert;
 DROP TABLE t1;
+SET @inserted_val = NULL;

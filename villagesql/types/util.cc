@@ -914,13 +914,6 @@ bool ValidateCustomTypeContext(THD *thd) {
   // TODO(villagesql-beta): Remove these restrictions once custom types are
   // fully supported in these contexts.
 
-  // Check for triggers during CREATE TRIGGER (blocks creation)
-  // Tested by: mysql-test/suite/villagesql/trigger/t/trigger_complex.test
-  if (thd->lex->sql_command == SQLCOM_CREATE_TRIGGER) {
-    villagesql_error("Custom types are not yet supported in triggers", MYF(0));
-    return true;
-  }
-
   // Check for stored procedures/functions
   // Tested by:
   // mysql-test/suite/villagesql/stored_procedure/t/stored_procedure_call_complex.test
