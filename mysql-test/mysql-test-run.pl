@@ -132,6 +132,7 @@ my @opt_perf_servers;
 my $opt_stress;
 my $opt_tmpdir;
 my $opt_tmpdir_pid;
+my @opt_veb_source_dirs;
 my $opt_trace_protocol;
 my $opt_user_args;
 my $opt_valgrind_path;
@@ -1804,6 +1805,7 @@ sub command_line_setup {
     'mem'             => \$opt_mem,
     'tmpdir=s'        => \$opt_tmpdir,
     'vardir=s'        => \$opt_vardir,
+    'veb-source-dir=s@' => \@opt_veb_source_dirs,
 
     # Misc
     'accept-test-fail'      => \$opt_accept_fail,
@@ -7109,13 +7111,21 @@ sub start_servers($) {
     my $vebdir = $mysqld->value('veb-dir');
     mkpath($vebdir) unless -d $vebdir;
 
-    # Copy pre-built VEB files from build directory to this server's veb-dir
-    my $veb_source_dir = "$bindir/veb_output_directory";
-    if (-d $veb_source_dir) {
-      my @veb_files = glob("$veb_source_dir/*.veb");
-      foreach my $veb_file (@veb_files) {
-        my $dest_file = "$vebdir/" . basename($veb_file);
-        copy($veb_file, $dest_file) unless -f $dest_file;
+    # Copy pre-built VEB files to this server's veb-dir
+    # Check multiple possible locations for VEB files:
+    # 1. veb_output_directory (build directory)
+    # 2. lib/veb (installed/packaged location)
+    # 3. Additional directories specified via --veb-source-dir
+    my @veb_source_dirs = ("$bindir/veb_output_directory", "$basedir/lib/veb");
+    push @veb_source_dirs, @opt_veb_source_dirs if @opt_veb_source_dirs;
+
+    foreach my $veb_source_dir (@veb_source_dirs) {
+      if (-d $veb_source_dir) {
+        my @veb_files = glob("$veb_source_dir/*.veb");
+        foreach my $veb_file (@veb_files) {
+          my $dest_file = "$vebdir/" . basename($veb_file);
+          copy($veb_file, $dest_file) unless -f $dest_file;
+        }
       }
     }
 
@@ -7961,6 +7971,9 @@ Options to control directories to use
   vardir=DIR            The directory where files generated from the test run
                         is stored (default: ./var). Specifying a ramdisk or
                         tmpfs will speed up tests.
+  veb-source-dir=DIR    Additional directory to search for VillageSQL extension
+                        bundles (.veb files). Can be specified multiple times.
+                        VEB files found will be copied to the test's veb-dir.
 
 Options to control what test suites or cases to run
 
