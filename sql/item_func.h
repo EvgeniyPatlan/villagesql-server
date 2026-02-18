@@ -2214,6 +2214,13 @@ class Item_udf_func : public Item_func {
   }
 
   bool check_function_as_value_generator(uchar *checker_args) override {
+    // VDFs are deterministic extension functions; allow them in CHECK
+    // constraints, generated columns, and default expressions.
+    // TODO(villagesql): Consider letting VDF authors declare whether their
+    // function is safe for use in CHECK constraints and generated columns
+    // (e.g. a flag in vef_func_desc_t). Classic UDFs are intentionally
+    // disallowed since they can be non-deterministic or dropped independently.
+    if (is_vdf()) return false;
     Check_function_as_value_generator_parameters *func_arg =
         pointer_cast<Check_function_as_value_generator_parameters *>(
             checker_args);

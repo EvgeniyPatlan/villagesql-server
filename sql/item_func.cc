@@ -4531,6 +4531,10 @@ void udf_handler::cleanup() {
 
   if (m_vdf) {
     m_vdf->cleanup();
+    // VDFs don't hold external resources (no UDF hash entry, no deinit).
+    // Skip free_handler() so the handler stays initialized for reuse across
+    // statements (e.g. in CHECK constraint and generated column expressions).
+    return;
   } else {
     if (m_init_func_called && u_d->func_deinit != nullptr) {
       (*u_d->func_deinit)(&initid);
