@@ -869,6 +869,8 @@ bool CheckCustomTypeUsage(Item *item, THD *thd) {
           case Item_sum::MIN_FUNC:
           case Item_sum::MAX_FUNC:
           case Item_sum::COUNT_DISTINCT_FUNC:
+          case Item_sum::FIRST_LAST_VALUE_FUNC:
+          case Item_sum::NTH_VALUE_FUNC:
           case Item_sum::LEAD_LAG_FUNC:
           case Item_sum::GROUP_CONCAT_FUNC:
             continue;  // Allow these aggregates on custom types
