@@ -5176,7 +5176,11 @@ bool Item_first_last_value::resolve_type(THD *thd) {
   if (param_type_is_default(thd, 0, 1)) return true;
   set_data_type_from_item(args[0]);
   m_hybrid_type = args[0]->result_type();
-
+  // VillageSQL: Propagate custom type context so val_custom_str() works when
+  // sending results to the client.
+  if (args[0]->has_type_context()) {
+    set_type_context(args[0]->get_type_context());
+  }
   return false;
 }
 
@@ -5334,7 +5338,11 @@ bool Item_nth_value::resolve_type(THD *thd) {
   set_data_type_from_item(args[0]);
 
   m_hybrid_type = args[0]->result_type();
-
+  // VillageSQL: Propagate custom type context so val_custom_str() works when
+  // sending results to the client.
+  if (args[0]->has_type_context()) {
+    set_type_context(args[0]->get_type_context());
+  }
   return false;
 }
 
