@@ -152,7 +152,11 @@ class udf_handler {
 
   bool is_initialized() const { return m_initialized; }
 
-  bool is_vdf() const { return m_vdf != nullptr; }
+  // Returns true if this is a VDF. Uses vdf_func_desc (available before
+  // fix_fields) rather than m_vdf (only set after fix_fields).
+  bool is_vdf() const {
+    return u_d != nullptr && u_d->vdf_func_desc != nullptr;
+  }
 
   // Check if this VDF returns a text string (VEF_TYPE_STRING) as opposed to
   // binary data (VEF_TYPE_CUSTOM). Uses vdf_func_desc which is available before
