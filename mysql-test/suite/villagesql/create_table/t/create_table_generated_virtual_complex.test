@@ -1,15 +1,12 @@
 # Test CREATE TABLE with virtual generated column using COMPLEX
 # Tests virtual generated column with COMPLEX type expressions
 
---source include/villagesql/not_implemented_complex_type.inc
-
 --source include/villagesql/install_complex_extension.inc
---source include/villagesql/binlog_check_begin.inc
 
 CREATE TABLE t1 (
     id INT PRIMARY KEY,
     complex_input COMPLEX,
-    real_part DOUBLE GENERATED ALWAYS AS (REAL(complex_input)) VIRTUAL
+    real_part DOUBLE GENERATED ALWAYS AS (COMPLEX_REAL(complex_input)) VIRTUAL
 );
 
 SHOW CREATE TABLE t1;
@@ -21,5 +18,4 @@ SELECT * FROM t1;
 
 DROP TABLE t1;
 
---source include/villagesql/binlog_check_end.inc
 --source include/villagesql/uninstall_complex_extension.inc
