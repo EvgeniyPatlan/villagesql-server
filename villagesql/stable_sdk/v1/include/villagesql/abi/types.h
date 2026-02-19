@@ -155,7 +155,6 @@
 typedef enum : unsigned int {
   VEF_PROTOCOL_0,  // Not used
   VEF_PROTOCOL_1,  // Stable as of v0.0.1, likely to be deprecated.
-  VEF_PROTOCOL_2,  // Under development, not stable.
 } vef_protocol_t;
 
 // Max length of error messages in caller-provided buffers.

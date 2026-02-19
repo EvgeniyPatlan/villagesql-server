@@ -1,0 +1,31 @@
+# ABI v1 Compliance Test
+Found SDK v1 source directory
+# Building test extension
+# Verify VEB was created
+# Copy VEB to server's VEB directory
+# Install the extension
+INSTALL EXTENSION abi_v1_test;
+# Verify extension is installed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS
+WHERE extension_name = 'abi_v1_test';
+EXTENSION_NAME	EXTENSION_VERSION
+abi_v1_test	0.0.1
+# Test abi_v1_add function
+SELECT abi_v1_test.abi_v1_add(2, 3);
+abi_v1_test.abi_v1_add(2, 3)
+5
+SELECT abi_v1_test.abi_v1_add(-5, 5);
+abi_v1_test.abi_v1_add(-5, 5)
+0
+# Test NULL handling
+SELECT abi_v1_test.abi_v1_add(NULL, 5);
+abi_v1_test.abi_v1_add(NULL, 5)
+NULL
+# Uninstall extension
+UNINSTALL EXTENSION abi_v1_test;
+# Verify extension was removed
+SELECT extension_name FROM INFORMATION_SCHEMA.EXTENSIONS
+WHERE extension_name = 'abi_v1_test';
+EXTENSION_NAME
+# Cleanup
+include/rpl/deprecated/show_binlog_events.inc
