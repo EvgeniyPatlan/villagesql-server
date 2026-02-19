@@ -316,7 +316,8 @@ static void prepare_default_value_string(uchar *buf, TABLE *table,
     String type(tmp, sizeof(tmp), f->charset());
     const bool is_binary_type =
         ((f->type() == MYSQL_TYPE_VARCHAR || f->type() == MYSQL_TYPE_STRING) &&
-         f->is_flag_set(BINARY_FLAG) && f->charset() == &my_charset_bin);
+         f->is_flag_set(BINARY_FLAG) && f->charset() == &my_charset_bin &&
+         !f->has_type_context());
 
     if (f->type() == MYSQL_TYPE_BIT) {
       longlong dec = f->val_int();
@@ -326,9 +327,6 @@ static void prepare_default_value_string(uchar *buf, TABLE *table,
       tmp[1] = '\'';
       tmp[length] = '\'';
       type.length(length + 1);
-    } else if (f->has_type_context()) {
-      // Custom types: decode binary representation to string format.
-      f->val_custom_str(&type);
     } else if (is_binary_type) {
       String type2;
       char *ptr = type.c_ptr_safe();
@@ -359,8 +357,10 @@ static void prepare_default_value_string(uchar *buf, TABLE *table,
       } else
         // For BINARY(0) and VARBINARY type with empty string as default value.
         f->val_str(&type);
-    } else
-      f->val_str(&type);
+    } else {
+      // VillageSQL: val_external_str handles both custom and regular types
+      f->val_external_str(&type);
+    }
 
     if (type.length()) {
       uint dummy_errors;

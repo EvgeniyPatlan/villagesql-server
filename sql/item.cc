@@ -100,6 +100,7 @@
 #include "template_utils.h"
 #include "typelib.h"
 #include "unsafe_string_append.h"
+#include "villagesql/include/error.h"
 #include "villagesql/types/util.h"
 using std::max;
 using std::min;
@@ -284,7 +285,7 @@ String *Item::val_str_ascii(String *str) {
 }
 
 // VillageSQL: Get formatted string for custom types by decoding binary data
-String *Item::val_custom_str(String *str) {
+String *Item::val_external_str(String *str) {
   // Get binary data from val_str()
   String *binary_data = val_str(str);
   if (!has_type_context() || null_value) return binary_data;
@@ -7696,13 +7697,8 @@ bool Item::send(Protocol *protocol, String *buffer) {
     case MYSQL_TYPE_BIT:
     case MYSQL_TYPE_NEWDECIMAL:
     case MYSQL_TYPE_JSON: {
-      // VillageSQL: Use val_custom_str() for custom types to get formatted text
-      const String *res;
-      if (has_type_context()) {
-        res = val_custom_str(buffer);
-      } else {
-        res = val_str(buffer);
-      }
+      // VillageSQL: val_external_str handles both custom and regular types
+      const String *res = val_external_str(buffer);
       assert(null_value == (res == nullptr));
       if (res != nullptr) {
         return protocol->store_string(res->ptr(), res->length(),

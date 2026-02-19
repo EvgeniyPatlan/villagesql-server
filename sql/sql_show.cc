@@ -1709,11 +1709,9 @@ static bool print_default_clause(THD *thd, Field *field, String *def_value,
         tmp[length] = '\'';
         type.length(length + 1);
         quoted = false;
-      } else if (field->has_type_context()) {
-        // VillageSQL: For custom types, decode binary to string representation
-        field->val_custom_str(&type);
       } else {
-        field->val_str(&type);
+        // VillageSQL: val_external_str handles both custom and regular types
+        field->val_external_str(&type);
       }
 
       if (type.length()) {

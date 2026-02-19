@@ -2028,8 +2028,8 @@ class Item : public Parse_tree_node {
 
   // VillageSQL: Get formatted string for custom types. Default implementation
   // calls val_str() to get binary data, then decodes using DecodeString().
-  // Item_field overrides to call field->val_custom_str() for efficiency.
-  virtual String *val_custom_str(String *str);
+  // Item_field overrides to call field->val_external_str() for efficiency.
+  virtual String *val_external_str(String *str);
 
   /*
     Return decimal representation of item with fixed point.
@@ -4497,9 +4497,9 @@ class Item_field : public Item_ident {
   longlong val_date_temporal_at_utc() override;
   my_decimal *val_decimal(my_decimal *) override;
   String *val_str(String *) override;
-  // VillageSQL: Optimize by calling field->val_custom_str() directly
-  String *val_custom_str(String *str) override {
-    return field->val_custom_str(str);
+  // VillageSQL: Optimize by calling field->val_external_str() directly
+  String *val_external_str(String *str) override {
+    return field->val_external_str(str);
   }
   bool val_json(Json_wrapper *result) override;
   bool send(Protocol *protocol, String *str_arg) override;

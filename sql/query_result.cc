@@ -373,12 +373,8 @@ bool Query_result_export::send_data(THD *thd,
     bool enclosed =
         (exchange->field.enclosed->length() &&
          (!exchange->field.opt_enclosed || result_type == STRING_RESULT));
-    // VillageSQL: For custom types, use val_custom_str() to get formatted text
-    if (item->has_type_context()) {
-      res = item->val_custom_str(&tmp);
-    } else {
-      res = item->val_str(&tmp);
-    }
+    // VillageSQL: val_external_str handles both custom and regular types
+    res = item->val_external_str(&tmp);
     if (res && !my_charset_same(write_cs, res->charset()) &&
         !my_charset_same(write_cs, &my_charset_bin)) {
       const char *well_formed_error_pos;

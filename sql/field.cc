@@ -10614,7 +10614,7 @@ const char *get_field_name_or_expression(THD *thd, const Field *field) {
   return field->field_name;
 }
 
-String *Field::val_custom_str(String *buf) const {
+String *Field::val_external_str(String *buf) const {
   if (!has_type_context()) return val_str(buf);
 
   // Get the encoded data directly from the field
@@ -10649,6 +10649,6 @@ bool Field_varstring::send_to_protocol(Protocol *protocol) const {
   if (is_null()) return protocol->store_null();
   char buff[MAX_FIELD_WIDTH];
   String tmp(buff, sizeof(buff), charset());
-  String *res = val_custom_str(&tmp);
+  String *res = val_external_str(&tmp);
   return res ? protocol->store(res) : protocol->store_null();
 }

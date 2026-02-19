@@ -4180,19 +4180,19 @@ int dump_leaf_key(void *key_arg, element_count count [[maybe_unused]],
       We also can't use table->field array to access the fields
       because it contains both order and arg list fields.
      */
-    // VillageSQL: Use val_custom_str throughout to decode custom types.
+    // VillageSQL: Use val_external_str throughout to decode custom types.
     // Const items can have custom types (e.g., const-folded function calls).
     if ((*arg)->const_item()) {
-      res = (*arg)->val_custom_str(&tmp);
+      res = (*arg)->val_external_str(&tmp);
     } else {
       Field *field = (*arg)->get_tmp_table_field();
       if (field) {
         const uint offset =
             (field->offset(field->table->record[0]) - table->s->null_bytes);
         assert(offset < table->s->reclength);
-        res = field->val_custom_str(&tmp, key + offset);
+        res = field->val_external_str(&tmp, key + offset);
       } else {
-        res = (*arg)->val_custom_str(&tmp);
+        res = (*arg)->val_external_str(&tmp);
       }
     }
     if (res) result->append(*res);
@@ -5176,7 +5176,7 @@ bool Item_first_last_value::resolve_type(THD *thd) {
   if (param_type_is_default(thd, 0, 1)) return true;
   set_data_type_from_item(args[0]);
   m_hybrid_type = args[0]->result_type();
-  // VillageSQL: Propagate custom type context so val_custom_str() works when
+  // VillageSQL: Propagate custom type context so val_external_str() works when
   // sending results to the client.
   if (args[0]->has_type_context()) {
     set_type_context(args[0]->get_type_context());
@@ -5338,7 +5338,7 @@ bool Item_nth_value::resolve_type(THD *thd) {
   set_data_type_from_item(args[0]);
 
   m_hybrid_type = args[0]->result_type();
-  // VillageSQL: Propagate custom type context so val_custom_str() works when
+  // VillageSQL: Propagate custom type context so val_external_str() works when
   // sending results to the client.
   if (args[0]->has_type_context()) {
     set_type_context(args[0]->get_type_context());
@@ -5591,7 +5591,7 @@ bool Item_lead_lag::resolve_type(THD *thd) {
   */
   if (arg_count > 1 && args[1]->propagate_type(thd, MYSQL_TYPE_LONGLONG, true))
     return true;
-  // VillageSQL: Propagate custom type context so val_custom_str() works when
+  // VillageSQL: Propagate custom type context so val_external_str() works when
   // sending results to the client.
   if (args[0]->has_type_context()) {
     set_type_context(args[0]->get_type_context());
