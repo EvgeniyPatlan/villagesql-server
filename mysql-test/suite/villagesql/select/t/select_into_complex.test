@@ -77,7 +77,7 @@ SELECT * FROM t6;
 DROP TABLE t5, t6;
 
 # Test SELECT INTO OUTFILE with view reference (Item_ref)
-# This exercises Item::val_custom_str() decoding logic
+# This exercises Item::val_external_str() decoding logic
 CREATE TABLE t7 (id INT, val COMPLEX);
 INSERT INTO t7 VALUES (1, '(1.0,2.0)'), (2, '(3.0,4.0)');
 CREATE VIEW v_complex AS SELECT id, val FROM t7;
@@ -92,7 +92,7 @@ DROP VIEW v_complex;
 DROP TABLE t7;
 
 # Test SELECT INTO OUTFILE with user variable (Item_func_get_user_var)
-# This exercises Item::val_custom_str() decoding logic
+# This exercises Item::val_external_str() decoding logic
 CREATE TABLE t8 (id INT, val COMPLEX);
 INSERT INTO t8 VALUES (1, '(5.0,6.0)');
 
@@ -106,7 +106,7 @@ eval SELECT @my_complex INTO OUTFILE '$MYSQLTEST_VARDIR/tmp/uservar_outfile.txt'
 DROP TABLE t8;
 
 # Test SELECT INTO OUTFILE with CASE expression (Item_func_case)
-# This exercises Item::val_custom_str() decoding logic
+# This exercises Item::val_external_str() decoding logic
 CREATE TABLE t9 (id INT, val COMPLEX);
 INSERT INTO t9 VALUES (1, '(7.0,8.0)'), (2, '(9.0,10.0)');
 

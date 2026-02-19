@@ -593,7 +593,7 @@ bool TryCopyCustomTypeField(const Field *from, Field *to) {
   if (!to->has_type_context()) {
     char buff[MAX_FIELD_WIDTH];
     String result(buff, sizeof(buff), from->charset());
-    from->val_custom_str(&result);
+    from->val_external_str(&result);
 
     THD *thd = current_thd;
     villagesql_error(

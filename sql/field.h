@@ -1025,14 +1025,14 @@ class Field {
      This trickery is used to decrease a number of malloc calls.
   */
   virtual String *val_str(String *, String *) const = 0;
-  // Unlike val_str(), val_custom_str() takes only one buffer because custom
+  // Unlike val_str(), val_external_str() takes only one buffer because custom
   // types always decode binary data to a new string (never returning existing
   // string data), so the two-buffer optimization doesn't apply.
-  String *val_custom_str(String *buf) const;
-  String *val_custom_str(String *str, uchar *new_ptr) {
+  String *val_external_str(String *buf) const;
+  String *val_external_str(String *str, uchar *new_ptr) {
     uchar *old_ptr = ptr;
     ptr = new_ptr;
-    String *result = val_custom_str(str);
+    String *result = val_external_str(str);
     ptr = old_ptr;
     return result;
   }

@@ -323,16 +323,14 @@ void field_unpack(String *to, Field *field, uint max_length, bool prefix_key) {
       return;
     }
     const CHARSET_INFO *cs = field->charset();
-    if (field->has_type_context()) {
-      field->val_custom_str(&tmp);
-      goto finish_append;
-    }
-    field->val_str(&tmp);
+    // VillageSQL: val_external_str handles both custom and regular types
+    field->val_external_str(&tmp);
     /*
       For BINARY(N) strip trailing zeroes to make
       the error message nice-looking
     */
-    if (field->binary() && field->type() == MYSQL_TYPE_STRING && tmp.length()) {
+    if (field->binary() && field->type() == MYSQL_TYPE_STRING &&
+        !field->has_type_context() && tmp.length()) {
       const char *tmp_end = tmp.ptr() + tmp.length();
       while (tmp_end > tmp.ptr() && !*--tmp_end)
         ;
