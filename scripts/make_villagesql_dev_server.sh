@@ -1,0 +1,308 @@
+#!/bin/bash
+# Copyright (c) 2026 VillageSQL Contributors
+# Script to create a standalone VillageSQL development server tarball
+
+set -e  # Exit on error
+
+# Configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD_DIR="${BUILD_DIR:-$(cd "$SOURCE_DIR/.." && pwd)/build}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PWD}"
+STAGING_DIR="${TMPDIR:-/tmp}/villagesql_dev_staging_$$"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Helper functions
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $*"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $*"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $*"
+}
+
+log_step() {
+    echo -e "${BLUE}==>${NC} $*"
+}
+
+die() {
+    log_error "$*"
+    exit 1
+}
+
+cleanup() {
+    if [[ -d "$STAGING_DIR" ]]; then
+        log_info "Cleaning up staging directory..."
+        rm -rf "$STAGING_DIR"
+    fi
+}
+
+trap cleanup EXIT
+
+log_step "VillageSQL Development Server Package Builder"
+echo ""
+
+# Verify source directory exists
+if [[ ! -d "$SOURCE_DIR" ]]; then
+    die "Source directory not found: $SOURCE_DIR"
+fi
+
+if [[ ! -f "$SOURCE_DIR/CMakeLists.txt" ]]; then
+    die "Source directory doesn't appear to be valid (no CMakeLists.txt): $SOURCE_DIR"
+fi
+
+# Create build directory if it doesn't exist
+mkdir -p "$BUILD_DIR"
+
+# Read version information
+VSQL_VERSION_FILE="$SOURCE_DIR/VSQL_VERSION"
+if [[ ! -f "$VSQL_VERSION_FILE" ]]; then
+    die "VSQL_VERSION file not found at $VSQL_VERSION_FILE"
+fi
+
+# Parse version
+VSQL_MAJOR=$(grep "^VSQL_MAJOR_VERSION=" "$VSQL_VERSION_FILE" | cut -d'=' -f2)
+VSQL_MINOR=$(grep "^VSQL_MINOR_VERSION=" "$VSQL_VERSION_FILE" | cut -d'=' -f2)
+VSQL_PATCH=$(grep "^VSQL_PATCH_VERSION=" "$VSQL_VERSION_FILE" | cut -d'=' -f2)
+VSQL_PRE=$(grep "^VSQL_PRE_RELEASE_VERSION=" "$VSQL_VERSION_FILE" | cut -d'=' -f2)
+
+VSQL_VERSION="${VSQL_MAJOR}.${VSQL_MINOR}.${VSQL_PATCH}"
+if [[ -n "$VSQL_PRE" ]]; then
+    VSQL_VERSION="${VSQL_VERSION}-${VSQL_PRE}"
+fi
+
+# Get platform info
+PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
+
+PACKAGE_NAME="villagesql-dev-server-${VSQL_VERSION}-${PLATFORM}-${ARCH}"
+TARBALL_NAME="${PACKAGE_NAME}.tar.gz"
+
+log_info "VillageSQL Version: $VSQL_VERSION"
+log_info "Platform: $PLATFORM-$ARCH"
+log_info "Build Directory: $BUILD_DIR"
+log_info "Output Directory: $OUTPUT_DIR"
+log_info "Package includes:"
+log_info "  - Server and client binaries"
+log_info "  - Example VEB files (vsql_simple, vsql_complex)"
+log_info "  - mysql-test framework with VillageSQL tests"
+log_info "  - Support files and SQL scripts"
+echo ""
+
+# Step 1: Configure build with CMake
+log_step "Step 1: Configuring build with CMake..."
+cd "$BUILD_DIR"
+
+# Remove old cache to ensure clean configuration
+if [[ -f "CMakeCache.txt" ]]; then
+    log_info "Removing old CMakeCache.txt..."
+    rm -f CMakeCache.txt
+fi
+
+# Configure CMake with appropriate build flags
+# - CMAKE_BUILD_TYPE=RelWithDebInfo: Release optimizations with debug symbols
+# - WITH_SSL=system: Use system OpenSSL library
+CMAKE_FLAGS=(
+    "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+    "-DWITH_SSL=system"
+)
+
+# Add any extra flags from environment
+if [[ -n "$CMAKE_EXTRA_FLAGS" ]]; then
+    CMAKE_FLAGS+=($CMAKE_EXTRA_FLAGS)
+fi
+
+log_info "CMake flags: ${CMAKE_FLAGS[*]}"
+cmake "$SOURCE_DIR" "${CMAKE_FLAGS[@]}" || die "CMake configuration failed"
+log_info "CMake configuration complete"
+
+# Step 2: Build binaries
+log_step "Step 2: Building binaries..."
+
+# Detect number of CPU cores for parallel build
+NCORES=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo "4")
+log_info "Building with $NCORES parallel jobs..."
+
+make -j${NCORES} || die "Build failed"
+log_info "Build complete"
+
+# Verify mysqld was built
+if [[ ! -x "$BUILD_DIR/bin/mysqld" ]]; then
+    die "mysqld not found in $BUILD_DIR/bin/ after build"
+fi
+
+# Create staging directory
+mkdir -p "$STAGING_DIR"
+cd "$BUILD_DIR"
+
+# Step 3: Generate package with CPack
+log_step "Step 3: Generating base package with CPack..."
+
+CPACK_COMPONENTS="Client;Server;Server_Scripts;SharedLibraries;SupportFiles;Readme;Info;ExampleVebs;Test;TestReadme"
+
+log_info "CPack components: $CPACK_COMPONENTS"
+
+# Run cpack with specific components
+cpack -G TGZ \
+    -D CPACK_ARCHIVE_COMPONENT_INSTALL=ON \
+    -D CPACK_COMPONENTS_GROUPING=ALL_COMPONENTS_IN_ONE \
+    -D "CPACK_COMPONENTS_ALL=${CPACK_COMPONENTS}" \
+    -D CPACK_PACKAGE_FILE_NAME="villagesql-base-temp" \
+    >/dev/null 2>&1 || die "CPack failed. Check that the build is complete."
+
+BASE_TARBALL="villagesql-base-temp.tar.gz"
+if [[ ! -f "$BASE_TARBALL" ]]; then
+    die "CPack did not create expected tarball: $BASE_TARBALL"
+fi
+
+ORIGINAL_SIZE=$(du -h "$BASE_TARBALL" | cut -f1)
+log_info "Base package size: $ORIGINAL_SIZE"
+
+# Step 4: Extract the base package
+log_step "Step 4: Extracting base package..."
+cd "$STAGING_DIR"
+
+# CPack creates tarballs without a wrapping directory, so create one first
+mkdir -p "$PACKAGE_NAME"
+cd "$PACKAGE_NAME"
+tar xzf "$BUILD_DIR/$BASE_TARBALL"
+
+# Step 4.5: Strip unnecessary test data (keep only villagesql tests and SSL certs)
+log_step "Step 4.5: Stripping unnecessary test data..."
+if [[ -d "mysql-test" ]]; then
+        log_info "Removing unnecessary test data from std_data..."
+        if [[ -d "mysql-test/std_data" ]]; then
+            # Keep only essential SSL certificate files that work together
+            # Save matching SSL certificate/key pairs temporarily
+            mkdir -p /tmp/mtr_ssl_$$
+
+            # Copy only the standard CA and server/client cert pairs (not test fixtures)
+            for file in cacert.pem \
+                        server-cert.pem server-key.pem \
+                        client-cert.pem client-key.pem; do
+                if [[ -f "mysql-test/std_data/$file" ]]; then
+                    cp "mysql-test/std_data/$file" /tmp/mtr_ssl_$$/ 2>/dev/null || true
+                fi
+            done
+
+            # Remove std_data and recreate it
+            rm -rf mysql-test/std_data
+            mkdir -p mysql-test/std_data
+
+            # Restore SSL certificates
+            if [[ -d /tmp/mtr_ssl_$$ ]]; then
+                mv /tmp/mtr_ssl_$$/* mysql-test/std_data/ 2>/dev/null || true
+                rm -rf /tmp/mtr_ssl_$$
+            fi
+
+            STD_DATA_SIZE=$(du -sh mysql-test/std_data 2>/dev/null | cut -f1 || echo "unknown")
+            log_info "Preserved essential SSL certificates in std_data ($STD_DATA_SIZE)"
+        fi
+
+        log_info "Removing existing test suites (keeping only villagesql)..."
+        if [[ -d "mysql-test/suite" ]]; then
+            # Keep only villagesql suite, remove all others
+            find mysql-test/suite -mindepth 1 -maxdepth 1 -type d ! -name "villagesql" -exec rm -rf {} \; 2>/dev/null || true
+        fi
+
+        log_info "Removing top-level test files and results..."
+        rm -rf mysql-test/r mysql-test/t
+
+    # Calculate space saved
+    MYSQL_TEST_SIZE=$(du -sh mysql-test 2>/dev/null | cut -f1 || echo "unknown")
+    log_info "mysql-test framework size after cleanup: $MYSQL_TEST_SIZE"
+fi
+
+# Step 5: Add convenience scripts
+log_step "Step 5: Adding convenience scripts..."
+
+# Copy scripts from source directory
+TEMPLATE_DIR="$SOURCE_DIR/villagesql/dev_server"
+
+cp "$TEMPLATE_DIR/init-db.sh" . && chmod +x init-db.sh
+cp "$TEMPLATE_DIR/start-server.sh" . && chmod +x start-server.sh
+cp "$TEMPLATE_DIR/connect.sh" . && chmod +x connect.sh
+cp "$TEMPLATE_DIR/stop-server.sh" . && chmod +x stop-server.sh
+
+# Verify all scripts were copied
+for script in init-db.sh start-server.sh connect.sh stop-server.sh; do
+    if [[ ! -f "$script" ]]; then
+        die "Failed to copy $script from $TEMPLATE_DIR"
+    fi
+done
+
+log_info "Convenience scripts added"
+
+# Step 6: Create comprehensive README
+log_step "Step 6: Creating documentation..."
+
+# Generate test documentation (always included with stripped MySQL tests)
+TEST_NOTE="**Note:** This package includes the test framework (mysql-test-run.pl, lib/, include/) with VillageSQL tests. MySQL test suites have been removed to save space. You can create your own test suites for your extensions."
+sed "s|@TEST_NOTE@|$TEST_NOTE|g" "$TEMPLATE_DIR/TEST_DOCS.md.template" > test_docs.tmp
+
+# Process QUICKSTART template
+sed -e "s|@VSQL_VERSION@|$VSQL_VERSION|g" \
+    -e "s|@PLATFORM@|$PLATFORM|g" \
+    -e "s|@ARCH@|$ARCH|g" \
+    -e "s|@BUILD_DATE@|$(date -u +"%Y-%m-%d")|g" \
+    "$TEMPLATE_DIR/QUICKSTART.md.template" > QUICKSTART.md.tmp
+
+# Insert test documentation at the @TEST_DOCS@ marker
+awk '/@TEST_DOCS@/ { system("cat test_docs.tmp"); next } 1' QUICKSTART.md.tmp > QUICKSTART.md
+rm test_docs.tmp QUICKSTART.md.tmp
+
+
+# Create version info file
+cat > VERSION <<EOF
+VillageSQL Version: $VSQL_VERSION
+Platform: $PLATFORM-$ARCH
+Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+Package Type: Development Server
+EOF
+
+# Step 7: Create the final tarball
+log_step "Step 7: Creating final tarball..."
+cd "$STAGING_DIR"
+tar czf "$TARBALL_NAME" "$PACKAGE_NAME"
+
+# Move to output directory
+mkdir -p "$OUTPUT_DIR"
+mv "$TARBALL_NAME" "$OUTPUT_DIR/"
+
+# Get final size
+FINAL_SIZE=$(du -h "$OUTPUT_DIR/$TARBALL_NAME" | cut -f1)
+
+# Calculate number of files
+FILE_COUNT=$(find "$PACKAGE_NAME" -type f | wc -l | tr -d ' ')
+
+# Clean up
+cd "$BUILD_DIR"
+rm -f "villagesql-base-temp.tar.gz"
+
+log_step "Package created successfully!"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  📦 Package: $TARBALL_NAME"
+echo "  📊 Size: $FINAL_SIZE (original CPack: $ORIGINAL_SIZE)"
+echo "  📁 Files: $FILE_COUNT"
+echo "  📍 Location: $OUTPUT_DIR/$TARBALL_NAME"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "To use:"
+echo "  1. Extract: tar xzf $TARBALL_NAME"
+echo "  2. cd $PACKAGE_NAME"
+echo "  3. Read: cat QUICKSTART.md"
+echo "  4. Initialize: ./init-db.sh"
+echo "  5. Start: ./start-server.sh"
+echo "  6. Connect: ./connect.sh"
+echo ""
