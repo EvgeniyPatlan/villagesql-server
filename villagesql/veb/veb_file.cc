@@ -870,7 +870,7 @@ bool register_funcs_from_extension(THD &thd, const std::string &extension_name,
         vef_type_to_item_result(func_desc->signature->return_type);
 
     FuncDescriptor descriptor(key, extension_version, func_desc,
-                              func_desc->protocol, return_type);
+                              ext_reg.negotiated_protocol, return_type);
 
     if (victionary.funcs().MarkForInsertion(thd, std::move(descriptor))) {
       LogVSQL(ERROR_LEVEL, "Failed to mark VDF '%s' for insertion",
@@ -958,7 +958,7 @@ bool load_vef_extension(const std::string &so_path,
   }
 
   vef_register_arg_t register_arg = {
-      VEF_PROTOCOL_1,
+      VEF_PROTOCOL_2,
       {MYSQL_VERSION_MAJOR, MYSQL_VERSION_MINOR, MYSQL_VERSION_PATCH, nullptr},
       {VSQL_MAJOR_VERSION, VSQL_MINOR_VERSION, VSQL_PATCH_VERSION, nullptr}};
 
@@ -970,10 +970,13 @@ bool load_vef_extension(const std::string &so_path,
     return true;
   }
 
+  const vef_protocol_t negotiated_protocol =
+      std::min(VEF_PROTOCOL_2, reg->protocol);
+
   if (reg->error_msg != nullptr) {
     LogVSQL(ERROR_LEVEL, "Extension '%s' registration failed: %s",
             so_path.c_str(), reg->error_msg);
-    vef_unregister_arg_t unregister_arg = {VEF_PROTOCOL_1};
+    vef_unregister_arg_t unregister_arg = {negotiated_protocol};
     vef_unregister(&unregister_arg, reg);
     dlclose(handle);
     return true;
@@ -982,7 +985,7 @@ bool load_vef_extension(const std::string &so_path,
   if (validate_vef_registration(reg, expected_name)) {
     LogVSQL(ERROR_LEVEL, "Extension '%s' failed registration validation",
             so_path.c_str());
-    vef_unregister_arg_t unregister_arg = {VEF_PROTOCOL_1};
+    vef_unregister_arg_t unregister_arg = {negotiated_protocol};
     vef_unregister(&unregister_arg, reg);
     dlclose(handle);
     return true;
@@ -991,9 +994,11 @@ bool load_vef_extension(const std::string &so_path,
   LogVSQL(INFORMATION_LEVEL,
           "Successfully loaded VEF extension '%s' (protocol %d, %d funcs, %d "
           "types)",
-          so_path.c_str(), reg->protocol, reg->func_count, reg->type_count);
+          so_path.c_str(), negotiated_protocol, reg->func_count,
+          reg->type_count);
 
   registration.registration = reg;
+  registration.negotiated_protocol = negotiated_protocol;
   registration.so_path = so_path;
   registration.dlhandle = handle;
   registration.unregister_func = vef_unregister;
@@ -1006,7 +1011,7 @@ void unload_vef_extension(const ExtensionRegistration &registration) {
   }
 
   if (registration.registration != nullptr) {
-    vef_unregister_arg_t unregister_arg = {VEF_PROTOCOL_1};
+    vef_unregister_arg_t unregister_arg = {registration.negotiated_protocol};
     LogVSQL(INFORMATION_LEVEL, "Calling vef_unregister for extension '%s'",
             registration.so_path.c_str());
     registration.unregister_func(&unregister_arg, registration.registration);

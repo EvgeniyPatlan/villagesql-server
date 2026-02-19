@@ -84,6 +84,10 @@ void cleanup_orphaned_expansion_directories(
 struct ExtensionRegistration {
   vef_registration_t *registration;
 
+  // Negotiated protocol: min(server_protocol, extension_protocol).
+  // Set during load_vef_extension; used for all VDF calls and unregistration.
+  vef_protocol_t negotiated_protocol{VEF_PROTOCOL_1};
+
   std::string so_path;
   void *dlhandle;
   vef_unregister_func_t unregister_func;

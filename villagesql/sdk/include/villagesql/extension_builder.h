@@ -142,7 +142,7 @@ constexpr auto make_extension(std::string_view name, std::string_view version) {
                                std::make_index_sequence<type_count>{});        \
     }                                                                          \
                                                                                \
-    _vef_registration.protocol = VEF_PROTOCOL_1;                               \
+    _vef_registration.protocol = VEF_PROTOCOL_2;                               \
     _vef_registration.error_msg = nullptr;                                     \
     _vef_registration.extension_name = _ext.name().data();                     \
     _vef_registration.extension_version = _ext.version().data();               \
