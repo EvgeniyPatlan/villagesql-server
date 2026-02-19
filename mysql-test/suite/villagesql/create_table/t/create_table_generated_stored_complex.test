@@ -1,15 +1,12 @@
 # Test CREATE TABLE with stored generated column using COMPLEX
 # Tests stored generated column with COMPLEX type expressions
 
---source include/villagesql/not_implemented_complex_type.inc
-
 --source include/villagesql/install_complex_extension.inc
---source include/villagesql/binlog_check_begin.inc
 
 CREATE TABLE t1 (
     id INT PRIMARY KEY,
     complex_input COMPLEX,
-    magnitude DOUBLE GENERATED ALWAYS AS (ABS(complex_input)) STORED
+    magnitude DOUBLE GENERATED ALWAYS AS (COMPLEX_ABS(complex_input)) STORED
 );
 
 SHOW CREATE TABLE t1;
@@ -21,5 +18,4 @@ SELECT * FROM t1;
 
 DROP TABLE t1;
 
---source include/villagesql/binlog_check_end.inc
 --source include/villagesql/uninstall_complex_extension.inc
