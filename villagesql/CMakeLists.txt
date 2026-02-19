@@ -48,6 +48,7 @@ IF(NOT WITHOUT_SERVER)
   # Install VEB to lib/veb directory
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-simple-build/vsql_simple.veb
     DESTINATION ${INSTALL_VEBDIR}
+    COMPONENT ExampleVebs
   )
 
   ExternalProject_Add(vsql_complex_extension
@@ -79,6 +80,7 @@ IF(NOT WITHOUT_SERVER)
   # Install VEB to lib/veb directory
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-complex-build/vsql_complex.veb
     DESTINATION ${INSTALL_VEBDIR}
+    COMPONENT ExampleVebs
   )
 ENDIF()
 
