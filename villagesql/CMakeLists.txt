@@ -96,12 +96,19 @@ set(SDK_VERSION "0.0.1-dev")
 set(SDK_NAME "villagesql-extension-sdk-${SDK_VERSION}")
 set(SDK_STAGING_DIR "${CMAKE_BINARY_DIR}/${SDK_NAME}")
 
+# The stable SDK snapshot to package and use for ABI compliance tests.
+# Update this variable when cutting a new stable ABI version.
+set(STABLE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/stable_sdk/v1")
+
 # Generate villagesql_config script with version substituted
 configure_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/sdk/bin/villagesql_config.in"
+  "${STABLE_SDK_DIR}/bin/villagesql_config.in"
   "${CMAKE_BINARY_DIR}/villagesql_config"
   @ONLY
 )
+
+# Generate source directory reference for ABI compliance tests
+file(WRITE "${CMAKE_BINARY_DIR}/villagesql_source_dir.txt" "${CMAKE_SOURCE_DIR}")
 
 # SDK packaging target - built by default (ALL)
 add_custom_target(sdk ALL
@@ -126,22 +133,22 @@ add_custom_target(sdk ALL
 
   # Copy SDK headers
   COMMAND ${CMAKE_COMMAND} -E copy
-    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/extension.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/extension_builder.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/func_builder.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/type_builder.h"
+    "${STABLE_SDK_DIR}/include/villagesql/extension.h"
+    "${STABLE_SDK_DIR}/include/villagesql/extension_builder.h"
+    "${STABLE_SDK_DIR}/include/villagesql/func_builder.h"
+    "${STABLE_SDK_DIR}/include/villagesql/type_builder.h"
     "${SDK_STAGING_DIR}/include/villagesql/"
   COMMAND ${CMAKE_COMMAND} -E copy
-    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/abi/types.h"
+    "${STABLE_SDK_DIR}/include/villagesql/abi/types.h"
     "${SDK_STAGING_DIR}/include/villagesql/abi/"
 
   # Copy template project
   COMMAND ${CMAKE_COMMAND} -E copy
-    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/template/CMakeLists.txt"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/template/manifest.json"
+    "${STABLE_SDK_DIR}/template/CMakeLists.txt"
+    "${STABLE_SDK_DIR}/template/manifest.json"
     "${SDK_STAGING_DIR}/template/"
   COMMAND ${CMAKE_COMMAND} -E copy
-    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/template/src/extension.cc"
+    "${STABLE_SDK_DIR}/template/src/extension.cc"
     "${SDK_STAGING_DIR}/template/src/"
 
   # Create the tarball
