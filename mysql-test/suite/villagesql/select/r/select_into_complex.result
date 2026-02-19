@@ -70,4 +70,23 @@ id	result
 1	(11,22)
 2	(13,24)
 DROP TABLE t5, t6;
+CREATE TABLE t7 (id INT, val COMPLEX);
+INSERT INTO t7 VALUES (1, '(1.0,2.0)'), (2, '(3.0,4.0)');
+CREATE VIEW v_complex AS SELECT id, val FROM t7;
+SELECT val INTO OUTFILE 'MYSQLTEST_VARDIR/tmp/view_outfile.txt' FROM v_complex WHERE id = 1;
+(1,2)
+DROP VIEW v_complex;
+DROP TABLE t7;
+CREATE TABLE t8 (id INT, val COMPLEX);
+INSERT INTO t8 VALUES (1, '(5.0,6.0)');
+SET @my_complex = (SELECT val FROM t8 WHERE id = 1);
+SELECT @my_complex INTO OUTFILE 'MYSQLTEST_VARDIR/tmp/uservar_outfile.txt';
+(5,6)
+DROP TABLE t8;
+CREATE TABLE t9 (id INT, val COMPLEX);
+INSERT INTO t9 VALUES (1, '(7.0,8.0)'), (2, '(9.0,10.0)');
+SELECT CASE WHEN id = 1 THEN val ELSE '(0,0)' END INTO OUTFILE 'MYSQLTEST_VARDIR/tmp/case_outfile.txt' FROM t9 WHERE id = 1;
+(7,8)
+DROP TABLE t9;
 SET @var = NULL;
+SET @my_complex = NULL;
