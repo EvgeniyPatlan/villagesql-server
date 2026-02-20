@@ -9,14 +9,6 @@
 --echo #
 
 # Get the default veb directory (where vsql_complex.veb was built)
---let $default_veb_dir = `SELECT @@veb_dir`
-
-# Set up test-specific veb directory
---let $veb_dir = $MYSQLTEST_VARDIR/veb
---exec mkdir -p $veb_dir
-
-# Copy vsql_complex.veb from default location to test-specific directory
---exec cp $default_veb_dir/vsql_complex.veb $veb_dir/
 
 # Create init-file SQL script that installs the extension on startup
 --let $init_file = $MYSQL_TMP_DIR/init_install_extension.sql
@@ -30,7 +22,7 @@ EOF
 
 # Restart server with --veb-dir and --init-file
 --replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR $MYSQL_TMP_DIR MYSQL_TMP_DIR
---let $restart_parameters = restart: --veb-dir=$veb_dir --init-file=$init_file
+--let $restart_parameters = restart: --init-file=$init_file
 --source include/restart_mysqld.inc
 
 --echo # Verify extension was installed by the init-file
@@ -53,9 +45,6 @@ DROP TABLE init_ext_test;
 
 # Remove init-file before restarting to avoid re-running it
 --remove_file $init_file
-
-# Clean up test-specific veb directory
---force-rmdir $veb_dir
 
 # Restart without init-file to restore normal state
 --let $restart_parameters = restart:

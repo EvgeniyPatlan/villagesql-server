@@ -4,7 +4,7 @@
 #
 # Test: install extension via --init-file during server startup
 #
-# restart: --veb-dir=MYSQLTEST_VARDIR/veb --init-file=MYSQL_TMP_DIR/init_install_extension.sql
+# restart: --init-file=MYSQL_TMP_DIR/init_install_extension.sql
 # Verify extension was installed by the init-file
 SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
 EXTENSION_NAME	EXTENSION_VERSION
