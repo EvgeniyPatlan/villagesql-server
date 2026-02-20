@@ -17,6 +17,8 @@
 #ifndef VILLAGESQL_TYPES_PT_CUSTOM_TYPE_H_
 #define VILLAGESQL_TYPES_PT_CUSTOM_TYPE_H_
 
+#include <cinttypes>
+#include <cstdlib>
 #include <string>
 
 #include "lex_string.h"
@@ -25,6 +27,7 @@
 #include "sql/sql_class.h"
 #include "villagesql/include/error.h"
 #include "villagesql/schema/descriptor/type_context.h"
+#include "villagesql/sdk/include/villagesql/abi/types.h"
 #include "villagesql/types/util.h"
 
 namespace villagesql {
@@ -73,19 +76,24 @@ class PT_custom_type : public PT_type {
     if (nullptr != length_spec &&
         type_context->descriptor()->persisted_length() != -1) {
       // Fixed-length type with length specification - this is an error
+      std::string qname = type_context->qualified_name();
       thd->syntax_error_at(pos,
-                           "Type '%.*s' is fixed-length and cannot have a "
+                           "Type '%s' is fixed-length and cannot have a "
                            "length specification",
-                           static_cast<int>(type_name.length), type_name.str);
+                           qname.c_str());
       return;
     }
 
-    // If no length_spec provided, generate it from type_context and point
-    // length_spec to it.
+    // If no length_spec provided, generate it from the TypeContext's
+    // persisted_length. For fixed-length types this comes from the descriptor.
+    // For variable-length types with parameters, this was computed by
+    // resolve_params at TypeContext construction time.
     if (nullptr == length_spec) {
-      ulonglong len = type_context->descriptor()->persisted_length();
-      snprintf(length_buffer, sizeof(length_buffer), "%llu", len);
-      length_spec = length_buffer;  // Point to our buffer
+      int64_t len = type_context->persisted_length();
+      if (len > 0) {
+        snprintf(length_buffer, sizeof(length_buffer), "%" PRId64, len);
+        length_spec = length_buffer;
+      }
     }
   }
 
@@ -106,10 +114,84 @@ class PT_custom_type : public PT_type {
                                 const LEX_STRING &type_name,
                                 const char *length) {
     const TypeContext *type_context = nullptr;
-    if (ResolveTypeToContext(extension_name, type_name, *thd->mem_root,
-                             type_context)) {
+    // TODO(villagesql-beta): pass real TypeParameters for parameterized types
+    TypeParameters empty_params;
+    if (ResolveTypeToContext(extension_name, type_name, empty_params,
+                             *thd->mem_root, type_context)) {
       return nullptr;
     }
+
+    // Handle variable-length types (persisted_length == -1)
+    if (type_context != nullptr &&
+        type_context->descriptor()->persisted_length() == -1) {
+      auto *descriptor = type_context->descriptor();
+      if (length != nullptr) {
+        // TYPE(N) syntax used - convert N to parameters via callbacks
+        if (descriptor->int_to_params() == nullptr) {
+          std::string qname = type_context->qualified_name();
+          thd->syntax_error_at(
+              pos, "Type '%s' does not accept a length specification",
+              qname.c_str());
+          return nullptr;
+        }
+
+        // Parse the length string to int64_t
+        char *endptr = nullptr;
+        int64_t int_value = strtoll(length, &endptr, 10);
+        if (endptr == length || *endptr != '\0' || int_value <= 0) {
+          std::string qname = type_context->qualified_name();
+          thd->syntax_error_at(pos, "Invalid length '%s' for type '%s'", length,
+                               qname.c_str());
+          return nullptr;
+        }
+
+        // Call int_to_params to convert integer to key-value pairs
+        vef_type_param_t param_array[VEF_MAX_TYPE_PARAMS];
+        size_t param_count = 0;
+        char error_msg[VEF_MAX_ERROR_LEN] = {0};
+        if (descriptor->int_to_params()(int_value, param_array, &param_count,
+                                        error_msg)) {
+          thd->syntax_error_at(pos, "%s", error_msg);
+          return nullptr;
+        }
+
+        // Validate parameters via resolve_params
+        // (resolve_params is required when int_to_params is set, enforced at
+        // registration time)
+        vef_type_resolved_params_t resolved = {};
+        if (descriptor->resolve_params()(param_array, param_count, &resolved,
+                                         error_msg)) {
+          thd->syntax_error_at(pos, "%s", error_msg);
+          return nullptr;
+        }
+
+        // Build TypeParameters from the key-value pairs
+        TypeParameters::ParamMap param_map;
+        for (size_t i = 0; i < param_count; i++) {
+          param_map[param_array[i].key] = param_array[i].value;
+        }
+        TypeParameters params(std::move(param_map));
+
+        // Re-resolve type with parameters to get a parameterized TypeContext
+        type_context = nullptr;
+        if (ResolveTypeToContext(extension_name, type_name, params,
+                                 *thd->mem_root, type_context)) {
+          return nullptr;
+        }
+
+        // length is now consumed - pass nullptr to constructor
+        length = nullptr;
+      } else {
+        // No length provided for variable-length type
+        if (descriptor->int_to_params() != nullptr) {
+          std::string qname = type_context->qualified_name();
+          thd->syntax_error_at(pos, "Type '%s' requires a length specification",
+                               qname.c_str());
+          return nullptr;
+        }
+      }
+    }
+
     PT_custom_type *ret = new (pt_mem_root)
         PT_custom_type(pos, thd, type_name, length, type_context);
     return ret;

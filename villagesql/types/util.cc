@@ -110,10 +110,8 @@ bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field) {
     return true;
   }
 
-  // Create TypeParameters (empty for now, will be filled from column data
-  // later)
-  // TODO(villagesql-beta): Extract parameters from column_entry
-  TypeParameters parameters;
+  TypeParameters parameters =
+      TypeParameters::from_json(column_entry->type_parameters);
   TypeContextKey type_context_key(type_descriptor_key, parameters);
 
   const TypeContext *tc = vclient.type_contexts().acquire_or_create(
@@ -132,13 +130,13 @@ bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field) {
 }
 
 bool ResolveTypeToContext(const LEX_STRING &extension_name,
-                          const LEX_STRING &type_name, MEM_ROOT &mem_root,
+                          const LEX_STRING &type_name,
+                          const TypeParameters &parameters, MEM_ROOT &mem_root,
                           const TypeContext *&result) {
   result = nullptr;
 
   auto &vclient = VictionaryClient::instance();
   if (should_assert_if_false(vclient.is_initialized())) {
-    // Too early to perform a lookup. We must be starting up.
     LogVSQL(ERROR_LEVEL,
             "Failed to resolve type %.*s; VictionaryClient not initialized",
             static_cast<int>(type_name.length), type_name.str);
@@ -167,8 +165,7 @@ bool ResolveTypeToContext(const LEX_STRING &extension_name,
   TypeDescriptorKey type_descriptor_key(type_descriptor->type_name(),
                                         type_descriptor->extension_name(),
                                         type_descriptor->extension_version());
-  TypeParameters empty_parameters;  // No parameters for bare type lookup
-  TypeContextKey type_context_key(type_descriptor_key, empty_parameters);
+  TypeContextKey type_context_key(type_descriptor_key, parameters);
 
   result = vclient.type_contexts().acquire_or_create(type_context_key, mem_root,
                                                      type_descriptor);
@@ -211,7 +208,7 @@ bool HandleCustomColumnsForTableRename(THD &thd, const char *old_db,
   for (const ColumnEntry *old_col : custom_columns) {
     ColumnEntry new_entry(ColumnKey(new_db, new_table, old_col->column_name()),
                           old_col->extension_name, old_col->extension_version,
-                          old_col->type_name);
+                          old_col->type_name, old_col->type_parameters);
 
     if (should_assert_if_true(vclient.columns().MarkForUpdate(
             thd, std::move(new_entry), old_col->key()))) {
@@ -229,7 +226,8 @@ String *EncodeString(const TypeContext &tc, const String &from,
   assert(tc.descriptor()->encode());
   is_valid = true;
 
-  const auto length = tc.descriptor()->persisted_length();
+  const auto length = tc.persisted_length();
+  assert(length > 0);
   char *buffer = new (&mem_root) char[length];
   if (should_assert_if_null(buffer)) {
     my_error(ER_OUTOFMEMORY, MYF(ME_FATALERROR), length);
@@ -281,7 +279,7 @@ bool DecodeString(const TypeContext &tc, const uchar *encoded_data,
   assert(output_buffer);
   is_valid = true;
 
-  const auto max_length = tc.descriptor()->max_decode_buffer_length();
+  const auto max_length = tc.max_decode_buffer_length();
   char *buffer = new (&mem_root) char[max_length];
   if (should_assert_if_null(buffer)) {
     my_error(ER_OUTOFMEMORY, MYF(ME_FATALERROR), max_length);
@@ -1036,8 +1034,10 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
       lex_type_name.length = strlen(custom_type_name);
 
       const TypeContext *type_ctx = nullptr;
-      if (ResolveTypeToContext(extension_name, lex_type_name, *thd->mem_root,
-                               type_ctx)) {
+      // TODO(villagesql-beta): pass real TypeParameters for parameterized types
+      TypeParameters empty_params;
+      if (ResolveTypeToContext(extension_name, lex_type_name, empty_params,
+                               *thd->mem_root, type_ctx)) {
         return true;  // Error already reported
       }
 
@@ -1080,8 +1080,10 @@ void SetVDFReturnTypeContext(THD *thd, const LEX_STRING &extension_name,
   lex_return_type.length = strlen(return_type_name);
 
   const TypeContext *return_type_ctx = nullptr;
-  if (!ResolveTypeToContext(extension_name, lex_return_type, *thd->mem_root,
-                            return_type_ctx) &&
+  // TODO(villagesql-beta): pass real TypeParameters for parameterized types
+  TypeParameters empty_params;
+  if (!ResolveTypeToContext(extension_name, lex_return_type, empty_params,
+                            *thd->mem_root, return_type_ctx) &&
       return_type_ctx != nullptr) {
     result_item->set_type_context(return_type_ctx);
   }

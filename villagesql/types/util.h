@@ -61,6 +61,7 @@ extern bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field);
 // mem_root is used to scope the cleanup of the TypeContext.
 extern bool ResolveTypeToContext(const LEX_STRING &extension_name,
                                  const LEX_STRING &type_name,
+                                 const TypeParameters &parameters,
                                  MEM_ROOT &mem_root,
                                  const TypeContext *&result);
 

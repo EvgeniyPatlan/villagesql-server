@@ -16,13 +16,53 @@
 
 #include "villagesql/schema/descriptor/type_context.h"
 
+#include <vector>
+
 #include "my_rapidjson_size_t.h"
 
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include "villagesql/include/error.h"
+
 namespace villagesql {
+
+void TypeContext::resolve_cached_values() {
+  if (!key_.parameters().empty() && descriptor_->resolve_params() != nullptr) {
+    // Variable-length type with parameters: resolve via callback
+    const auto &param_map = key_.parameters().params();
+    std::vector<vef_type_param_t> params;
+    params.reserve(param_map.size());
+    for (const auto &[k, v] : param_map) {
+      params.push_back({k.c_str(), v.c_str()});
+    }
+    vef_type_resolved_params_t resolved = {};
+    char error_msg[VEF_MAX_ERROR_LEN] = {0};
+    if (descriptor_->resolve_params()(params.data(), params.size(), &resolved,
+                                      error_msg)) {
+      // resolve_params failed — fall back to descriptor's base values.
+      // This can happen if parameters stored on disk no longer validate
+      // (e.g., extension upgraded). The type will be unusable until the
+      // column is altered, but we won't crash.
+      // TODO(villagesql-beta): how should we actually handle this error?
+      LogVSQL(WARNING_LEVEL,
+              "resolve_params failed for type '%s' (params: %s): %s. "
+              "Falling back to descriptor defaults.",
+              descriptor_->qualified_name().c_str(),
+              key_.parameters().str().c_str(), error_msg);
+      persisted_length_ = descriptor_->persisted_length();
+      max_decode_buffer_length_ = descriptor_->max_decode_buffer_length();
+      return;
+    }
+    persisted_length_ = resolved.persisted_length;
+    max_decode_buffer_length_ = resolved.max_decode_buffer_length;
+  } else {
+    // Fixed-length type or bare variable-length type without parameters
+    persisted_length_ = descriptor_->persisted_length();
+    max_decode_buffer_length_ = descriptor_->max_decode_buffer_length();
+  }
+}
 
 std::string TypeParameters::to_json() const {
   if (params_.empty()) return std::string("{}");

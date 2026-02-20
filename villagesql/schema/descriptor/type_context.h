@@ -21,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <string>
+
 #include "villagesql/schema/descriptor/type_descriptor.h"
 
 struct MEM_ROOT;
@@ -196,6 +197,7 @@ class TypeContext {
       : descriptor_(descriptor), key_(key) {
     assert(descriptor);
     assert(descriptor->key() == key.descriptor_key());
+    resolve_cached_values();
   }
 
   TypeContext() = delete;
@@ -226,7 +228,16 @@ class TypeContext {
   const std::string &type_name() const { return descriptor_->type_name(); }
   std::string qualified_name() const { return descriptor_->qualified_name(); }
 
+  // Storage characteristics for this type instantiation.
+  // For fixed-length types, these are copied from the TypeDescriptor.
+  // For variable-length types with parameters, these are computed by calling
+  // the descriptor's resolve_params callback at construction time.
+  int64_t persisted_length() const { return persisted_length_; }
+  int64_t max_decode_buffer_length() const { return max_decode_buffer_length_; }
+
  private:
+  void resolve_cached_values();
+
   // Pointer to the TypeDescriptor in VictionaryClient
   // Not owned - protected by ref count inside the Victionary itself, and
   // MDL lock on the extension (to block new references during uninstall).
@@ -234,6 +245,10 @@ class TypeContext {
 
   // Key for this TypeContext (used by ExtensionObjectMap)
   TypeContextKey key_;
+
+  // Cached storage characteristics (computed eagerly in constructor)
+  int64_t persisted_length_{0};
+  int64_t max_decode_buffer_length_{0};
 };
 
 // Forward declaration of TableTraits (specialized per entry type)

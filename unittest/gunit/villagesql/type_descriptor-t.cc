@@ -16,9 +16,12 @@
 
 #include <gtest/gtest.h>
 
+#include <cinttypes>
+
 #include "unittest/gunit/test_utils.h"
 #include "villagesql/schema/descriptor/type_descriptor.h"
 #include "villagesql/schema/systable/helpers.h"
+#include "villagesql/sdk/include/villagesql/abi/types.h"
 
 namespace villagesql_unittest {
 
@@ -112,6 +115,8 @@ TEST_F(TypeDescriptorTest, ConstructionWithNullHash) {
   EXPECT_NE(desc.encode(), nullptr);
   EXPECT_NE(desc.decode(), nullptr);
   EXPECT_NE(desc.compare(), nullptr);
+  EXPECT_EQ(desc.int_to_params(), nullptr);
+  EXPECT_EQ(desc.resolve_params(), nullptr);
 }
 
 // Test that TypeDescriptor can be used with SystemTableMap (compile check)
@@ -129,6 +134,65 @@ TEST_F(TypeDescriptorTest, KeyTypeCompatibility) {
   // Verify key() returns the right type
   const villagesql::TypeDescriptorKey &key = desc.key();
   EXPECT_EQ(key.str(), "test.ext.1.0");
+
+  // Verify optional params default to nullptr
+  EXPECT_EQ(desc.int_to_params(), nullptr);
+  EXPECT_EQ(desc.resolve_params(), nullptr);
+}
+
+// Dummy parameter functions for testing
+static bool dummy_int_to_params(int64_t value, vef_type_param_t *params,
+                                size_t *param_count, char *error_msg) {
+  if (value <= 0) {
+    snprintf(error_msg, VEF_MAX_ERROR_LEN, "value must be positive");
+    return true;
+  }
+  // Return key-value pairs. Keys/values are string literals (static lifetime).
+  static char dim_buf[32];
+  snprintf(dim_buf, sizeof(dim_buf), "%" PRId64, value);
+  params[0] = {"dimension", dim_buf};
+  *param_count = 1;
+  return false;
+}
+
+static bool dummy_resolve_params(const vef_type_param_t * /*params*/,
+                                 size_t /*param_count*/,
+                                 vef_type_resolved_params_t *result,
+                                 char * /*error_msg*/) {
+  result->persisted_length = 6144;
+  result->max_decode_buffer_length = 32768;
+  return false;
+}
+
+// Test TypeDescriptor construction with non-null param functions
+TEST_F(TypeDescriptorTest, ConstructionWithParamFunctions) {
+  villagesql::TypeDescriptor desc(
+      villagesql::TypeDescriptorKey("VVECTOR", "test_ext", "1.0.0"),
+      1,   // implementation_type
+      -1,  // persisted_length (variable-length)
+      0,   // max_decode_buffer_length (determined by params)
+      dummy_encode, dummy_decode, dummy_compare, dummy_hash,
+      dummy_int_to_params, dummy_resolve_params);
+
+  EXPECT_EQ(desc.persisted_length(), -1);
+  EXPECT_EQ(desc.int_to_params(), dummy_int_to_params);
+  EXPECT_EQ(desc.resolve_params(), dummy_resolve_params);
+
+  // Verify int_to_params callback produces key-value pairs
+  vef_type_param_t params[VEF_MAX_TYPE_PARAMS];
+  size_t param_count = 0;
+  char error_msg[VEF_MAX_ERROR_LEN] = {0};
+  EXPECT_FALSE(desc.int_to_params()(1536, params, &param_count, error_msg));
+  EXPECT_EQ(param_count, 1u);
+  EXPECT_STREQ(params[0].key, "dimension");
+  EXPECT_STREQ(params[0].value, "1536");
+
+  // Verify resolve_params callback computes storage sizes
+  vef_type_resolved_params_t resolved = {};
+  EXPECT_FALSE(
+      desc.resolve_params()(params, param_count, &resolved, error_msg));
+  EXPECT_EQ(resolved.persisted_length, 6144);
+  EXPECT_EQ(resolved.max_decode_buffer_length, 32768);
 }
 
 }  // namespace villagesql_unittest
