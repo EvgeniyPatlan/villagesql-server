@@ -112,7 +112,7 @@ bool Metadata_modifier::add_columns(THD *thd [[maybe_unused]],
     to_add_.emplace_back(
         ColumnKey(db_name, table_name, create_field.field_name),
         type_context->extension_name(), type_context->extension_version(),
-        type_context->type_name());
+        type_context->type_name(), type_context->parameters().to_json());
   }
 
   return false;

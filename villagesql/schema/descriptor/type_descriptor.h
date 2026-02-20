@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "villagesql/schema/systable/helpers.h"
+#include "villagesql/sdk/include/villagesql/abi/types.h"
 
 namespace villagesql {
 
@@ -129,6 +130,14 @@ class TypeDescriptor {
   // equivalent values like -0.0 to +0.0).
   using HashFn = size_t (*)(const unsigned char *data, size_t len);
 
+  // Optional: Convert TYPE(N) integer to parameter key-value pairs.
+  // If nullptr, TYPE(N) syntax is not supported for this type.
+  using IntToParamsFn = vef_type_int_to_params_func_t;
+
+  // Optional: Validate parameters and compute storage characteristics.
+  // If nullptr, the type does not accept parameters.
+  using ResolveParamsFn = vef_type_resolve_params_func_t;
+
   // Default constructor - creates an empty/invalid descriptor
   // Required for use with SystemTableMap's PendingOperation
   TypeDescriptor() = default;
@@ -137,11 +146,13 @@ class TypeDescriptor {
   // testing)
   explicit TypeDescriptor(TypeDescriptorKey key) : key_(std::move(key)) {}
 
-  // Full constructor with all fields (hash may be nullptr)
+  // Full constructor with all fields (hash, int_to_params, resolve_params
+  // may be nullptr)
   TypeDescriptor(TypeDescriptorKey key, unsigned char impl_type,
                  int64_t persisted_len, int64_t max_unpersisted_len,
                  EncodeFn encode, DecodeFn decode, CompareFn compare,
-                 HashFn hash = nullptr);
+                 HashFn hash = nullptr, IntToParamsFn int_to_params = nullptr,
+                 ResolveParamsFn resolve_params = nullptr);
 
   // Disable copy (descriptors should not be copied)
   TypeDescriptor(const TypeDescriptor &) = delete;
@@ -178,6 +189,8 @@ class TypeDescriptor {
   DecodeFn decode() const { return decode_; }
   CompareFn compare() const { return compare_; }
   HashFn hash() const { return hash_; }  // May be nullptr
+  IntToParamsFn int_to_params() const { return int_to_params_; }
+  ResolveParamsFn resolve_params() const { return resolve_params_; }
 
  private:
   TypeDescriptorKey key_;
@@ -192,6 +205,8 @@ class TypeDescriptor {
   DecodeFn decode_{nullptr};
   CompareFn compare_{nullptr};
   HashFn hash_{nullptr};
+  IntToParamsFn int_to_params_{nullptr};
+  ResolveParamsFn resolve_params_{nullptr};
 };
 
 // TableTraits specialization for TypeDescriptor.

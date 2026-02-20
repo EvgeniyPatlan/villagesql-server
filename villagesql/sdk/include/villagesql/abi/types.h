@@ -498,6 +498,39 @@ typedef int (*vef_compare_func_t)(const unsigned char *data1, size_t len1,
 // Returns: hash value
 typedef size_t (*vef_hash_func_t)(const unsigned char *data, size_t len);
 
+// A single type parameter key-value pair.
+typedef struct {
+  const char *key;
+  const char *value;
+} vef_type_param_t;
+
+// Maximum number of type parameters supported.
+#define VEF_MAX_TYPE_PARAMS 16
+
+// Storage characteristics resolved from type parameters.
+typedef struct {
+  int64_t persisted_length;
+  int64_t max_decode_buffer_length;
+} vef_type_resolved_params_t;
+
+// Convert TYPE(N) integer to parameter key-value pairs.
+// Called when user writes TYPE(N). Writes up to VEF_MAX_TYPE_PARAMS entries
+// to the params array and sets *param_count.
+// Key/value strings must remain valid until the extension is unloaded.
+// Returns false on success, true on error (writes to error_msg).
+typedef bool (*vef_type_int_to_params_func_t)(int64_t value,
+                                              vef_type_param_t *params,
+                                              size_t *param_count,
+                                              char *error_msg);
+
+// Validate type parameters and compute storage characteristics.
+// Takes an array of key-value pairs and their count.
+// On success, populates *result with storage sizes.
+// Returns false on success, true on error (writes to error_msg).
+typedef bool (*vef_type_resolve_params_func_t)(
+    const vef_type_param_t *params, size_t param_count,
+    vef_type_resolved_params_t *result, char *error_msg);
+
 typedef struct {
   // protocol >= VEF_PROTOCOL_1
   vef_protocol_t protocol;
@@ -518,6 +551,17 @@ typedef struct {
 
   // OPTIONAL (NULL if not provided)
   vef_hash_func_t hash_func;
+
+  // protocol >= VEF_PROTOCOL_2
+
+  // OPTIONAL: Convert TYPE(N) integer to parameter key-value pairs.
+  // NULL means TYPE(N) syntax is not supported for this type.
+  vef_type_int_to_params_func_t int_to_params;
+
+  // OPTIONAL: Validate parameters and compute storage characteristics.
+  // Required if int_to_params is set.
+  // NULL means the type does not accept parameters.
+  vef_type_resolve_params_func_t resolve_params;
 } vef_type_desc_t;
 
 typedef struct {

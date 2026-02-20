@@ -16,11 +16,55 @@
 
 #include <gtest/gtest.h>
 
+#include <cinttypes>
+#include <cstring>
+
 #include "unittest/gunit/test_utils.h"
 #include "villagesql/schema/descriptor/type_context.h"
 #include "villagesql/schema/systable/helpers.h"
+#include "villagesql/sdk/include/villagesql/abi/types.h"
 
 namespace villagesql_unittest {
+
+// Dummy function pointers for TypeDescriptor construction
+static bool dummy_encode(unsigned char *, size_t, const char *, size_t,
+                         size_t *) {
+  return false;
+}
+static bool dummy_decode(const unsigned char *, size_t, char *, size_t,
+                         size_t *) {
+  return false;
+}
+static int dummy_compare(const unsigned char *, size_t, const unsigned char *,
+                         size_t) {
+  return 0;
+}
+
+// resolve_params that succeeds and returns computed sizes
+static bool resolve_params_ok(const vef_type_param_t *params,
+                              size_t param_count,
+                              vef_type_resolved_params_t *result,
+                              char * /*error_msg*/) {
+  // Compute persisted_length from "dimension" param: dimension * 4 bytes
+  for (size_t i = 0; i < param_count; i++) {
+    if (strcmp(params[i].key, "dimension") == 0) {
+      int64_t dim = strtoll(params[i].value, nullptr, 10);
+      result->persisted_length = dim * 4;
+      result->max_decode_buffer_length = dim * 32;
+      return false;
+    }
+  }
+  return true;
+}
+
+// resolve_params that always fails
+static bool resolve_params_fail(const vef_type_param_t * /*params*/,
+                                size_t /*param_count*/,
+                                vef_type_resolved_params_t * /*result*/,
+                                char *error_msg) {
+  snprintf(error_msg, VEF_MAX_ERROR_LEN, "unsupported parameter combination");
+  return true;
+}
 
 class TypeParametersTest : public ::testing::Test {
  protected:
@@ -102,6 +146,69 @@ TEST_F(TypeParametersTest, RoundTripSingleParam) {
 
   EXPECT_EQ(original, restored);
   EXPECT_EQ(original.get("dimension"), "3");
+}
+
+class TypeContextTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    villagesql::test_set_lower_case_table_names(0);
+    system_charset_info = &my_charset_utf8mb4_0900_ai_ci;
+  }
+};
+
+TEST_F(TypeContextTest, FixedLengthTypeUsesDescriptorValues) {
+  villagesql::TypeDescriptor desc(
+      villagesql::TypeDescriptorKey("COMPLEX", "test_ext", "1.0.0"), 1, 16, 256,
+      dummy_encode, dummy_decode, dummy_compare);
+  villagesql::TypeContextKey key("COMPLEX", "test_ext", "1.0.0");
+  villagesql::TypeContext ctx(key, &desc);
+
+  EXPECT_EQ(ctx.persisted_length(), 16);
+  EXPECT_EQ(ctx.max_decode_buffer_length(), 256);
+}
+
+TEST_F(TypeContextTest, ParameterizedTypeUsesResolvedValues) {
+  villagesql::TypeDescriptor desc(
+      villagesql::TypeDescriptorKey("VVECTOR", "test_ext", "1.0.0"), 1, -1, 0,
+      dummy_encode, dummy_decode, dummy_compare, nullptr, nullptr,
+      resolve_params_ok);
+  villagesql::TypeParameters params({{"dimension", "1536"}});
+  villagesql::TypeContextKey key(
+      villagesql::TypeDescriptorKey("VVECTOR", "test_ext", "1.0.0"), params);
+  villagesql::TypeContext ctx(key, &desc);
+
+  // resolve_params_ok computes: dimension * 4, dimension * 32
+  EXPECT_EQ(ctx.persisted_length(), 1536 * 4);
+  EXPECT_EQ(ctx.max_decode_buffer_length(), 1536 * 32);
+}
+
+TEST_F(TypeContextTest, ResolveParamsFailureFallsBackToDescriptor) {
+  villagesql::TypeDescriptor desc(
+      villagesql::TypeDescriptorKey("VVECTOR", "test_ext", "1.0.0"), 1, -1, 0,
+      dummy_encode, dummy_decode, dummy_compare, nullptr, nullptr,
+      resolve_params_fail);
+  villagesql::TypeParameters params({{"dimension", "1536"}});
+  villagesql::TypeContextKey key(
+      villagesql::TypeDescriptorKey("VVECTOR", "test_ext", "1.0.0"), params);
+  villagesql::TypeContext ctx(key, &desc);
+
+  // resolve_params_fail returns error, so we fall back to descriptor values
+  EXPECT_EQ(ctx.persisted_length(), -1);
+  EXPECT_EQ(ctx.max_decode_buffer_length(), 0);
+}
+
+TEST_F(TypeContextTest, EmptyParamsSkipsResolveCallback) {
+  villagesql::TypeDescriptor desc(
+      villagesql::TypeDescriptorKey("VVECTOR", "test_ext", "1.0.0"), 1, -1, 0,
+      dummy_encode, dummy_decode, dummy_compare, nullptr, nullptr,
+      resolve_params_fail);
+  // No parameters — should use descriptor values directly, not call
+  // resolve_params (which would fail)
+  villagesql::TypeContextKey key("VVECTOR", "test_ext", "1.0.0");
+  villagesql::TypeContext ctx(key, &desc);
+
+  EXPECT_EQ(ctx.persisted_length(), -1);
+  EXPECT_EQ(ctx.max_decode_buffer_length(), 0);
 }
 
 }  // namespace villagesql_unittest

@@ -758,17 +758,17 @@ bool register_types_from_extension(THD &thd, const std::string &extension_name,
           reg.type_count, extension_name.c_str(), extension_version.c_str());
 
   for (unsigned int i = 0; i < reg.type_count; i++) {
-    const vef_type_desc_t *type_desc = reg.types[i];
-    if (type_desc == nullptr || type_desc->name == nullptr) {
+    const vef_type_desc_t *td = reg.types[i];
+    if (td == nullptr || td->name == nullptr) {
       LogVSQL(ERROR_LEVEL,
               "Extension '%s' has NULL type descriptor at index %u",
               extension_name.c_str(), i);
       return true;
     }
 
-    std::string type_name(type_desc->name);
+    std::string type_name(td->name);
 
-    if (type_desc->max_decode_buffer_length <= 0) {
+    if (td->max_decode_buffer_length <= 0) {
       LogVSQL(ERROR_LEVEL,
               "Type '%s' in extension '%s' must set max_decode_buffer_length",
               type_name.c_str(), extension_name.c_str());
@@ -778,11 +778,19 @@ bool register_types_from_extension(THD &thd, const std::string &extension_name,
     LogVSQL(INFORMATION_LEVEL, "Registering type '%s' from extension '%s'",
             type_name.c_str(), extension_name.c_str());
 
+    if (td->int_to_params != nullptr && td->resolve_params == nullptr) {
+      LogVSQL(ERROR_LEVEL,
+              "Type '%s' in extension '%s' has int_to_params but no "
+              "resolve_params",
+              type_name.c_str(), extension_name.c_str());
+      return true;
+    }
+
     TypeDescriptor descriptor(
         TypeDescriptorKey(type_name, extension_name, extension_version),
-        MYSQL_TYPE_VARCHAR, type_desc->persisted_length,
-        type_desc->max_decode_buffer_length, type_desc->encode_func,
-        type_desc->decode_func, type_desc->compare_func, type_desc->hash_func);
+        MYSQL_TYPE_VARCHAR, td->persisted_length, td->max_decode_buffer_length,
+        td->encode_func, td->decode_func, td->compare_func, td->hash_func,
+        td->int_to_params, td->resolve_params);
 
     const TypeDescriptor *existing =
         victionary.type_descriptors().get_committed(descriptor.key());
