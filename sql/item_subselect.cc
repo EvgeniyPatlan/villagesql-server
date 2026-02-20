@@ -1,4 +1,5 @@
 /* Copyright (c) 2002, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -97,6 +98,7 @@
 #include "sql_string.h"
 #include "string_with_len.h"
 #include "template_utils.h"
+#include "villagesql/types/util.h"
 
 class Json_wrapper;
 
@@ -969,6 +971,9 @@ bool Query_result_max_min_subquery::send_data(
   } else {
     if (cache == nullptr) {
       cache = Item_cache::get_cache(val_item);
+      // VillageSQL: Propagate custom type context so cmp_str uses the semantic
+      // comparator instead of byte-level sortcmp
+      cache->set_type_context(val_item->get_type_context());
       switch (val_item->result_type()) {
         case REAL_RESULT:
           op = &Query_result_max_min_subquery::cmp_real;
@@ -1081,6 +1086,11 @@ bool Query_result_max_min_subquery::cmp_str() {
   const String *val2 = maxmin->val_str(&buf2);
   if (cache->null_value || maxmin->null_value)
     return (ignore_nulls) ? !(cache->null_value) : !(maxmin->null_value);
+  // VillageSQL: use custom compare if custom type
+  auto custom_result = villagesql::TryCompareCustomType(cache, *val1, *val2);
+  if (custom_result.has_value()) {
+    return fmax ? (custom_result.value() > 0) : (custom_result.value() < 0);
+  }
   return (fmax) ? (sortcmp(val1, val2, cache->collation.collation) > 0)
                 : (sortcmp(val1, val2, cache->collation.collation) < 0);
 }
