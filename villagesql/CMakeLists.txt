@@ -105,7 +105,7 @@ set(STABLE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/stable_sdk/v1")
 # Generate villagesql_config script with version substituted
 configure_file(
   "${STABLE_SDK_DIR}/bin/villagesql_config.in"
-  "${CMAKE_BINARY_DIR}/villagesql_config"
+  "${CMAKE_BINARY_DIR}/bin/villagesql_config"
   @ONLY
 )
 
@@ -123,7 +123,7 @@ add_custom_target(sdk ALL
 
   # Copy villagesql_config script and make executable
   COMMAND ${CMAKE_COMMAND} -E copy
-    "${CMAKE_BINARY_DIR}/villagesql_config"
+    "${CMAKE_BINARY_DIR}/bin/villagesql_config"
     "${SDK_STAGING_DIR}/bin/"
   COMMAND chmod +x "${SDK_STAGING_DIR}/bin/villagesql_config"
 
@@ -158,4 +158,18 @@ add_custom_target(sdk ALL
 
   COMMENT "Creating VillageSQL Extension SDK: ${SDK_NAME}.tar.gz"
   VERBATIM
+)
+
+# Install SDK components from the staged SDK directory.
+# This ensures 'make install' installs exactly what the SDK tarball contains.
+# NOTE: If you add a new top-level directory to the SDK staging target above,
+# add a corresponding install() rule here.
+install(DIRECTORY "${SDK_STAGING_DIR}/include/villagesql"
+  DESTINATION "${INSTALL_INCLUDEDIR}"
+)
+install(DIRECTORY "${SDK_STAGING_DIR}/lib/cmake/VillageSQLExtensionFramework"
+  DESTINATION "${INSTALL_LIBDIR}/cmake"
+)
+install(PROGRAMS "${SDK_STAGING_DIR}/bin/villagesql_config"
+  DESTINATION "${INSTALL_BINDIR}"
 )
