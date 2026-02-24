@@ -287,6 +287,9 @@ extern bool ValidateAndReportCustomFieldStore(const Item *item,
 // If to does not have a custom type, generates an error with readable format.
 extern bool TryCopyCustomTypeField(const Field *from, Field *to);
 
+// Copy from a custom type field to string type field.
+extern void CopyCustomToStringField(const Field *from, Field *to);
+
 // Encode a string field value and store it in a custom type field.
 // This enables CTEs and subqueries with string values to work with custom
 // types:

@@ -1,4 +1,4 @@
-# Test ALTER TABLE CHANGE on existing COMPLEX column
+# Test ALTER TABLE CHANGE on existing COMPLEX column to NOT NULL column
 # Grammar: ALTER TABLE table_name CHANGE complex_col new_name new_type
 
 --source include/villagesql/install_complex_extension.inc
@@ -14,13 +14,21 @@ INSERT INTO t1 VALUES (2, '(3.5,-1.2)');
 INSERT INTO t1 VALUES (3, NULL);
 
 SHOW CREATE TABLE t1;
-SELECT * FROM t1;
+SELECT * FROM t1 ORDER BY id;
 
-# Change COMPLEX column to different name and type
-ALTER TABLE t1 CHANGE complex_val string_val VARCHAR(100);
+# Change COMPLEX column to different name and type - fails due to NULL row
+--error 1265
+ALTER TABLE t1 CHANGE complex_val string_val VARCHAR(100) NOT NULL;
 
 SHOW CREATE TABLE t1;
-SELECT * FROM t1;
+SELECT * FROM t1 ORDER BY id;
+
+UPDATE t1 SET complex_val='(2.0,-3.0)' WHERE id=3;
+
+ALTER TABLE t1 CHANGE complex_val string_val VARCHAR(99) NOT NULL;
+
+SHOW CREATE TABLE t1;
+SELECT * FROM t1 ORDER BY id;
 
 DROP TABLE t1;
 
