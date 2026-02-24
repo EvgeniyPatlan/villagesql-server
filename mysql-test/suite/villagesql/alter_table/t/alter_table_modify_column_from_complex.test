@@ -1,7 +1,6 @@
 # Test ALTER TABLE MODIFY COLUMN from COMPLEX to different type
 # Grammar: ALTER TABLE table_name MODIFY COLUMN column_name type
 
---source include/villagesql/not_implemented_complex_type.inc
 
 --source include/villagesql/install_complex_extension.inc
 --source include/villagesql/binlog_check_begin.inc
