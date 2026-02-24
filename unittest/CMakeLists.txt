@@ -80,3 +80,6 @@ ADD_CUSTOM_TARGET(
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   USES_TERMINAL
 )
+# CMake 4.1.0 adds test-unit to the default build when run-unit-tests DEPENDS on it,
+# which is an undesired side-effect, so we explicitly exclude it again.
+SET_PROPERTY(TARGET test-unit PROPERTY EXCLUDE_FROM_DEFAULT_BUILD TRUE)
