@@ -4,7 +4,7 @@ old_value VARCHAR(50)
 );
 SELECT * FROM villagesql.custom_columns;
 db_name	table_name	column_name	extension_name	extension_version	type_name	type_parameters
-INSERT INTO t1 VALUES (1, 'test_data');
+INSERT INTO t1 VALUES (1, '(0.0,0.0)');
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
@@ -12,7 +12,9 @@ t1	CREATE TABLE `t1` (
   `old_value` varchar(50) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-ALTER TABLE t1 CHANGE old_value new_complex_value COMPLEX;
+ALTER TABLE t1 ADD COLUMN new_complex_value COMPLEX;
+UPDATE t1 SET new_complex_value = VSQL_COMPLEX.COMPLEX_FROM_STRING(old_value);
+ALTER TABLE t1 DROP COLUMN old_value;
 SELECT * FROM villagesql.custom_columns;
 db_name	table_name	column_name	extension_name	extension_version	type_name	type_parameters
 test	t1	new_complex_value	vsql_complex	0.0.1	COMPLEX	{}
@@ -74,7 +76,12 @@ old_value VARCHAR(50)
 #	#	Table_map	#	#	table_id: # (test.t1)
 #	#	Write_rows	#	#	table_id: # flags: STMT_END_F
 #	#	Xid	#	#	COMMIT /* XID */
-#	#	Query	#	#	use `test`; ALTER TABLE t1 CHANGE old_value new_complex_value COMPLEX
+#	#	Query	#	#	use `test`; ALTER TABLE t1 ADD COLUMN new_complex_value COMPLEX
+#	#	Query	#	#	BEGIN
+#	#	Table_map	#	#	table_id: # (test.t1)
+#	#	Update_rows	#	#	table_id: # flags: STMT_END_F
+#	#	Xid	#	#	COMMIT /* XID */
+#	#	Query	#	#	use `test`; ALTER TABLE t1 DROP COLUMN old_value
 #	#	Query	#	#	BEGIN
 #	#	Table_map	#	#	table_id: # (test.t1)
 #	#	Update_rows	#	#	table_id: # flags: STMT_END_F

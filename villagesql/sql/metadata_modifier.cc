@@ -20,6 +20,8 @@
 #include <utility>
 
 #include "sql/create_field.h"
+#include "sql/field.h"
+#include "sql/field_common_properties.h"
 #include "sql/handler.h"
 #include "sql/mdl.h"
 #include "sql/sql_alter.h"
@@ -38,6 +40,7 @@
 #include "villagesql/schema/victionary_client.h"
 #include "villagesql/sql/custom_vdf.h"
 #include "villagesql/sql/func_lookup.h"
+#include "villagesql/types/util.h"
 
 namespace villagesql {
 
@@ -212,12 +215,14 @@ bool Metadata_modifier::rename_columns_table(THD *thd [[maybe_unused]],
 }
 
 bool Metadata_modifier::alter_columns(THD *thd [[maybe_unused]],
-                                      Table_name db_table,
+                                      Table_ref *table_ref,
                                       const Alter_info *alter_info) {
   if (!alter_info) {
     return false;  // No alter info, nothing to do
   }
 
+  TABLE *table = table_ref->table;
+  Table_name db_table = {table_ref->db, table_ref->table_name};
   if (should_assert_if_null(db_table.first) ||
       should_assert_if_null(db_table.second)) {
     villagesql_error(error_uninitialized_name, MYF(0));
@@ -303,7 +308,44 @@ bool Metadata_modifier::alter_columns(THD *thd [[maybe_unused]],
     }
   }
 
-  // 3. Handle ADD/MODIFY/CHANGE COLUMN from create_list
+  // 3. Validate type conversion compatibility for MODIFY/CHANGE COLUMN.
+  if (table) {
+    for (const Create_field &field : alter_info->create_list) {
+      if (!field.change) continue;
+      bool is_custom_type = (field.custom_type_context != nullptr);
+      bool was_custom_type = custom_column_names.count(field.change);
+
+      if (!was_custom_type && is_custom_type) {
+        // Non-custom → custom: not allowed. Use explicit conversion functions.
+        villagesql_error("Cannot convert column '%s' to custom type '%s'",
+                         MYF(0), field.change,
+                         field.custom_type_context->type_name().c_str());
+        return true;
+      } else if (was_custom_type && !is_custom_type) {
+        // Custom → non-custom: only string destination types allowed.
+        if (!is_string_type(field.sql_type)) {
+          villagesql_error(
+              "Cannot convert custom type column '%s' to non-string type",
+              MYF(0), field.change);
+          return true;
+        }
+      } else if (was_custom_type && is_custom_type) {
+        // Custom → custom: types must be compatible.
+        Field *old_field = find_field_in_table_sef(table, field.change);
+        assert(old_field);
+        if (!AreTypesCompatible(*old_field->get_type_context(),
+                                *field.custom_type_context)) {
+          villagesql_error(
+              "Cannot convert between incompatible custom types '%s' and '%s'",
+              MYF(0), old_field->get_type_context()->qualified_name().c_str(),
+              field.custom_type_context->qualified_name().c_str());
+          return true;
+        }
+      }
+    }
+  }
+
+  // 4. Handle ADD/MODIFY/CHANGE COLUMN from create_list
   for (const Create_field &field : alter_info->create_list) {
     bool is_custom_type = (field.custom_type_context != nullptr);
     bool was_custom_type =
@@ -646,9 +688,8 @@ bool Metadata_modifier::process_alter(THD *thd, Table_ref *table_list,
   }
 
   Metadata_modifier custom_columns;
-  Table_name db_table = {table_list->db, table_list->table_name};
 
-  if (custom_columns.alter_columns(thd, db_table, alter_info)) {
+  if (custom_columns.alter_columns(thd, table_list, alter_info)) {
     return true;
   }
 
