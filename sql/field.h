@@ -63,6 +63,10 @@
 #include "template_utils.h"
 #include "villagesql/schema/descriptor/type_context.h"
 
+namespace villagesql {
+class TypeEncoder;
+}  // namespace villagesql
+
 class Create_field;
 class CostOfItem;
 class Field;
@@ -1885,7 +1889,9 @@ class Field {
   const uchar *unpack_int64(uchar *to, const uchar *from) const;
 
  private:
+  // TODO(villagesql): Collapse these into one object (here and in Item)
   const villagesql::TypeContext *custom_type{nullptr};
+  villagesql::TypeEncoder *type_encoder_{nullptr};
 
  public:
   const villagesql::TypeContext *get_type_context() const {
@@ -1893,6 +1899,11 @@ class Field {
   }
   void set_type_context(const villagesql::TypeContext *tc) { custom_type = tc; }
   bool has_type_context() const { return nullptr != custom_type; }
+
+  villagesql::TypeEncoder *get_type_encoder() const { return type_encoder_; }
+  void set_type_encoder(villagesql::TypeEncoder *encoder) {
+    type_encoder_ = encoder;
+  }
 };
 
 /**
