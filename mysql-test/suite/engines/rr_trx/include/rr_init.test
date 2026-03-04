@@ -81,11 +81,11 @@ CREATE TABLE t1 (
 # Check that the table was really created with the intended storage engine.
 SHOW CREATE TABLE t1;
 
-## Procedure for inserting the value 1000 into integer fieds, "rows" times.
+## Procedure for inserting the value 1000 into integer fieds, "num_rows" times.
 
 --delimiter //
 
-eval CREATE PROCEDURE insertRows(rows INT)
+eval CREATE PROCEDURE insertRows(num_rows INT)
 BEGIN
   SET @n = 1;
   REPEAT
@@ -98,7 +98,7 @@ BEGIN
                0, CONNECTION_ID(), 0, 
                0, 1);
     SET @n = @n + 1;
-  UNTIL @n > rows
+  UNTIL @n > num_rows
   END REPEAT;
 END;
 //
