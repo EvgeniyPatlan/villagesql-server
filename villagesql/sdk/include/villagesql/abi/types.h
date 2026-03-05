@@ -21,6 +21,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "storage.h"
+
 // Protocol Versioning
 //
 // The protocol is incremented when the binary layout or function signatures of
@@ -161,6 +163,7 @@ typedef enum : unsigned int {
                    //   vef_type_desc_t.
                    // + Add int_to_params and resolve_params VDF name fields to
                    //   vef_type_desc_t.
+                   // + Add storage interface to vef_type_desc_t.
 } vef_protocol_t;
 
 // Max length of error messages in caller-provided buffers.
@@ -584,6 +587,12 @@ typedef struct {
   // TODO(villagesql-beta): check intrinsic default behavior for ALTER TABLE
   // (NULL -> NOT NULL column conversion) and other corner cases.
   const char *intrinsic_default_vdf_name;
+
+  // OPTIONAL: Storage interface. Set to a non-NULL pointer if columns of this
+  // type are stored by the extension. The pointed-to struct must remain valid
+  // for the lifetime of the extension. The server reads storage_intf->version
+  // to determine which fields are available.
+  const vef_type_storage_intf_t *storage_intf;
 } vef_type_desc_t;
 
 typedef struct {
