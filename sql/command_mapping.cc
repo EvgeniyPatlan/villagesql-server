@@ -1,4 +1,5 @@
 /* Copyright (c) 2022, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -21,6 +22,7 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <cassert>
 #include <unordered_map>
 
 #include "sql/command_mapping.h"
@@ -35,6 +37,18 @@ class Command_maps final {
                              static_cast<enum_server_command>(i))
                              .c_str()] = static_cast<enum_server_command>(i);
     }
+    // C++ does not allow mixing positional and designated initializers, so
+    // VSQL commands (which start at SQLCOM_VSQL_FIRST) cannot be included
+    // in the static array initializer below.
+    sql_commands[SQLCOM_INSTALL_EXTENSION] = "install_extension";
+    sql_commands[SQLCOM_UNINSTALL_EXTENSION] = "uninstall_extension";
+
+    // Verify every MySQL and VSQL command has a name string.
+    for (unsigned int i = 0; i < (unsigned int)SQLCOM_MYSQL_COUNT; i++)
+      assert(sql_commands[i] != nullptr);
+    for (unsigned int i = (unsigned int)SQLCOM_VSQL_FIRST;
+         i < (unsigned int)SQLCOM_END; i++)
+      assert(sql_commands[i] != nullptr);
   }
 
   enum_server_command get_server_command(const char *server_command) {
@@ -206,7 +220,8 @@ const char *Command_maps::sql_commands[] = {"select",
                                             "unlock_instance",
                                             "restart_server",
                                             "create_srs",
-                                            "drop_srs"};
+                                            "drop_srs",
+                                            "show_parse_tree"};
 
 Command_maps *g_command_maps{nullptr};
 }  // namespace

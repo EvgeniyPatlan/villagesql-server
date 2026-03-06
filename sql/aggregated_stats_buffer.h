@@ -25,7 +25,8 @@
 #define AGGREGATED_STATS_BUFFER_H
 
 #include <atomic>
-#include "include/my_sqlcommand.h"  // SQLCOM_END
+#include "include/my_sqlcommand.h"
+#include "sql/sqlcom_compact_index.h"
 
 /**
    Similar to System_status_var, implements atomic counters for status variables
@@ -53,7 +54,7 @@ struct aggregated_stats_buffer {
   std::atomic_uint64_t com_stmt_reset;
   std::atomic_uint64_t com_stmt_reprepare;
   std::atomic_uint64_t com_stmt_send_long_data;
-  std::atomic_uint64_t com_stat[(unsigned int)SQLCOM_END];
+  std::atomic_uint64_t com_stat[SQLCOM_COMPACT_COUNT];
 
   std::atomic_uint64_t table_open_cache_hits;
   std::atomic_uint64_t table_open_cache_misses;
