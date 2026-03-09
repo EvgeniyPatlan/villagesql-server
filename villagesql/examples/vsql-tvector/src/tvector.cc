@@ -254,15 +254,33 @@ void tvector_compare(BinaryArg in_l, BinaryArg in_r, IntResult out) {
 }
 
 // Implicit default for TVECTOR(N): writes N zero floats into the buffer.
-// buffer_size encodes the resolved persisted_length (N * 4 bytes).
-bool tvector_default(int64_t buffer_size, unsigned char *buffer, size_t *length,
-                     char * /*error_msg*/) {
-  if (buffer_size <= 0 || buffer_size % 4 != 0) {
-    *length = 0;
+// Reads the "dimension" type parameter to determine the number of elements.
+bool tvector_default(const std::map<std::string, std::string> &params,
+                     villagesql::Span<unsigned char> buffer, size_t *length,
+                     char *error_msg) {
+  // TODO(villagesql-beta): despite looking at dimension here and validating it,
+  // we could skip this part if we rely on the length of the buffer to be the
+  // memory we zero out.
+  auto it = params.find("dimension");
+  if (it == params.end()) {
+    snprintf(error_msg, VEF_MAX_ERROR_LEN,
+             "TVECTOR intrinsic_default: missing dimension");
     return true;
   }
-  memset(buffer, 0, static_cast<size_t>(buffer_size));
-  *length = static_cast<size_t>(buffer_size);
+  int64_t dimension = strtoll(it->second.c_str(), nullptr, 10);
+  if (dimension <= 0) {
+    snprintf(error_msg, VEF_MAX_ERROR_LEN,
+             "TVECTOR intrinsic_default: invalid dimension");
+    return true;
+  }
+  size_t byte_size = static_cast<size_t>(dimension) * 4;
+  if (byte_size > buffer.size()) {
+    snprintf(error_msg, VEF_MAX_ERROR_LEN,
+             "TVECTOR intrinsic_default: buffer too small");
+    return true;
+  }
+  memset(buffer.data(), 0, byte_size);
+  *length = byte_size;
   return false;
 }
 
@@ -301,4 +319,4 @@ VEF_GENERATE_ENTRY_POINTS(
         .func(make_resolve_params<&tvector_resolve_params>(
             "tvector_resolve_params"))
         .func(make_intrinsic_default<&tvector_default>(
-            "tvector_intrinsic_default")))
+            "tvector_intrinsic_default", TVECTOR)))

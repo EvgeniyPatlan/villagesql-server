@@ -349,20 +349,53 @@ using TypeCompareFunc = int (*)(Span<const unsigned char> a,
 // Hash: binary value -> hash code.
 using TypeHashFunc = size_t (*)(Span<const unsigned char> data);
 
-// IntrinsicDefaultWrapper: wraps a vef_intrinsic_default_func_t into a VDF.
-// VDF signature: (INT) -> STRING (binary), where INT is the resolved
-// persisted_length (buffer_size). Returns the encoded default value as binary.
-template <vef_intrinsic_default_func_t Func>
+// Extension author signatures for intrinsic_default.
+// Called when a NOT NULL custom column is set to NULL with IGNORE (e.g.
+// INSERT IGNORE or UPDATE IGNORE). Writes the encoded default value into
+// 'buffer' and sets '*length' to bytes written.
+// Returns false on success, true on error (writes to error_msg).
+//
+// Fixed-size types use the simple form:
+//   bool my_default(Span<unsigned char> buffer, size_t *length, char
+//   *error_msg)
+//
+// Variable-size types that need type parameters use:
+//   bool my_default(const std::map<std::string, std::string> &params,
+//                   Span<unsigned char> buffer, size_t *length, char
+//                   *error_msg)
+using IntrinsicDefaultFunc = bool (*)(villagesql::Span<unsigned char> buffer,
+                                      size_t *length, char *error_msg);
+using IntrinsicDefaultWithParamsFunc = bool (*)(
+    const std::map<std::string, std::string> &params,
+    villagesql::Span<unsigned char> buffer, size_t *length, char *error_msg);
+
+// IntrinsicDefaultWrapper: wraps either signature into a VDF.
+// VDF signature: () -> CUSTOM. Uses if-constexpr to detect whether the
+// author function accepts type parameters.
+template <auto Func>
 struct IntrinsicDefaultWrapper {
-  static void invoke(vef_context_t *ctx, vef_vdf_args_t *args,
+  static constexpr bool kWithParams =
+      std::is_invocable_v<decltype(Func),
+                          const std::map<std::string, std::string> &,
+                          villagesql::Span<unsigned char>, size_t *, char *>;
+
+  static void invoke(vef_context_t * /*ctx*/, vef_vdf_args_t * /*args*/,
                      vef_vdf_result_t *result) {
-    vef_invalue_t arg = get_invalue(ctx, args, 0);
-    if (arg.is_null) {
-      result->type = VEF_RESULT_NULL;
-      return;
-    }
     size_t length = 0;
-    if (Func(arg.int_value, result->bin_buf, &length, result->error_msg)) {
+    villagesql::Span<unsigned char> buffer(result->bin_buf,
+                                           result->max_bin_len);
+    bool failed;
+    if constexpr (kWithParams) {
+      std::map<std::string, std::string> params;
+      for (unsigned int i = 0; i < result->type_params.count; i++) {
+        params.emplace(result->type_params.keys[i],
+                       result->type_params.values[i]);
+      }
+      failed = Func(params, buffer, &length, result->error_msg);
+    } else {
+      failed = Func(buffer, &length, result->error_msg);
+    }
+    if (failed) {
       result->type = VEF_RESULT_ERROR;
       return;
     }
@@ -866,17 +899,17 @@ constexpr StaticFuncDesc<1> make_resolve_params(const char *name) {
   return StaticFuncDesc<1>(name, meta);
 }
 
-// Entry point for intrinsic_default functions:
-//   make_intrinsic_default<&my_func>("my_func")
-template <vef_intrinsic_default_func_t Func>
-constexpr StaticFuncDesc<1> make_intrinsic_default(const char *name) {
+/// Entry point for intrinsic_default functions:
+//   make_intrinsic_default<&my_func>("my_func", "MY_TYPE")
+template <auto Func>
+constexpr StaticFuncDesc<0> make_intrinsic_default(const char *name,
+                                                   const char *type_name) {
   FuncWithMetadata meta{};
   meta.f = &IntrinsicDefaultWrapper<Func>::invoke;
-  meta.return_type = to_vef_type(STRING);
-  meta.param_types[0] = to_vef_type(INT);
-  meta.num_params = 1;
+  meta.return_type = to_vef_type(type_name);
+  meta.num_params = 0;
   meta.buffer_size = 0;  // server provides bin_buf sized to persisted_length
-  return StaticFuncDesc<1>(name, meta);
+  return StaticFuncDesc<0>(name, meta);
 }
 
 // Entry point for encode VDFs: (STRING) -> CUSTOM(type_name).
