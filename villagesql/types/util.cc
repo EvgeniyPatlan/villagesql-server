@@ -48,6 +48,7 @@
 #include "villagesql/schema/descriptor/type_descriptor.h"
 #include "villagesql/schema/systable/custom_columns.h"
 #include "villagesql/schema/util.h"
+#include "villagesql/schema/schema_manager.h"
 #include "villagesql/schema/victionary_client.h"
 #include "villagesql/types/type_decoder.h"
 #include "villagesql/types/type_encoder.h"
@@ -690,10 +691,17 @@ bool ValidateAndReportCustomFieldStore(const Item *item, const Field *field) {
         "explicit conversion for column '%s' at row %ld",
         MYF(0), field->get_type_context()->type_name().c_str(),
         field->field_name, da->current_row_for_condition());
-  } else if (item->has_type_context()) {
+  } else if (item->has_type_context() ||
+             item->type() == Item::INSERT_VALUE_ITEM) {
+    StringBuffer<SchemaManager::kMaxQualifiedTypeNameLen> src_type_str;
+    if (item->has_type_context()) {
+      src_type_str.append(item->get_type_context()->qualified_name().c_str());
+    } else {
+      down_cast<const Item_field *>(item)->field->sql_type(src_type_str);
+    }
     villagesql_error(
         "Cannot implicitly cast from %s to %s for column '%s' at row %ld",
-        MYF(0), item->get_type_context()->qualified_name().c_str(),
+        MYF(0), src_type_str.c_ptr(),
         field->get_type_context()->qualified_name().c_str(), field->field_name,
         da->current_row_for_condition());
   } else {
