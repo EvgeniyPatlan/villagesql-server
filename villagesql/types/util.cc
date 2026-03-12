@@ -851,8 +851,6 @@ String *EncodeStringForCustomParam(Item *item, const String &str_value,
 
 type_conversion_status StoreCustomFieldIntrinsicDefault(Field *field) {
   assert(field->has_type_context());
-  assert(!field->is_nullable());
-
   const TypeContext &tc = *field->get_type_context();
 
   // Use the cached intrinsic default buffer from TypeContext.
@@ -869,6 +867,38 @@ type_conversion_status StoreCustomFieldIntrinsicDefault(Field *field) {
   field->set_notnull();
   return field->store(reinterpret_cast<const char *>(cached_buffer),
                       cached_size, &my_charset_bin);
+}
+
+bool LoadEncodeAndStoreCustomField(THD *thd, Field *field,
+                                   const String &input_str) {
+  bool is_valid = false;
+  String *encoded = EncodeStringForField(field, input_str, is_valid);
+  if (encoded != nullptr) {
+    field->store(encoded->ptr(), encoded->length(), &my_charset_bin);
+    return false;
+  }
+  if (is_valid) return true;  // OOM case
+  if (!thd->lex->is_ignore() && thd->is_strict_mode()) {
+    // EncodeStringForField already pushed a warning; promote to error
+    my_error(ER_TRUNCATED_WRONG_VALUE_FOR_FIELD, MYF(0),
+             field->get_type_context()->type_name().c_str(),
+             ErrConvString(&input_str).ptr(), field->field_name,
+             thd->get_stmt_da()->current_row_for_condition());
+    return true;
+  }
+  // EncodeStringForField already pushed a warning. Store the intrinsic default
+  // if the type has one, mirroring MySQL built-in behavior of storing 0, '',
+  // etc. for bad values in IGNORE or non-strict mode. For nullable fields with
+  // no intrinsic default, fall back to storing NULL.
+  if (field->get_type_context()->intrinsic_default_buffer() != nullptr) {
+    return StoreCustomFieldIntrinsicDefault(field) != TYPE_OK;
+  }
+  if (field->is_nullable()) {
+    field->set_null();
+    return false;
+  }
+  // NOT NULL with no intrinsic default: error.
+  return StoreCustomFieldIntrinsicDefault(field) != TYPE_OK;
 }
 
 bool CanImplicitlyCastToCustom(const Item *item) {
