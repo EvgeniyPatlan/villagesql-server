@@ -1,9 +1,11 @@
 ---
-name: Feature request
-about: Suggest an idea for this project
-title: ''
-labels: ''
-assignees: ''
+name: Feature Request
+about: Suggest an idea for feature for this project
+title: "[Feature Request]: "
+labels: ["feature request"]
+assignees: 
+  - villagesql-adam
+type: feature
 
 ---
 
