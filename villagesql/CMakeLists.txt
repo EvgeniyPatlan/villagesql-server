@@ -27,6 +27,7 @@ IF(NOT WITHOUT_SERVER)
       "-DCMAKE_PREFIX_PATH=${CMAKE_SOURCE_DIR}"
       "-DVillageSQLExtensionFramework_INCLUDE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/sdk/include"
       "-DVillageSQL_VEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
     BUILD_ALWAYS ON
     INSTALL_COMMAND ""
   )
@@ -57,6 +58,7 @@ IF(NOT WITHOUT_SERVER)
       "-DCMAKE_PREFIX_PATH=${CMAKE_SOURCE_DIR}"
       "-DVillageSQLExtensionFramework_INCLUDE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/sdk/include"
       "-DVillageSQL_VEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
     BUILD_ALWAYS ON
     INSTALL_COMMAND ""
   )
@@ -87,6 +89,7 @@ IF(NOT WITHOUT_SERVER)
       "-DCMAKE_PREFIX_PATH=${CMAKE_SOURCE_DIR}"
       "-DVillageSQLExtensionFramework_INCLUDE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/sdk/include"
       "-DVillageSQL_VEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
     BUILD_ALWAYS ON
     INSTALL_COMMAND ""
   )
@@ -200,6 +203,7 @@ add_custom_target(sdk ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/extension_builder.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/func_builder.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/func_types.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/storage_builder.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/type_builder.h"
     "${SDK_STAGING_DIR}/include-dev/villagesql/"
   COMMAND ${CMAKE_COMMAND} -E copy
