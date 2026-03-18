@@ -55,6 +55,12 @@
 
 namespace villagesql {
 
+// Returns true if table_name is an ALTER TABLE #sql-xxx rebuild table.
+static bool is_tmp_prefix(const char *table_name) {
+  return table_name != nullptr &&
+         strncmp(table_name, tmp_file_prefix, tmp_file_prefix_length) == 0;
+}
+
 static const char *ER_INCOMPARABLE_TYPES =
     "Cannot compare values of custom and non-custom types in %s";
 static const char *ER_INCOMPATIBLE_TYPES =
@@ -70,6 +76,18 @@ bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field) {
     return true;
   }
 
+  // For ALTER TABLE #sql-xxx rebuild tables, inject from the session map
+  // instead of the victionary.
+  if (is_tmp_prefix(share.table_name.str)) {
+    if (!thd->villagesql_alter_custom_fields.empty()) {
+      auto it = thd->villagesql_alter_custom_fields.find(field->field_name);
+      if (it != thd->villagesql_alter_custom_fields.end()) {
+        field->set_type_context(it->second);
+      }
+    }
+    return false;
+  }
+
   // Extract identifiers directly
   std::string db_name = std::string(share.db.str, share.db.length);
 
@@ -78,22 +96,19 @@ bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field) {
     return false;
   }
 
+  std::string table_name(share.table_name.str, share.table_name.length);
+  std::string column_name(field->field_name);
+  ColumnKey col_key(db_name, table_name, column_name);
+
   auto &vclient = VictionaryClient::instance();
   if (!vclient.is_initialized()) {
     // Too early to perform a lookup. We must be starting up.
     return false;
   }
 
-  std::string table_name(share.table_name.str, share.table_name.length);
-  std::string column_name(field->field_name);
-
-  // Create ColumnEntry to get normalized key
-  ColumnEntry lookup_entry(ColumnKey(db_name, table_name, column_name));
-  auto key = lookup_entry.key();
-
   auto guard = vclient.get_write_lock();
   const auto &columns = vclient.columns();
-  const ColumnEntry *column_entry = columns.get(thd, key.str());
+  const ColumnEntry *column_entry = columns.get(thd, col_key.str());
   if (!column_entry) return false;
 
   // This is a custom type - cross-reference with TypeDescriptor.
@@ -1126,8 +1141,7 @@ bool CheckCustomTypeUsage(Item *item, THD *thd) {
   return false;  // Continue walking
 }
 
-
-void AnnotateCustomColumnsInTmpTable(TABLE *table,
+void AnnotateCustomColumnsInTmpTable(THD *thd, TABLE *table,
                                      List<Create_field> &create_fields) {
   List_iterator_fast<Create_field> it(create_fields);
   Create_field *cdef;
@@ -1143,6 +1157,33 @@ void AnnotateCustomColumnsInTmpTable(TABLE *table,
              tc->persisted_length());
     }
   }
+}
+
+void AnnotateAlterTableCustomColumns(THD *thd, TABLE *table) {
+  assert(is_tmp_prefix(table->s->table_name.str));
+  if (!thd || !table) return;
+  if (thd->villagesql_alter_custom_fields.empty()) return;
+  for (uint i = 0; i < table->s->fields; i++) {
+    Field *field = table->field[i];
+    auto it = thd->villagesql_alter_custom_fields.find(field->field_name);
+    if (it == thd->villagesql_alter_custom_fields.end()) continue;
+    field->set_type_context(it->second);
+    assert(static_cast<int64_t>(field->field_length) ==
+           it->second->persisted_length());
+  }
+}
+
+void PrepareAlterCustomFields(THD *thd, const List<Create_field> &create_list) {
+  thd->villagesql_alter_custom_fields.clear();
+  for (const Create_field &cdef : create_list) {
+    if (cdef.custom_type_context != nullptr)
+      thd->villagesql_alter_custom_fields.emplace(cdef.field_name,
+                                                  cdef.custom_type_context);
+  }
+}
+
+void ClearAlterCustomFields(THD *thd) {
+  thd->villagesql_alter_custom_fields.clear();
 }
 
 bool ValidateCustomTypeContext(THD *thd) {

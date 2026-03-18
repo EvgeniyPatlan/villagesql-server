@@ -70,8 +70,34 @@ extern bool ResolveTypeToContext(const LEX_STRING &extension_name,
 // a temporary TABLE. Allocates new TypeContext objects on the TABLE_SHARE's
 // mem_root since temp tables persist for the session while thd->mem_root is
 // statement-scoped.
-extern void AnnotateCustomColumnsInTmpTable(TABLE *table,
+extern void AnnotateCustomColumnsInTmpTable(THD *thd, TABLE *table,
                                             List<Create_field> &create_fields);
+
+// Copy custom type contexts from Create_field list to corresponding Fields in
+// an ALTER TABLE #sql-xxx rebuild table. Unlike
+// AnnotateCustomColumnsInTmpTable, does not acquire a new TypeContext reference
+// — the context pointer is copied directly since the rebuild table's lifetime
+// is bounded by the ALTER TABLE.
+extern void AnnotateAlterTableCustomColumns(THD *thd, TABLE *table);
+
+// Populate thd->villagesql_alter_custom_fields with pointers to custom-typed
+// Create_fields from create_list. Called from create_table_impl after
+// mysql_prepare_alter_table has finalized the create_list.
+extern void PrepareAlterCustomFields(THD *thd,
+                                     const List<Create_field> &create_list);
+
+// Clear thd->villagesql_alter_custom_fields.
+extern void ClearAlterCustomFields(THD *thd);
+
+// RAII guard that clears villagesql_alter_custom_fields on scope exit.
+class AlterCustomFieldsGuard {
+ public:
+  explicit AlterCustomFieldsGuard(THD *thd) : thd_(thd) {}
+  ~AlterCustomFieldsGuard() { ClearAlterCustomFields(thd_); }
+
+ private:
+  THD *thd_;
+};
 
 // Check if any column in a create_list has a custom type.
 // Used to determine if we need to regenerate the CREATE TABLE statement
