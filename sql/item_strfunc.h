@@ -893,6 +893,30 @@ class Item_func_hex : public Item_str_ascii_func {
   bool resolve_type(THD *thd) override;
 };
 
+// VillageSQL: Returns the raw internal/binary representation of a custom type
+// value, bypassing the decode step. The result is a plain binary string
+// (no TypeContext), so it won't be decoded when sent to the client.
+class Item_func_internal_rep final : public Item_str_func {
+ public:
+  Item_func_internal_rep(const POS &pos, Item *a) : Item_str_func(pos, a) {}
+  const char *func_name() const override { return "internal_rep"; }
+  enum Functype functype() const override { return INTERNAL_REP_FUNC; }
+  String *val_str(String *) override;
+  bool resolve_type(THD *thd) override;
+};
+
+// VillageSQL: Returns 1 if the internal representation of a custom type value
+// can be successfully decoded, 0 if decode fails. Useful for diagnosing
+// corrupt or incompatible stored values without triggering a decode error.
+class Item_func_decode_valid final : public Item_int_func {
+ public:
+  Item_func_decode_valid(const POS &pos, Item *a) : Item_int_func(pos, a) {}
+  const char *func_name() const override { return "decode_valid"; }
+  enum Functype functype() const override { return DECODE_VALID_FUNC; }
+  longlong val_int() override;
+  bool resolve_type(THD *thd) override;
+};
+
 class Item_func_unhex final : public Item_str_func {
   String tmp_value;
 

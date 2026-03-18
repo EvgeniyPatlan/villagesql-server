@@ -129,6 +129,7 @@
 #include "template_utils.h"
 #include "typelib.h"
 #include "unhex.h"
+#include "villagesql/types/util.h"
 
 extern uint *my_aes_opmode_key_sizes;
 
@@ -3373,6 +3374,48 @@ String *Item_func_hex::val_str_ascii(String *str) {
 
   octet2hex(tmp_value.ptr(), res->ptr(), res->length());
   return &tmp_value;
+}
+
+bool Item_func_internal_rep::resolve_type(THD *thd) {
+  if (param_type_is_default(thd, 0, -1)) return true;
+  if (!args[0]->has_type_context()) {
+    my_error(ER_WRONG_USAGE, MYF(0), "INTERNAL_REP",
+             "non-custom-type argument");
+    return true;
+  }
+  // Result is raw binary, same max length as argument's persisted form
+  set_data_type_string(args[0]->max_length, &my_charset_bin);
+  return false;
+}
+
+String *Item_func_internal_rep::val_str(String *str) {
+  assert(fixed);
+  String *res = args[0]->val_str(str);
+  if ((null_value = args[0]->null_value)) return nullptr;
+  return res;
+}
+
+bool Item_func_decode_valid::resolve_type(THD *thd) {
+  if (param_type_is_default(thd, 0, -1)) return true;
+  if (!args[0]->has_type_context()) {
+    my_error(ER_WRONG_USAGE, MYF(0), "DECODE_VALID",
+             "non-custom-type argument");
+    return true;
+  }
+  set_nullable(true);
+  return false;
+}
+
+longlong Item_func_decode_valid::val_int() {
+  assert(fixed);
+  String buf;
+  String *res = args[0]->val_str(&buf);
+  if ((null_value = args[0]->null_value)) return 0;
+  String decoded;
+  const villagesql::TypeContext *tc = args[0]->get_type_context();
+  assert(tc != nullptr);
+  bool failed = villagesql::DecodeStringUncached(*tc, *res, &decoded);
+  return failed ? 0 : 1;
 }
 
 bool Item_func_unhex::resolve_type(THD *thd) {

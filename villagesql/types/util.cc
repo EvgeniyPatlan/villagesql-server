@@ -1069,6 +1069,8 @@ bool IsFuncAllowedWithCustom(THD *thd [[maybe_unused]], Item_func *func,
     case Item_func::ISNOTNULLTEST_FUNC:  // internal, used in ALL/ANY subqueries
     case Item_func::SUSERVAR_FUNC:       // SET @var := custom_value
     case Item_func::GUSERVAR_FUNC:       // GET @var
+    case Item_func::INTERNAL_REP_FUNC:   // INTERNAL_REP() inspects raw binary
+    case Item_func::DECODE_VALID_FUNC:   // DECODE_VALID() tests decode
       return true;
     default:
       // Block everything else for now

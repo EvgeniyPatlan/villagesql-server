@@ -1,0 +1,65 @@
+# Test INTERNAL_REP() function with COMPLEX custom type
+# INTERNAL_REP() returns the raw internal binary representation,
+# bypassing the decode step.
+
+--source include/villagesql/install_complex_extension.inc
+
+CREATE TABLE t1 (val COMPLEX);
+INSERT INTO t1 VALUES ('(1.0,2.0)'), ('(3.0,4.0)'), (NULL);
+
+# 1. Basic: HEX of internal representation (16 bytes = 32 hex chars for COMPLEX)
+SELECT val, HEX(INTERNAL_REP(val)) FROM t1 ORDER BY val;
+
+# 2. LENGTH of internal representation should be 16 (two doubles)
+SELECT val, LENGTH(INTERNAL_REP(val)) FROM t1 WHERE val IS NOT NULL ORDER BY val;
+
+# 3. NULL handling
+SELECT INTERNAL_REP(val) FROM t1 WHERE val IS NULL;
+
+# 4. Error: non-custom-type argument
+--error ER_WRONG_USAGE
+SELECT INTERNAL_REP(42);
+
+--error ER_WRONG_USAGE
+SELECT INTERNAL_REP('hello');
+
+--error ER_WRONG_USAGE
+SELECT INTERNAL_REP(val) FROM (SELECT 1 AS val) t;
+
+# 5. Works with user variables holding custom types
+SET @v = vsql_complex.complex_from_string('(5.0,6.0)');
+SELECT HEX(INTERNAL_REP(@v));
+
+# 6. Same input value produces same internal representation
+CREATE TABLE t2 (a COMPLEX, b COMPLEX);
+INSERT INTO t2 VALUES ('(1.0,2.0)', '(1,2)');
+SELECT INTERNAL_REP(a) = INTERNAL_REP(b) AS same_rep FROM t2;
+
+DROP TABLE t1, t2;
+
+# Clear user variable before uninstall
+SET @v = NULL;
+
+#
+# DECODE_VALID() tests
+#
+
+CREATE TABLE t3 (val COMPLEX);
+INSERT INTO t3 VALUES ('(1.0,2.0)'), ('(3.0,4.0)'), (NULL);
+
+# 7. Valid values decode successfully
+SELECT val, DECODE_VALID(val) FROM t3 ORDER BY val;
+
+# 8. NULL handling
+SELECT DECODE_VALID(val) FROM t3 WHERE val IS NULL;
+
+# 9. Error: non-custom-type argument
+--error ER_WRONG_USAGE
+SELECT DECODE_VALID(42);
+
+--error ER_WRONG_USAGE
+SELECT DECODE_VALID('hello');
+
+DROP TABLE t3;
+
+--source include/villagesql/uninstall_complex_extension.inc

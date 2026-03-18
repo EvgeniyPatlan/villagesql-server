@@ -322,7 +322,9 @@ class Item_func : public Item_result_field {
     JSON_DEPTH_FUNC,
     JSON_EXTRACT_FUNC,
     JSON_OBJECT_FUNC,
-    JSON_ARRAY_FUNC
+    JSON_ARRAY_FUNC,
+    INTERNAL_REP_FUNC,
+    DECODE_VALID_FUNC
   };
   enum optimize_type {
     OPTIMIZE_NONE,
