@@ -46,9 +46,10 @@
 #include "villagesql/include/error.h"
 #include "villagesql/schema/descriptor/type_context.h"
 #include "villagesql/schema/descriptor/type_descriptor.h"
-#include "villagesql/schema/systable/custom_columns.h"
-#include "villagesql/schema/util.h"
 #include "villagesql/schema/schema_manager.h"
+#include "villagesql/schema/systable/custom_columns.h"
+#include "villagesql/schema/tmp_metadata.h"
+#include "villagesql/schema/util.h"
 #include "villagesql/schema/victionary_client.h"
 #include "villagesql/types/type_decoder.h"
 #include "villagesql/types/type_encoder.h"
@@ -65,6 +66,26 @@ static const char *ER_INCOMPARABLE_TYPES =
     "Cannot compare values of custom and non-custom types in %s";
 static const char *ER_INCOMPATIBLE_TYPES =
     "Cannot compare values of incompatible types '%s' and '%s'";
+
+// Verify that the Field's storage length matches the TypeContext's
+// persisted_length.
+static bool CheckFieldLengthMatchesType(const Field *field,
+                                        const TypeContext *tc) {
+  if (should_assert_if_false(static_cast<int64_t>(field->field_length) ==
+                             tc->persisted_length())) {
+    LogVSQL(ERROR_LEVEL,
+            "field_length (%u) != persisted_length (%" PRId64
+            ") for column %s (type %s)",
+            field->field_length, tc->persisted_length(), field->field_name,
+            tc->qualified_name().c_str());
+    villagesql_error(
+        "Internal error: field length mismatch for column %s (type %s); "
+        "check server log for details",
+        MYF(0), field->field_name, tc->qualified_name().c_str());
+    return true;
+  }
+  return false;
+}
 
 bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field) {
   if (should_assert_if_null(thd)) {
@@ -99,6 +120,19 @@ bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field) {
   std::string table_name(share.table_name.str, share.table_name.length);
   std::string column_name(field->field_name);
   ColumnKey col_key(db_name, table_name, column_name);
+
+  // User-created temporary tables are never in the victionary. If session
+  // metadata has an entry for this column, inject it and return.
+  if (share.tmp_table != NO_TMP_TABLE &&
+      thd->villagesql_tmp_metadata != nullptr) {
+    const TypeContext *tc = thd->villagesql_tmp_metadata->get(col_key.str());
+    if (tc != nullptr) {
+      field->set_type_context(tc);
+      return CheckFieldLengthMatchesType(field, tc);
+    }
+    // Fall through to victionary for type injection and field length
+    // validation.
+  }
 
   auto &vclient = VictionaryClient::instance();
   if (!vclient.is_initialized()) {
@@ -145,22 +179,7 @@ bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field) {
   }
 
   field->set_type_context(tc);
-
-  // Verify that the Field's storage length matches the TypeContext's
-  // persisted_length. A mismatch here would mean InnoDB allocated a different
-  // amount of storage than the type expects, which leads to silent data
-  // corruption.
-  if (should_assert_if_false(static_cast<int64_t>(field->field_length) ==
-                             tc->persisted_length())) {
-    LogVSQL(ERROR_LEVEL,
-            "field_length (%u) != persisted_length (%" PRId64
-            ") for column %s in table %s.%s (type %s)",
-            field->field_length, tc->persisted_length(), column_name.c_str(),
-            db_name.c_str(), table_name.c_str(), tc->qualified_name().c_str());
-    return true;
-  }
-
-  return false;
+  return CheckFieldLengthMatchesType(field, tc);
 }
 
 bool ResolveTypeToContext(const LEX_STRING &extension_name,
@@ -1140,22 +1159,75 @@ bool CheckCustomTypeUsage(Item *item, THD *thd) {
   return false;  // Continue walking
 }
 
-void AnnotateCustomColumnsInTmpTable(THD *thd, TABLE *table,
-                                     List<Create_field> &create_fields) {
+// Returns true on error (acquire failed, meaning the extension was uninstalled
+// concurrently). Reports the error before returning.
+static bool insert_tmp_metadata_for_thd(THD *thd, const ColumnKey &key,
+                                        const TypeContextKey &source_key,
+                                        Field *field = nullptr) {
+  auto &vclient = VictionaryClient::instance();
+  auto guard = vclient.get_read_lock();
+  auto tc_owner = vclient.type_contexts().acquire_client_managed(source_key);
+  if (tc_owner == nullptr) {
+    villagesql_error(
+        "Custom type '%s.%s' is no longer available; the extension may have "
+        "been uninstalled",
+        MYF(0), source_key.descriptor_key().extension_name().c_str(),
+        source_key.descriptor_key().type_name().c_str());
+    return true;
+  }
+  if (field != nullptr) {
+    const TypeContext *tc = tc_owner.get();
+    field->set_type_context(tc);
+    if (CheckFieldLengthMatchesType(field, tc)) return true;
+  }
+  if (!thd) return false;
+  if (!thd->villagesql_tmp_metadata) {
+    thd->villagesql_tmp_metadata = std::make_unique<TmpMetadata>();
+  }
+  thd->villagesql_tmp_metadata->insert(key, std::move(tc_owner));
+  return false;
+}
+
+bool PrepareTmpTableCustomColumns(THD *thd, const char *db,
+                                  const char *table_name,
+                                  List<Create_field> &create_fields) {
+  assert(!is_tmp_prefix(table_name));
   List_iterator_fast<Create_field> it(create_fields);
   Create_field *cdef;
-  auto &vclient = VictionaryClient::instance();
-  for (uint i = 0; i < table->s->fields && (cdef = it++); i++) {
-    if (cdef->custom_type_context != nullptr) {
-      // Acquire our own reference to this TypeContext.
-      auto guard = vclient.get_read_lock();
-      const TypeContext *tc = vclient.type_contexts().acquire(
-          cdef->custom_type_context->key(), table->s->mem_root);
-      table->field[i]->set_type_context(tc);
-      assert(static_cast<int64_t>(table->field[i]->field_length) ==
-             tc->persisted_length());
-    }
+  while ((cdef = it++) != nullptr) {
+    if (cdef->custom_type_context == nullptr) continue;
+    ColumnKey key(db, table_name, cdef->field_name);
+    if (insert_tmp_metadata_for_thd(thd, key, cdef->custom_type_context->key()))
+      return true;
   }
+  return false;
+}
+
+bool AnnotateCustomColumnsInTmpTable(THD *thd, TABLE *table,
+                                     List<Create_field> &create_fields) {
+  assert(!is_tmp_prefix(table->s->table_name.str));
+  List_iterator_fast<Create_field> it(create_fields);
+  Create_field *cdef;
+  for (uint i = 0; i < table->s->fields && (cdef = it++); i++) {
+    if (cdef->custom_type_context == nullptr) continue;
+    ColumnKey key(table->s->db.str, table->s->table_name.str,
+                  table->field[i]->field_name);
+    if (insert_tmp_metadata_for_thd(thd, key, cdef->custom_type_context->key(),
+                                    table->field[i]))
+      return true;
+  }
+  return false;
+}
+
+void RemoveTmpTableMetadata(THD *thd, const std::string &db,
+                            const std::string &table_name) {
+  if (!thd || thd->villagesql_tmp_metadata == nullptr) return;
+  thd->villagesql_tmp_metadata->delete_table(db, table_name);
+}
+
+void RemoveTmpTableMetadata(THD *thd, TABLE *table) {
+  if (!table) return;
+  RemoveTmpTableMetadata(thd, table->s->db.str, table->s->table_name.str);
 }
 
 void AnnotateAlterTableCustomColumns(THD *thd, TABLE *table) {

@@ -66,12 +66,28 @@ extern bool ResolveTypeToContext(const LEX_STRING &extension_name,
                                  MEM_ROOT &mem_root,
                                  const TypeContext *&result);
 
+// Pre-populate session-local temporary metadata from Create_field list so that
+// MaybeInjectCustomType can inject type contexts during open_table_from_share
+// (which calls unpack_value_generator before AnnotateCustomColumnsInTmpTable
+// runs). Must be called before open_table_uncached for temporary tables.
+// Returns true on error (e.g. extension uninstalled concurrently).
+extern bool PrepareTmpTableCustomColumns(THD *thd, const char *db,
+                                         const char *table_name,
+                                         List<Create_field> &create_fields);
+
 // Copy custom type contexts from Create_field list to corresponding Fields in
-// a temporary TABLE. Allocates new TypeContext objects on the TABLE_SHARE's
-// mem_root since temp tables persist for the session while thd->mem_root is
-// statement-scoped.
-extern void AnnotateCustomColumnsInTmpTable(THD *thd, TABLE *table,
+// a temporary TABLE, and update session metadata with shared_ptr-owned entries
+// so subsequent opens of the same table can find the type context. Replaces
+// PrepareTmpTableCustomColumns entries (net-zero refcount change).
+// Returns true on error (e.g. extension uninstalled concurrently).
+extern bool AnnotateCustomColumnsInTmpTable(THD *thd, TABLE *table,
                                             List<Create_field> &create_fields);
+
+// Remove session metadata entries for a user-created temporary table,
+// dropping shared_ptr refcounts to allow extension uninstall.
+extern void RemoveTmpTableMetadata(THD *thd, const std::string &db,
+                                   const std::string &table_name);
+extern void RemoveTmpTableMetadata(THD *thd, TABLE *table);
 
 // Copy custom type contexts from Create_field list to corresponding Fields in
 // an ALTER TABLE #sql-xxx rebuild table. Unlike

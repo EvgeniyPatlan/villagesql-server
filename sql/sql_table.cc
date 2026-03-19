@@ -1035,7 +1035,11 @@ static bool rea_create_tmp_table(
     return true;
   }
 
-  villagesql::AnnotateCustomColumnsInTmpTable(thd, table, create_fields);
+  if (villagesql::AnnotateCustomColumnsInTmpTable(thd, table, create_fields)) {
+    (void)rm_temporary_table(thd, create_info->db_type, path,
+                             tmp_table_ptr.get());
+    return true;
+  }
 
   // Transfer ownership of dd::Table object to TABLE_SHARE.
   table->s->tmp_table_def = tmp_table_ptr.release();
@@ -9192,7 +9196,13 @@ static bool create_table_impl(
   // VillageSQL: Pre-populate session metadata so MaybeInjectCustomType can
   // inject type contexts during open_table_from_share.
   if (internal_tmp_table) {
+    // ALTER TABLE rebuild table (#sql-xxx).
     villagesql::PrepareAlterCustomFields(thd, alter_info->create_list);
+  } else if (create_info->options & HA_LEX_CREATE_TMP_TABLE) {
+    // User facing temporary table.
+    if (villagesql::PrepareTmpTableCustomColumns(thd, db, table_name,
+                                                 alter_info->create_list))
+      return true;
   }
 
   THD_STAGE_INFO(thd, stage_creating_table);
@@ -17966,11 +17976,6 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
     }
     if (!new_table) goto err_new_table_cleanup;
 
-    // VillageSQL: Annotate custom type fields on the copy-ALTER rebuild table.
-    // Fields were prepared into thd->villagesql_alter_custom_fields by
-    // PrepareAlterCustomFields in create_table_impl.
-    villagesql::AnnotateAlterTableCustomColumns(thd, new_table);
-
     /*
       Note: In case of MERGE table, we do not attach children. We do not
       copy data for MERGE tables. Only the children have data.
@@ -18040,6 +18045,12 @@ bool mysql_alter_table(THD *thd, const char *new_db, const char *new_name,
     /* Should pass the 'new_name' as we store table name in the cache */
     if (rename_temporary_table(thd, new_table, alter_ctx.new_db,
                                alter_ctx.new_name))
+      goto err_new_table_cleanup;
+    // VillageSQL: Copy-alter success path for temporary tables. new_table is
+    // renamed rather than closed; re-register under the final name in
+    // TmpMetadata to keep the extension refcount elevated.
+    if (villagesql::AnnotateCustomColumnsInTmpTable(thd, new_table,
+                                                    alter_info->create_list))
       goto err_new_table_cleanup;
     /*
       We don't replicate alter table statement on temporary tables
