@@ -111,6 +111,25 @@ constexpr auto make_extension(std::string_view name, std::string_view version) {
 }
 
 }  // namespace extension_builder
+
+namespace details {
+
+// Returns the name of the first VDF that requires a bound params cache but
+// whose cache was not bound (i.e., .params<P, &parse_fn>() was omitted from
+// the type builder). Must be called after _vef_init_type_params().
+template <typename Ext, size_t... Is>
+const char *vef_check_params_cache(const Ext &e, std::index_sequence<Is...>) {
+  const char *unbound = nullptr;
+  auto check_one = [&unbound](const auto &func) {
+    if (unbound) return;
+    auto check_fn = func.check_params_cache_bound();
+    if (check_fn && !check_fn()) unbound = func.name();
+  };
+  (check_one(e.template func_at<Is>()), ...);
+  return unbound;
+}
+
+}  // namespace details
 }  // namespace villagesql
 
 // =============================================================================
@@ -139,6 +158,16 @@ constexpr auto make_extension(std::string_view name, std::string_view version) {
                                        std::index_sequence<Is...>) {           \
     ((arr[Is] =                                                                \
           const_cast<vef_type_desc_t *>(&e.template type_at<Is>().vef_desc)),  \
+     ...);                                                                     \
+  }                                                                            \
+                                                                               \
+  /* Initialize type params caches */                                          \
+  template <typename Ext, size_t... Is>                                        \
+  static void _vef_init_type_params_impl(const Ext &e,                         \
+                                         std::index_sequence<Is...>) {         \
+    ((e.template type_at<Is>().params_init_fn                                  \
+          ? e.template type_at<Is>().params_init_fn()                          \
+          : void()),                                                           \
      ...);                                                                     \
   }                                                                            \
                                                                                \
@@ -172,8 +201,26 @@ constexpr auto make_extension(std::string_view name, std::string_view version) {
     if constexpr (type_count > 0) {                                            \
       _vef_fill_type_ptrs_impl(type_ptrs, _ext,                                \
                                std::make_index_sequence<type_count>{});        \
+      _vef_init_type_params_impl(_ext,                                         \
+                                 std::make_index_sequence<type_count>{});      \
     }                                                                          \
                                                                                \
+    /* TODO(villagesql-beta): make this a compile time error */                \
+    if constexpr (func_count > 0) {                                            \
+      const char *unbound_vdf = villagesql::details::vef_check_params_cache(   \
+          ext, std::make_index_sequence<func_count>{});                        \
+      if (unbound_vdf) {                                                       \
+        static char error_buf[256];                                            \
+        snprintf(error_buf, sizeof(error_buf),                                 \
+                 "VDF '%s' uses a parameterized type cache but no "            \
+                 ".params<P, &parse_fn>() was registered for that params "     \
+                 "type; add .params<P, &parse_fn>() to the type builder",      \
+                 unbound_vdf);                                                 \
+        _vef_registration.protocol = arg->protocol;                            \
+        _vef_registration.error_msg = error_buf;                               \
+        return &_vef_registration;                                             \
+      }                                                                        \
+    }                                                                          \
     _vef_registration.protocol = VEF_PROTOCOL_2;                               \
     _vef_registration.error_msg = nullptr;                                     \
     _vef_registration.extension_name = _ext.name().data();                     \
