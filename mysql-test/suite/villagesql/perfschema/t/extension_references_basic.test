@@ -26,6 +26,24 @@ FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT'
 ORDER BY OBJECT_KEY;
 
+--echo # Insert a row to ensure the table share is opened
+INSERT INTO test_refs VALUES (1, bytearray_from_string('hello'));
+
+--echo # Check references after insert (table share is open)
+SELECT EXTENSION_NAME, OBJECT_TYPE, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT'
+ORDER BY OBJECT_KEY;
+
+--echo # Flush tables to release table share
+FLUSH TABLES;
+
+--echo # Check references after flush (table share released)
+SELECT EXTENSION_NAME, OBJECT_TYPE, REFERENCE_COUNT, COLUMN_COUNT
+FROM performance_schema.extension_references
+WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT'
+ORDER BY OBJECT_KEY;
+
 --echo # Drop the table
 DROP TABLE test_refs;
 

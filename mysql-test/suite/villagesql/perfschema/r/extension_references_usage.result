@@ -21,8 +21,8 @@ SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
 FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
 OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
-TYPE_CONTEXT	bytearray	0	1
-# Even though ref count shows 0, UNINSTALL should fail because of column dependency
+TYPE_CONTEXT	bytearray	1	1
+# UNINSTALL should fail because of column dependency
 UNINSTALL EXTENSION vsql_simple;
 ERROR HY000: Cannot drop extension `vsql_simple` as 1 column(s) depend on it, e.g. test.t1.data has type bytearray
 # Create another table with the same type
@@ -32,17 +32,17 @@ SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
 FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
 OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
-TYPE_CONTEXT	bytearray	0	2
+TYPE_CONTEXT	bytearray	2	2
 # Insert some data
 INSERT INTO t1 VALUES (1, bytearray_from_string('hello')), (2, bytearray_from_string('world'));
 # Set a user variable with custom type - adds another reference
 SET @my_var = bytearray_from_string('test');
-# Check references again (should show user variable reference, column count still 2)
+# Check references again (column count still 2)
 SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
 FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
 OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
-TYPE_CONTEXT	bytearray	2	2
+TYPE_CONTEXT	bytearray	4	2
 # Try to uninstall - should fail because columns depend on it
 UNINSTALL EXTENSION vsql_simple;
 ERROR HY000: Cannot drop extension `vsql_simple` as 2 column(s) depend on it, e.g. test.t1.data has type bytearray
@@ -50,15 +50,15 @@ ERROR HY000: Cannot drop extension `vsql_simple` as 2 column(s) depend on it, e.
 SET @my_var = NULL;
 # Drop one table
 DROP TABLE t1;
-# Column count should decrease to 1, reference count back to 0
+# Column count should decrease to 1
 SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
 FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
 OBJECT_TYPE	OBJECT_KEY	REFERENCE_COUNT	COLUMN_COUNT
-TYPE_CONTEXT	bytearray	0	1
+TYPE_CONTEXT	bytearray	1	1
 # Drop second table
 DROP TABLE t2;
-# Now TYPE_CONTEXT should be gone (no tables using it)
+# No columns depend on the type anymore
 SELECT COUNT(*) as TYPE_CONTEXT_COUNT
 FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';

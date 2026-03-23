@@ -17,7 +17,7 @@ SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
 FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
 
---echo # Even though ref count shows 0, UNINSTALL should fail because of column dependency
+--echo # UNINSTALL should fail because of column dependency
 --error ER_VILLAGESQL_GENERIC_ERROR
 UNINSTALL EXTENSION vsql_simple;
 
@@ -35,7 +35,7 @@ INSERT INTO t1 VALUES (1, bytearray_from_string('hello')), (2, bytearray_from_st
 --echo # Set a user variable with custom type - adds another reference
 SET @my_var = bytearray_from_string('test');
 
---echo # Check references again (should show user variable reference, column count still 2)
+--echo # Check references again (column count still 2)
 SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
 FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
@@ -50,7 +50,7 @@ SET @my_var = NULL;
 --echo # Drop one table
 DROP TABLE t1;
 
---echo # Column count should decrease to 1, reference count back to 0
+--echo # Column count should decrease to 1
 SELECT OBJECT_TYPE, OBJECT_KEY, REFERENCE_COUNT, COLUMN_COUNT
 FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
@@ -58,7 +58,7 @@ WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
 --echo # Drop second table
 DROP TABLE t2;
 
---echo # Now TYPE_CONTEXT should be gone (no tables using it)
+--echo # No columns depend on the type anymore
 SELECT COUNT(*) as TYPE_CONTEXT_COUNT
 FROM performance_schema.extension_references
 WHERE EXTENSION_NAME = 'vsql_simple' AND OBJECT_TYPE = 'TYPE_CONTEXT';
