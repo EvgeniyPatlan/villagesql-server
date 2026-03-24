@@ -1,0 +1,49 @@
+INSTALL EXTENSION vsql_slow_query_log;
+
+# Use a log file under the test var directory so the path is portable
+--let $log_file = $MYSQLTEST_VARDIR/vsql_slow_query.log
+
+# Set threshold to 0 so every query is logged initially
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+eval SET GLOBAL vsql_slow_query_log.log_file = '$log_file';
+SET GLOBAL vsql_slow_query_log.threshold_ms = 0;
+
+# These fast queries should appear in the log (threshold=0)
+SELECT 1 + 1 AS result;
+--replace_column 1 <now>
+SELECT NOW();
+
+# Raise threshold to 1000ms — fast queries below will NOT be logged
+SET GLOBAL vsql_slow_query_log.threshold_ms = 1000;
+SELECT 2 + 2 AS result;
+--replace_column 1 <now>
+SELECT NOW();
+
+# This query exceeds the threshold and SHOULD appear in the log
+SELECT SLEEP(1.1);
+
+# Read back the log — the fast queries should appear first (threshold=0),
+# then only the SLEEP query (threshold=1000ms). Normalize varying values.
+--perl
+use strict;
+my $log_file = $ENV{MYSQLTEST_VARDIR} . "/vsql_slow_query.log";
+my $vardir   = $ENV{MYSQLTEST_VARDIR};
+open(my $fh, "<", $log_file) or die "Cannot open log: $log_file: $!";
+while (my $line = <$fh>) {
+  chomp $line;
+  # Normalize varying values so the result file is portable
+  $line =~ s/^# Time: \S+$/# Time: <ts>/;
+  $line =~ s/Id: \d+/Id: <id>/;
+  $line =~ s/Query_time: [\d.]+/Query_time: <t>/;
+  $line =~ s/Lock_time: [\d.]+/Lock_time: <t>/;
+  $line =~ s/^SET timestamp=\d+;$/SET timestamp=<ts>;/;
+  # Redact MYSQLTEST_VARDIR that may appear in logged query text
+  $line =~ s/\Q$vardir\E/MYSQLTEST_VARDIR/g;
+  print "$line\n";
+}
+close($fh);
+EOF
+
+# Cleanup: uninstall extension and remove log file
+UNINSTALL EXTENSION vsql_slow_query_log;
+--remove_file $log_file

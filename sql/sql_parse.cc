@@ -186,6 +186,7 @@
 #include "template_utils.h"
 #include "thr_lock.h"
 #include "villagesql/include/error.h"
+#include "villagesql/veb/veb_query_hooks.h"
 #include "violite.h"
 
 #ifdef WITH_LOCK_ORDER
@@ -4954,6 +4955,10 @@ finish:
                     : EVENT_TRACKING_QUERY_NESTED_STATUS_END,
         first_level ? "EVENT_TRACKING_QUERY_STATUS_END"
                     : "EVENT_TRACKING_QUERY_NESTED_STATUS_END");
+
+    if (first_level) {
+      villagesql::veb::invoke_post_execute_query_hooks(thd);
+    }
 
     /* report error issued during command execution */
     if ((thd->is_error() && !early_error_on_rep_command) ||

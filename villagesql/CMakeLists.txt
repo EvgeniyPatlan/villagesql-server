@@ -89,6 +89,7 @@ add_custom_target(sdk ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/extension_builder.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/func_builder.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/func_types.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/query_hook_builder.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/storage_api.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/storage_builder.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/type_builder.h"
@@ -230,6 +231,38 @@ IF(NOT WITHOUT_SERVER)
   # Install VEB to lib/veb directory
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-tvector-build/vsql_tvector.veb
     DESTINATION ${INSTALL_VEBDIR}
+  )
+
+  ExternalProject_Add(vsql_slow_query_log_extension
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples/vsql-slow-query-log
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-slow-query-log-build
+    CMAKE_GENERATOR ${CMAKE_GENERATOR}
+    CMAKE_ARGS
+      "-DCMAKE_PREFIX_PATH=${CMAKE_SOURCE_DIR}"
+      "-DVillageSQLExtensionFramework_INCLUDE_DIR=${SDK_STAGING_DIR}/include-dev"
+      "-DVillageSQL_VEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+    DEPENDS sdk
+    BUILD_ALWAYS ON
+    INSTALL_COMMAND ""
+  )
+
+  add_custom_target(copy_vsql_slow_query_log_veb
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/veb_output_directory
+    COMMAND ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-slow-query-log-build/vsql_slow_query_log.veb
+      ${CMAKE_BINARY_DIR}/veb_output_directory/
+    DEPENDS vsql_slow_query_log_extension
+    COMMENT "Copying vsql_slow_query_log.veb to veb_output_directory"
+  )
+
+  add_custom_target(slow_query_log_veb ALL)
+  add_dependencies(slow_query_log_veb copy_vsql_slow_query_log_veb)
+
+  # Install VEB to lib/veb directory
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-slow-query-log-build/vsql_slow_query_log.veb
+    DESTINATION ${INSTALL_VEBDIR}
+    COMPONENT ExampleVebs
   )
 
   ExternalProject_Add(vsql_test_only_extension

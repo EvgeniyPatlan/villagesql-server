@@ -167,6 +167,13 @@ typedef enum : unsigned int {
                    // + Replace vef_vdf_args_t.values_v1 flat array with
                    //   vef_vdf_args_t.values pointer array (allows
                    //   vef_invalue_t to grow in future protocol versions).
+  VEF_PROTOCOL_3,  // Under development, not stable. Adds:
+                   // + Query lifecycle hooks (vef_query_hook_desc_t):
+                   //   pre-parse, post-parse, post-execute,
+                   //   connect, disconnect.
+                   // + Extension config variables (vef_config_var_desc_t):
+                   //   server registers these as MySQL component system
+                   //   variables on the extension's behalf.
 } vef_protocol_t;
 
 // Max length of error messages in caller-provided buffers.
@@ -646,6 +653,181 @@ typedef struct {
   const vef_type_storage_intf_t *storage_intf;
 } vef_type_desc_t;
 
+// =============================================================================
+// Query Lifecycle Hooks (protocol >= VEF_PROTOCOL_3)
+// =============================================================================
+//
+// Extensions can register hooks that fire at key points in query execution.
+// Multiple extensions may register hooks for the same phase; the server calls
+// them in extension load order.
+//
+// Pre-parse and post-parse hooks may rewrite or block the query.
+// Post-execute, connect, and disconnect hooks are observational only.
+//
+// Pre-parse chaining: the server passes the output of hook N as the input to
+// hook N+1, so multiple rewriting extensions compose naturally.
+//
+// Post-parse chaining: if a hook rewrites, the server re-parses before calling
+// the next hook, so subsequent hooks always see the current parse state.
+
+typedef enum : int {
+  // Before parsing. query/query_len contain the raw SQL string.
+  // May rewrite (set rewritten_query) or block (set error_msg).
+  VEF_QUERY_HOOK_PREPARSE = 0,
+
+  // After parsing, before execution. query/query_len contain the (possibly
+  // rewritten) SQL. digest is set. May rewrite or block.
+  VEF_QUERY_HOOK_POSTPARSE = 1,
+
+  // After execution, before commit/rollback. Observational only —
+  // rewritten_query and error_msg are ignored by the server.
+  // query_time_secs, lock_time_secs, rows_sent, rows_examined, bytes_sent,
+  // bytes_received, schema, and status are populated.
+  VEF_QUERY_HOOK_POSTEXECUTE = 2,
+
+  // A new client connection has been established. Observational only,
+  // except error_msg: if set, the connection is refused.
+  // query/query_len/digest are NULL/0.
+  VEF_QUERY_HOOK_CONNECT = 3,
+
+  // A client connection has been closed. Observational only.
+  // query/query_len/digest are NULL/0.
+  VEF_QUERY_HOOK_DISCONNECT = 4,
+} vef_query_hook_phase_t;
+
+// Arguments passed to every query hook invocation.
+// Check phase to determine which fields are populated.
+typedef struct {
+  vef_query_hook_phase_t phase;
+
+  // Available for PREPARSE, POSTPARSE, POSTEXECUTE.
+  // NULL for CONNECT and DISCONNECT.
+  const char *query;
+  size_t query_len;
+
+  // Available for all phases.
+  const char *user;  // authenticated user name
+  const char *host;  // client IP address
+  unsigned long connection_id;
+
+  // POSTPARSE only: SHA-256 digest of the normalized query.
+  // NULL for all other phases.
+  const unsigned char *digest;
+
+  // POSTPARSE only: SQL command type (see enum_sql_command in my_sqlcommand.h).
+  // 0 for all other phases.
+  int sql_command;
+
+  // POSTPARSE only.
+  bool is_prepared;
+
+  // POSTEXECUTE only: 0 on success, non-zero MySQL error code on failure.
+  int status;
+
+  // POSTEXECUTE only.
+  double query_time_secs;
+  double lock_time_secs;  // time waiting for table/row locks, in seconds
+  uint64_t rows_sent;
+  uint64_t rows_examined;
+  uint64_t bytes_sent;
+  uint64_t bytes_received;
+
+  // Available for all phases. Current default schema (USE <db>), or NULL if
+  // no schema is selected.
+  const char *schema;
+} vef_query_hook_args_t;
+
+// Result written by the hook. Ignored for POSTEXECUTE, CONNECT (except
+// error_msg), and DISCONNECT.
+typedef struct {
+  // PREPARSE / POSTPARSE: if non-NULL, the server uses this as the new query
+  // string. The server copies the string before the hook returns, so the
+  // extension does not need to keep the memory alive.
+  const char *rewritten_query;
+  size_t rewritten_len;
+
+  // All phases: if non-NULL, the query (or connection) is blocked and this
+  // message is returned to the client as an error. The server copies the
+  // string before the hook returns.
+  // For POSTEXECUTE and DISCONNECT this field is ignored.
+  const char *error_msg;
+} vef_query_hook_result_t;
+
+typedef void (*vef_query_hook_func_t)(vef_context_t *ctx,
+                                      vef_query_hook_args_t *args,
+                                      vef_query_hook_result_t *result);
+
+typedef struct {
+  // protocol >= VEF_PROTOCOL_3
+  vef_protocol_t protocol;
+
+  vef_query_hook_phase_t phase;
+  vef_query_hook_func_t hook;
+} vef_query_hook_desc_t;
+
+// =============================================================================
+// Config Variables (protocol >= VEF_PROTOCOL_3)
+// =============================================================================
+//
+// Extensions declare configuration variables here. The server registers them
+// as MySQL component system variables on the extension's behalf at load time,
+// and unregisters them at unload time.
+//
+// Variables are accessible in SQL as:
+//   SELECT @@global.extension_name.variable_name
+//   SET GLOBAL extension_name.variable_name = value
+//
+// The value_ptr must point to a global in the extension .so that remains valid
+// for the lifetime of the extension. MySQL writes directly to this storage when
+// the user sets the variable.
+
+typedef enum : int {
+  VEF_VAR_BOOL = 0,
+  VEF_VAR_INT = 1,
+  VEF_VAR_DOUBLE = 2,
+  VEF_VAR_STR = 3,
+} vef_var_type_t;
+
+typedef struct {
+  // protocol >= VEF_PROTOCOL_3
+  vef_protocol_t protocol;
+
+  // Variable name (without extension prefix). Encoded using UTF-8.
+  const char *name;
+
+  // Description shown in metadata tables (e.g., INFORMATION_SCHEMA).
+  const char *comment;
+
+  vef_var_type_t type;
+
+  // Pointer to storage in the extension .so. Must remain valid for the
+  // lifetime of the extension. Cast according to type:
+  //   VEF_VAR_BOOL:   bool*
+  //   VEF_VAR_INT:    long long*
+  //   VEF_VAR_DOUBLE: double*
+  //   VEF_VAR_STR:    char**
+  void *value_ptr;
+
+  union {
+    struct {
+      double def_val;
+      double min_val;
+      double max_val;
+    } dbl;
+    struct {
+      long long def_val;
+      long long min_val;
+      long long max_val;
+    } integer;
+    struct {
+      bool def_val;
+    } boolean;
+    struct {
+      const char *def_val;
+    } str;
+  };
+} vef_config_var_desc_t;
+
 typedef struct {
   // protocol >= VEF_PROTOCOL_1
   vef_protocol_t protocol;
@@ -665,6 +847,13 @@ typedef struct {
 
   unsigned int type_count;
   vef_type_desc_t **types;
+
+  // protocol >= VEF_PROTOCOL_3
+  unsigned int query_hook_count;
+  vef_query_hook_desc_t **query_hooks;
+
+  unsigned int config_var_count;
+  vef_config_var_desc_t **config_vars;
 } vef_registration_t;
 
 // The returned objects can be freed when the registration is passed to the

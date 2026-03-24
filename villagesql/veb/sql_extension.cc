@@ -53,6 +53,7 @@
 #include "villagesql/schema/victionary_client.h"
 #include "villagesql/sql/metadata_modifier.h"
 #include "villagesql/veb/veb_file.h"
+#include "villagesql/veb/veb_query_hooks.h"
 
 // Global variables for VEB directory configuration
 char *opt_veb_dir_ptr;
@@ -182,7 +183,7 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
   }
 
   villagesql::veb::ExtensionRegistration registration;
-  vef_protocol_t server_protocol = VEF_PROTOCOL_2;
+  vef_protocol_t server_protocol = VEF_PROTOCOL_3;
 #ifndef NDEBUG
   {
     auto it = thd->user_vars.find("vef_debug_protocol_override");
@@ -219,6 +220,18 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
                    *thd, extension_name, version, registration)) {
       villagesql_error("Failed to register VDFs for extension '%s'", MYF(0),
                        extension_name.c_str());
+      mark_success = false;
+
+    } else if (villagesql::veb::register_query_hooks_from_extension(
+                   extension_name, registration)) {
+      villagesql_error("Failed to register query hooks for extension '%s'",
+                       MYF(0), extension_name.c_str());
+      mark_success = false;
+
+    } else if (villagesql::veb::register_config_vars_from_extension(
+                   extension_name, registration)) {
+      villagesql_error("Failed to register config vars for extension '%s'",
+                       MYF(0), extension_name.c_str());
       mark_success = false;
 
     } else if (victionary.extension_descriptors().MarkForInsertion(
@@ -504,6 +517,8 @@ bool Sql_cmd_uninstall_extension::execute(THD *thd) {
   }
 
   if (to_unregister.has_value()) {
+    villagesql::veb::unregister_query_hooks_from_extension(extension_name);
+    villagesql::veb::unregister_config_vars_from_extension(extension_name);
     villagesql::veb::unload_vef_extension(*to_unregister);
   }
 
