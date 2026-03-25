@@ -23,7 +23,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install build dependencies using setup script
 COPY scripts/setup_linux_build_env.sh /tmp/
-RUN /tmp/setup_linux_build_env.sh && rm -rf /var/lib/apt/lists/* && rm /tmp/setup_linux_build_env.sh
+RUN /tmp/setup_linux_build_env.sh && rm /tmp/setup_linux_build_env.sh
+
+# Debug/profiling tools
+RUN apt-get install -y --no-install-recommends strace procps \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
 ENV SOURCE_DIR=/source
@@ -33,6 +37,10 @@ ENV CCACHE_DIR=/root/.ccache
 ENV PATH="/usr/lib/ccache:${PATH}"
 # Disable NUMA for Docker containers (NUMA syscalls not available)
 ENV CMAKE_EXTRA_FLAGS="-DHAVE_LIBNUMA=no"
+# Match the port exposed by run.sh (villagesql.sh defaults to 3307)
+ENV MYSQL_PORT=3306
+# Tell villagesql.sh where the compiled binaries live
+ENV VSQL_BASEDIR=/build
 
 # Create build directory
 RUN mkdir -p ${BUILD_DIR}
@@ -42,6 +50,9 @@ WORKDIR ${BUILD_DIR}
 
 # Expose MySQL port
 EXPOSE 3306
+
+COPY villagesql/dev_server/villagesql.sh /usr/local/bin/villagesql
+RUN chmod +x /usr/local/bin/villagesql
 
 # Default command drops you into a shell for interactive work
 CMD ["/bin/bash"]

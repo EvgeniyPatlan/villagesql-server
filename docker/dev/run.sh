@@ -29,10 +29,12 @@ fi
 
 echo "Starting VillageSQL development container..."
 docker run -it --rm \
+  --name vsql-dev \
   -v "$REPO_ROOT:/source:ro" \
   -v villagesql-build:/build \
   -v villagesql-ccache:/root/.ccache \
   --cap-add SYS_NICE \
+  --cap-add SYS_PTRACE \
   -m 16g \
   --cpus 8 \
   -p 3306:3306 \

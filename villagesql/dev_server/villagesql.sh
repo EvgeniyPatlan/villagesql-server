@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # VillageSQL development server control script
 
-BASEDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASEDIR="${VSQL_BASEDIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 # Default instance directory. Override with --dir <path> to run multiple
 # independent instances.

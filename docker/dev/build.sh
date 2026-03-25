@@ -22,7 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 echo "Building VillageSQL development Docker image..."
-docker build \
+DOCKER_BUILDKIT=0 docker build \
   -t villagesql-dev:latest \
   -f "$SCRIPT_DIR/Dockerfile" \
   "$REPO_ROOT"
