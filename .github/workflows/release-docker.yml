@@ -31,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: [self-hosted, linux, x86_64]
+          - runner: ubuntu-24.04
             arch: amd64
           - runner: ubuntu-24.04-arm
             arch: arm64
@@ -53,7 +53,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -f docker/server/Dockerfile \
+          docker buildx build -f docker/server/Dockerfile \
             --build-arg VSQL_PRE_RELEASE_VERSION="" \
             --build-arg VSQL_DEV_ABI=OFF \
             -t villagesql/server:${{ matrix.arch }} \
