@@ -174,6 +174,11 @@ typedef enum : unsigned int {
                    // + Extension config variables (vef_config_var_desc_t):
                    //   server registers these as MySQL component system
                    //   variables on the extension's behalf.
+  VEF_PROTOCOL_4,  // Under development, not stable. Adds:
+                   // + Extension lifecycle callbacks: on_install, on_uninstall.
+                   // + Background thread registration service:
+                   //   register_background_thread,
+                   //   unregister_background_thread.
 } vef_protocol_t;
 
 // Max length of error messages in caller-provided buffers.
@@ -204,12 +209,41 @@ typedef struct {
   // We foresee adding logger or distributed trace information in this context
 } vef_context_t;
 
+// Opaque handle returned by register_background_thread and passed back to
+// unregister_background_thread. The server owns the memory; the extension
+// must not free it.
+typedef struct vef_thread_handle_t vef_thread_handle_t;
+
+// Register the calling thread with MySQL's process list (INFORMATION_SCHEMA
+// .PROCESSLIST) and Performance Schema. Must be called from inside the
+// background thread after it starts. thread_name is shown as the thread state
+// in PROCESSLIST (e.g. "vsql_my_extension/worker").
+// Returns an opaque handle to pass to unregister_background_thread, or NULL
+// on failure.
+// Available when protocol >= VEF_PROTOCOL_4.
+typedef vef_thread_handle_t *(*vef_register_background_thread_func_t)(
+    const char *thread_name);
+
+// Unregister the background thread. Must be called from inside the thread
+// before it exits, after register_background_thread succeeded.
+// Available when protocol >= VEF_PROTOCOL_4.
+typedef void (*vef_unregister_background_thread_func_t)(
+    vef_thread_handle_t *handle);
+
 typedef struct {
   // protocol >= VEF_PROTOCOL_1
   vef_protocol_t protocol;
 
   vef_version_t mysql_version;
   vef_version_t vef_version;
+
+  // protocol >= VEF_PROTOCOL_4
+  // Function pointers for registering background threads with MySQL's process
+  // list and Performance Schema. Set by the server; extensions store these
+  // during vef_register() for use in on_install / on_uninstall callbacks.
+  // NULL when protocol < VEF_PROTOCOL_4.
+  vef_register_background_thread_func_t register_background_thread;
+  vef_unregister_background_thread_func_t unregister_background_thread;
 } vef_register_arg_t;
 
 typedef struct {
@@ -828,6 +862,25 @@ typedef struct {
   };
 } vef_config_var_desc_t;
 
+// =============================================================================
+// Extension Lifecycle Callbacks (protocol >= VEF_PROTOCOL_4)
+// =============================================================================
+//
+// on_install: called by the server after all hooks and config variables have
+// been registered. This is the right place to start background threads.
+// Return false on success. Return true and write to error_msg (capacity
+// VEF_MAX_ERROR_LEN) to abort the INSTALL EXTENSION with an error.
+//
+// on_uninstall: called by the server before hooks and config variables are
+// unregistered. Stop and join any background threads here. The .so remains
+// loaded until after dlclose(), so all extension code is still valid.
+//
+// Both callbacks receive a vef_context_t* for future extensibility.
+// Set to NULL in vef_registration_t if not needed.
+
+typedef bool (*vef_on_install_func_t)(vef_context_t *ctx, char *error_msg);
+typedef void (*vef_on_uninstall_func_t)(vef_context_t *ctx);
+
 typedef struct {
   // protocol >= VEF_PROTOCOL_1
   vef_protocol_t protocol;
@@ -854,6 +907,11 @@ typedef struct {
 
   unsigned int config_var_count;
   vef_config_var_desc_t **config_vars;
+
+  // protocol >= VEF_PROTOCOL_4
+  // Optional lifecycle callbacks. Set to NULL if not needed.
+  vef_on_install_func_t on_install;
+  vef_on_uninstall_func_t on_uninstall;
 } vef_registration_t;
 
 // The returned objects can be freed when the registration is passed to the

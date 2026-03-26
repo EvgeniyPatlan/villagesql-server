@@ -265,6 +265,38 @@ IF(NOT WITHOUT_SERVER)
     COMPONENT ExampleVebs
   )
 
+  ExternalProject_Add(vsql_worker_demo_extension
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples/vsql-worker-demo
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-worker-demo-build
+    CMAKE_GENERATOR ${CMAKE_GENERATOR}
+    CMAKE_ARGS
+      "-DCMAKE_PREFIX_PATH=${CMAKE_SOURCE_DIR}"
+      "-DVillageSQLExtensionFramework_INCLUDE_DIR=${SDK_STAGING_DIR}/include-dev"
+      "-DVillageSQL_VEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+    DEPENDS sdk
+    BUILD_ALWAYS ON
+    INSTALL_COMMAND ""
+  )
+
+  add_custom_target(copy_vsql_worker_demo_veb
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/veb_output_directory
+    COMMAND ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-worker-demo-build/vsql_worker_demo.veb
+      ${CMAKE_BINARY_DIR}/veb_output_directory/
+    DEPENDS vsql_worker_demo_extension
+    COMMENT "Copying vsql_worker_demo.veb to veb_output_directory"
+  )
+
+  add_custom_target(worker_demo_veb ALL)
+  add_dependencies(worker_demo_veb copy_vsql_worker_demo_veb)
+
+  # Install VEB to lib/veb directory
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-worker-demo-build/vsql_worker_demo.veb
+    DESTINATION ${INSTALL_VEBDIR}
+    COMPONENT ExampleVebs
+  )
+
   ExternalProject_Add(vsql_test_only_extension
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test-extensions/vsql-test-only
     BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/test-extensions/vsql-test-only-build

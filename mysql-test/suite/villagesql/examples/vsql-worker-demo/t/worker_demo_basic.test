@@ -1,0 +1,23 @@
+INSTALL EXTENSION vsql_worker_demo;
+
+# Give the worker thread a moment to start and register with the process list.
+--sleep 0.5
+
+# The worker thread should appear as user 'vef_worker'.
+# Normalize the Id column since it varies per run.
+--disable_warnings
+--replace_column 1 <id>
+SELECT id, user, state
+FROM information_schema.processlist
+WHERE user = 'vef_worker'
+ORDER BY id;
+--enable_warnings
+
+UNINSTALL EXTENSION vsql_worker_demo;
+
+# After uninstall the worker thread must be gone.
+--disable_warnings
+SELECT COUNT(*) AS worker_threads_after_uninstall
+FROM information_schema.processlist
+WHERE user = 'vef_worker';
+--enable_warnings

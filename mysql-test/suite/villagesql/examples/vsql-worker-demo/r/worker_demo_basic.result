@@ -1,0 +1,13 @@
+INSTALL EXTENSION vsql_worker_demo;
+SELECT id, user, state
+FROM information_schema.processlist
+WHERE user = 'vef_worker'
+ORDER BY id;
+id	user	state
+<id>	vef_worker	vsql_worker_demo/main
+UNINSTALL EXTENSION vsql_worker_demo;
+SELECT COUNT(*) AS worker_threads_after_uninstall
+FROM information_schema.processlist
+WHERE user = 'vef_worker';
+worker_threads_after_uninstall
+0

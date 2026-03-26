@@ -183,7 +183,7 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
   }
 
   villagesql::veb::ExtensionRegistration registration;
-  vef_protocol_t server_protocol = VEF_PROTOCOL_3;
+  vef_protocol_t server_protocol = VEF_PROTOCOL_4;
 #ifndef NDEBUG
   {
     auto it = thd->user_vars.find("vef_debug_protocol_override");
@@ -249,6 +249,16 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
     return end_transaction(thd, true);
   }
 
+  // Save lifecycle callback pointers before registration is moved into the
+  // victionary below.
+  vef_on_install_func_t on_install_fn = nullptr;
+  vef_context_t lifecycle_ctx{};
+  if (registration.negotiated_protocol >= VEF_PROTOCOL_4 &&
+      registration.registration != nullptr) {
+    on_install_fn = registration.registration->on_install;
+    lifecycle_ctx = {registration.negotiated_protocol};
+  }
+
   // Open villagesql.extensions table for writing.
   Table_ref ext_table(villagesql::SchemaManager::VILLAGESQL_SCHEMA_NAME,
                       villagesql::SchemaManager::EXTENSIONS_TABLE_NAME,
@@ -292,6 +302,18 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
     villagesql_error("Failed to write extension '%s' to table", MYF(0),
                      extension_name.c_str());
     return end_transaction(thd, true);
+  }
+
+  // Call on_install after all registration and table writes are complete, with
+  // no locks held.
+  if (on_install_fn != nullptr) {
+    char error_msg[VEF_MAX_ERROR_LEN] = {};
+    if (on_install_fn(&lifecycle_ctx, error_msg)) {
+      villagesql_error("Extension '%s' on_install failed: %s", MYF(0),
+                       extension_name.c_str(),
+                       error_msg[0] ? error_msg : "(no message)");
+      return end_transaction(thd, true);
+    }
   }
 
   LogVSQL(INFORMATION_LEVEL,
@@ -517,6 +539,16 @@ bool Sql_cmd_uninstall_extension::execute(THD *thd) {
   }
 
   if (to_unregister.has_value()) {
+    // Call on_uninstall before unregistering hooks, so the extension can
+    // cleanly stop background threads while hooks are still live.
+    const vef_registration_t *reg = to_unregister->registration;
+    if (reg != nullptr &&
+        to_unregister->negotiated_protocol >= VEF_PROTOCOL_4 &&
+        reg->on_uninstall != nullptr) {
+      vef_context_t ctx{to_unregister->negotiated_protocol};
+      reg->on_uninstall(&ctx);
+    }
+
     villagesql::services::unregister_query_hooks_from_extension(extension_name);
     villagesql::services::unregister_config_vars_from_extension(extension_name);
     villagesql::veb::unload_vef_extension(*to_unregister);

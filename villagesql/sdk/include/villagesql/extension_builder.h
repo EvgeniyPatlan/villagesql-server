@@ -62,6 +62,16 @@ struct ExtensionBuilder {
   HookTuple hooks_;
   ConfigVarTuple config_vars_;
   vef_protocol_t min_protocol_;
+  vef_on_install_func_t on_install_{nullptr};
+  vef_on_uninstall_func_t on_uninstall_{nullptr};
+
+  // Optional callback invoked inside vef_register(), before returning the
+  // registration struct. Use this to capture service pointers from
+  // vef_register_arg_t (e.g. register_background_thread). The callback
+  // receives the negotiated protocol and the full arg struct.
+  // Signature: void fn(vef_protocol_t negotiated, vef_register_arg_t *arg)
+  using on_register_func_t = void (*)(vef_protocol_t, vef_register_arg_t *);
+  on_register_func_t on_register_{nullptr};
 
   // Add a function (returns new builder with function appended)
   template <typename F>
@@ -69,8 +79,8 @@ struct ExtensionBuilder {
     auto new_funcs = std::tuple_cat(funcs_, std::make_tuple(f));
     return ExtensionBuilder<decltype(new_funcs), TypeTuple, HookTuple,
                             ConfigVarTuple>{
-        name_,  version_,     new_funcs,    types_,
-        hooks_, config_vars_, min_protocol_};
+        name_,        version_,      new_funcs,   types_,        hooks_,
+        config_vars_, min_protocol_, on_install_, on_uninstall_, on_register_};
   }
 
   // Add a type (returns new builder with type appended).
@@ -83,7 +93,8 @@ struct ExtensionBuilder {
         t.protocol > min_protocol_ ? t.protocol : min_protocol_;
     return ExtensionBuilder<FuncTuple, decltype(new_types), HookTuple,
                             ConfigVarTuple>{
-        name_, version_, funcs_, new_types, hooks_, config_vars_, new_min};
+        name_,        version_, funcs_,      new_types,     hooks_,
+        config_vars_, new_min,  on_install_, on_uninstall_, on_register_};
   }
 
   // Add a query hook. Automatically requires VEF_PROTOCOL_3.
@@ -93,7 +104,8 @@ struct ExtensionBuilder {
         min_protocol_ < VEF_PROTOCOL_3 ? VEF_PROTOCOL_3 : min_protocol_;
     return ExtensionBuilder<FuncTuple, TypeTuple, decltype(new_hooks),
                             ConfigVarTuple>{
-        name_, version_, funcs_, types_, new_hooks, config_vars_, new_min};
+        name_,        version_, funcs_,      types_,        new_hooks,
+        config_vars_, new_min,  on_install_, on_uninstall_, on_register_};
   }
 
   // Add a config variable. Automatically requires VEF_PROTOCOL_3.
@@ -102,7 +114,38 @@ struct ExtensionBuilder {
     const vef_protocol_t new_min =
         min_protocol_ < VEF_PROTOCOL_3 ? VEF_PROTOCOL_3 : min_protocol_;
     return ExtensionBuilder<FuncTuple, TypeTuple, HookTuple, decltype(new_cvs)>{
-        name_, version_, funcs_, types_, hooks_, new_cvs, new_min};
+        name_,   version_, funcs_,      types_,        hooks_,
+        new_cvs, new_min,  on_install_, on_uninstall_, on_register_};
+  }
+
+  // Set the on_install callback. Automatically requires VEF_PROTOCOL_4.
+  // Called after all hooks and config vars are registered.
+  // Return false on success; return true and write to error_msg to abort.
+  constexpr auto on_install(vef_on_install_func_t fn) const {
+    const vef_protocol_t new_min =
+        min_protocol_ < VEF_PROTOCOL_4 ? VEF_PROTOCOL_4 : min_protocol_;
+    return ExtensionBuilder<FuncTuple, TypeTuple, HookTuple, ConfigVarTuple>{
+        name_,        version_, funcs_, types_,        hooks_,
+        config_vars_, new_min,  fn,     on_uninstall_, on_register_};
+  }
+
+  // Set the on_uninstall callback. Automatically requires VEF_PROTOCOL_4.
+  // Called before hooks and config vars are unregistered.
+  constexpr auto on_uninstall(vef_on_uninstall_func_t fn) const {
+    const vef_protocol_t new_min =
+        min_protocol_ < VEF_PROTOCOL_4 ? VEF_PROTOCOL_4 : min_protocol_;
+    return ExtensionBuilder<FuncTuple, TypeTuple, HookTuple, ConfigVarTuple>{
+        name_,        version_, funcs_,      types_, hooks_,
+        config_vars_, new_min,  on_install_, fn,     on_register_};
+  }
+
+  // Set the on_register callback. Called inside vef_register() with the
+  // negotiated protocol and the full vef_register_arg_t*. Use this to capture
+  // Protocol 4 service pointers (e.g. register_background_thread).
+  constexpr auto on_register(on_register_func_t fn) const {
+    return ExtensionBuilder<FuncTuple, TypeTuple, HookTuple, ConfigVarTuple>{
+        name_,        version_,      funcs_,      types_,        hooks_,
+        config_vars_, min_protocol_, on_install_, on_uninstall_, fn};
   }
 
   // This is here only for testing, please don't depend on it.
@@ -111,7 +154,8 @@ struct ExtensionBuilder {
   // error message explaining the version requirement.
   constexpr auto test_only_require_protocol(vef_protocol_t p) const {
     return ExtensionBuilder<FuncTuple, TypeTuple, HookTuple, ConfigVarTuple>{
-        name_, version_, funcs_, types_, hooks_, config_vars_, p};
+        name_,        version_, funcs_,      types_,        hooks_,
+        config_vars_, p,        on_install_, on_uninstall_, on_register_};
   }
 
   // Compile-time counts accessible via the type (no instance needed).
@@ -153,8 +197,8 @@ struct ExtensionBuilder {
 // Entry point to create an extension builder
 constexpr auto make_extension(std::string_view name, std::string_view version) {
   return ExtensionBuilder<std::tuple<>, std::tuple<>, std::tuple<>,
-                          std::tuple<>>{name, version,       {}, {}, {},
-                                        {},   VEF_PROTOCOL_1};
+                          std::tuple<>>{
+      name, version, {}, {}, {}, {}, VEF_PROTOCOL_1, nullptr, nullptr, nullptr};
 }
 
 }  // namespace extension_builder
@@ -285,7 +329,7 @@ vef_registration_t *vef_register_impl(vef_registration_t &reg,
     }
   }
 
-  reg.protocol = VEF_PROTOCOL_3;
+  reg.protocol = VEF_PROTOCOL_4;
   reg.error_msg = nullptr;
   reg.extension_name = ext.name().data();
   reg.extension_version = ext.version().data();
@@ -298,6 +342,16 @@ vef_registration_t *vef_register_impl(vef_registration_t &reg,
   reg.query_hooks = HookCount > 0 ? hook_ptrs : nullptr;
   reg.config_var_count = ConfigVarCount;
   reg.config_vars = ConfigVarCount > 0 ? cv_ptrs : nullptr;
+  reg.on_install = ext.on_install_;
+  reg.on_uninstall = ext.on_uninstall_;
+
+  // Fire the on_register callback so extensions can capture service pointers
+  // from vef_register_arg_t (e.g. register_background_thread).
+  const vef_protocol_t negotiated =
+      std::min(arg->protocol, static_cast<vef_protocol_t>(VEF_PROTOCOL_4));
+  if (ext.on_register_ != nullptr) {
+    ext.on_register_(negotiated, arg);
+  }
 
   initialized = true;
   return &reg;

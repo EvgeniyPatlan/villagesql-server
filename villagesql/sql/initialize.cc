@@ -25,6 +25,8 @@
 #include "villagesql/include/version.h"
 #include "villagesql/schema/schema_manager.h"
 #include "villagesql/schema/victionary_client.h"
+#include "villagesql/services/background_thread.h"
+#include "villagesql/services/query_hooks.h"
 #include "villagesql/veb/veb_file.h"
 
 namespace villagesql {
@@ -149,6 +151,8 @@ static bool do_init_extension_infrastructure(THD *thd) {
 bool init_extension_infrastructure() {
   sysd::notify("STATUS=VillageSQL initialization in progress\n");
 
+  villagesql::services::init_vef_background_thread_psi_key();
+
   // We need a temporary THD during boot
   // The initialization code may update table settings, in order to avoid
   // locking and avoid asserts in the locking code, run on a bootstrap dd system
@@ -185,6 +189,15 @@ void deinit_extension_infrastructure() {
       LogVSQL(INFORMATION_LEVEL, "Unloading extension '%s' version '%s'",
               desc->extension_name().c_str(),
               desc->extension_version().c_str());
+      const vef_registration_t *reg = desc->registration().registration;
+      if (reg != nullptr &&
+          desc->registration().negotiated_protocol >= VEF_PROTOCOL_4 &&
+          reg->on_uninstall != nullptr) {
+        vef_context_t ctx{desc->registration().negotiated_protocol};
+        reg->on_uninstall(&ctx);
+      }
+      services::unregister_query_hooks_from_extension(desc->extension_name());
+      services::unregister_config_vars_from_extension(desc->extension_name());
       veb::unload_vef_extension(desc->registration());
     }
   }

@@ -15,6 +15,7 @@
  */
 
 #include "villagesql/veb/veb_file.h"
+#include "villagesql/services/background_thread.h"
 
 #include <dirent.h>
 #include <cctype>
@@ -624,7 +625,7 @@ bool load_installed_extensions(THD *thd) {
       ExtensionRegistration registration;
       std::string load_error;
       if (load_vef_extension(so_path, extension_name, registration,
-                             VEF_PROTOCOL_3, load_error)) {
+                             VEF_PROTOCOL_4, load_error)) {
         LogVSQL(ERROR_LEVEL, "Failed to load VEF extension '%s': %s",
                 extension_name.c_str(), load_error.c_str());
         return true;
@@ -660,6 +661,15 @@ bool load_installed_extensions(THD *thd) {
         return true;
       }
 
+      // Save on_install before moving registration into the victionary.
+      vef_on_install_func_t on_install_fn = nullptr;
+      vef_context_t lifecycle_ctx{};
+      if (registration.negotiated_protocol >= VEF_PROTOCOL_4 &&
+          registration.registration != nullptr) {
+        on_install_fn = registration.registration->on_install;
+        lifecycle_ctx = {registration.negotiated_protocol};
+      }
+
       if (victionary.extension_descriptors().MarkForInsertion(
               *thd, ExtensionDescriptor(ExtensionDescriptorKey(
                                             extension_name, expected_version),
@@ -668,6 +678,18 @@ bool load_installed_extensions(THD *thd) {
                 extension_name.c_str());
         return true;
       }
+
+      if (on_install_fn != nullptr) {
+        char error_msg[VEF_MAX_ERROR_LEN] = {};
+        if (on_install_fn(&lifecycle_ctx, error_msg)) {
+          LogVSQL(ERROR_LEVEL,
+                  "Extension '%s' on_install failed during startup: %s",
+                  extension_name.c_str(),
+                  error_msg[0] ? error_msg : "(no message)");
+          return true;
+        }
+      }
+
       success_count++;
 
       LogVSQL(INFORMATION_LEVEL,
@@ -1264,7 +1286,10 @@ bool load_vef_extension(const std::string &so_path,
   vef_register_arg_t register_arg = {
       max_protocol,
       {MYSQL_VERSION_MAJOR, MYSQL_VERSION_MINOR, MYSQL_VERSION_PATCH, nullptr},
-      {VSQL_MAJOR_VERSION, VSQL_MINOR_VERSION, VSQL_PATCH_VERSION, nullptr}};
+      {VSQL_MAJOR_VERSION, VSQL_MINOR_VERSION, VSQL_PATCH_VERSION, nullptr},
+      // protocol >= VEF_PROTOCOL_4: background thread service
+      villagesql::services::register_vef_background_thread,
+      villagesql::services::unregister_vef_background_thread};
 
   vef_registration_t *reg = vef_register(&register_arg);
   if (reg == nullptr) {
