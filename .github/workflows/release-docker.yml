@@ -1,0 +1,167 @@
+name: Release Docker Images
+
+# Triggered by version tags (e.g. 0.0.3) or manually.
+# Builds multi-arch Docker images (amd64 + arm64), smoke tests them,
+# and pushes to Docker Hub as a multi-arch manifest.
+#
+# Requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets.
+
+on:
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag or branch to build from (e.g. 0.0.3)'
+        required: true
+      push:
+        description: 'Push to Docker Hub (as :$tag only, not :latest/:stable)'
+        type: boolean
+        default: false
+
+jobs:
+  build-image:
+    name: Build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: [self-hosted, linux, x86_64]
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+
+    steps:
+      - name: Determine ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Build Docker image
+        run: |
+          docker build -f docker/server/Dockerfile \
+            --build-arg VSQL_PRE_RELEASE_VERSION="" \
+            --build-arg VSQL_DEV_ABI=OFF \
+            -t villagesql/server:${{ matrix.arch }} \
+            .
+
+      - name: Smoke test
+        run: |
+          docker run -d --name vsql-test \
+            -e MYSQL_ALLOW_EMPTY_PASSWORD=1 \
+            villagesql/server:${{ matrix.arch }}
+
+          # Wait for server to be ready (up to 60s)
+          for i in $(seq 1 60); do
+            if docker exec vsql-test mysqladmin ping --silent 2>/dev/null; then
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "Server failed to start"
+              docker logs vsql-test
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Verify version has no -dev suffix
+          VERSION=$(docker exec vsql-test mysql -u root -N -e "SELECT @@villagesql_server_version")
+          echo "VillageSQL version: $VERSION"
+          if echo "$VERSION" | grep -q "dev"; then
+            echo "ERROR: version contains -dev suffix: $VERSION"
+            exit 1
+          fi
+
+          # Verify an extension loads
+          docker exec vsql-test mysql -u root -e "INSTALL EXTENSION vsql_complex"
+          docker exec vsql-test mysql -u root -e "SELECT * FROM villagesql.installed_extensions"
+
+          docker stop vsql-test && docker rm vsql-test
+
+      - name: Save image as tarball
+        run: |
+          mkdir -p /tmp/docker-images
+          docker save villagesql/server:${{ matrix.arch }} | gzip > /tmp/docker-images/villagesql-${{ matrix.arch }}.tar.gz
+
+      - name: Upload image tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-${{ matrix.arch }}
+          path: /tmp/docker-images/villagesql-${{ matrix.arch }}.tar.gz
+
+  push-manifest:
+    name: Push Multi-arch Manifest
+    needs: build-image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.push)
+
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download image tarballs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: docker-*
+          merge-multiple: true
+          path: images/
+
+      - name: Load images
+        run: |
+          docker load < images/villagesql-amd64.tar.gz
+          docker load < images/villagesql-arm64.tar.gz
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag and push images
+        env:
+          VERSION: ${{ steps.tag.outputs.tag }}
+          IS_TAG_PUSH: ${{ github.event_name == 'push' }}
+        run: |
+          # Tag per-arch images with version
+          docker tag villagesql/server:amd64 villagesql/server:${VERSION}-amd64
+          docker tag villagesql/server:arm64 villagesql/server:${VERSION}-arm64
+
+          # Push per-arch images
+          docker push villagesql/server:${VERSION}-amd64
+          docker push villagesql/server:${VERSION}-arm64
+
+          # Always create versioned manifest
+          docker manifest create villagesql/server:${VERSION} \
+            villagesql/server:${VERSION}-amd64 \
+            villagesql/server:${VERSION}-arm64
+          docker manifest push villagesql/server:${VERSION}
+
+          # Only promote to :latest and :stable on tag push (not manual runs)
+          if [ "$IS_TAG_PUSH" = "true" ]; then
+            for tag in latest stable; do
+              docker manifest create villagesql/server:${tag} \
+                villagesql/server:${VERSION}-amd64 \
+                villagesql/server:${VERSION}-arm64
+              docker manifest push villagesql/server:${tag}
+            done
+            echo "Pushed: villagesql/server:${VERSION}, :latest, :stable"
+          else
+            echo "Pushed: villagesql/server:${VERSION} (manual run — skipped :latest and :stable)"
+          fi
