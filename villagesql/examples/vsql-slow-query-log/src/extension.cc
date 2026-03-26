@@ -78,22 +78,16 @@ static void slow_query_hook(vef_context_t * /*ctx*/,
   //   SET timestamp=N;
   //   <query>;
   fprintf(f, "# Time: %s\n", ts);
-  fprintf(f, "# User@Host: %s @ %s  Id: %lu\n",
-          args->user ? args->user : "",
-          args->host ? args->host : "",
-          args->connection_id);
+  fprintf(f, "# User@Host: %s @ %s  Id: %lu\n", args->user ? args->user : "",
+          args->host ? args->host : "", args->connection_id);
   fprintf(f,
           "# Schema: %s  Query_time: %.6f  Lock_time: %.6f"
           "  Rows_sent: %llu  Rows_examined: %llu\n",
-          args->schema ? args->schema : "",
-          args->query_time_secs,
-          args->lock_time_secs,
-          (unsigned long long)args->rows_sent,
+          args->schema ? args->schema : "", args->query_time_secs,
+          args->lock_time_secs, (unsigned long long)args->rows_sent,
           (unsigned long long)args->rows_examined);
   fprintf(f, "SET timestamp=%llu;\n", (unsigned long long)now);
-  fprintf(f, "%.*s;\n",
-          (int)args->query_len,
-          args->query ? args->query : "");
+  fprintf(f, "%.*s;\n", (int)args->query_len, args->query ? args->query : "");
   fclose(f);
 }
 

@@ -44,8 +44,8 @@
 #include "villagesql/schema/descriptor/func_descriptor.h"
 #include "villagesql/schema/descriptor/type_descriptor.h"
 #include "villagesql/schema/victionary_client.h"
+#include "villagesql/services/query_hooks.h"
 #include "villagesql/veb/sql_extension.h"
-#include "villagesql/veb/veb_query_hooks.h"
 
 #include <archive.h>
 #include <archive_entry.h>
@@ -644,14 +644,16 @@ bool load_installed_extensions(THD *thd) {
         return true;
       }
 
-      if (register_query_hooks_from_extension(extension_name, registration)) {
+      if (services::register_query_hooks_from_extension(extension_name,
+                                                        registration)) {
         LogVSQL(ERROR_LEVEL,
                 "Failed to register query hooks for extension '%s'",
                 extension_name.c_str());
         return true;
       }
 
-      if (register_config_vars_from_extension(extension_name, registration)) {
+      if (services::register_config_vars_from_extension(extension_name,
+                                                        registration)) {
         LogVSQL(ERROR_LEVEL,
                 "Failed to register config vars for extension '%s'",
                 extension_name.c_str());

@@ -123,6 +123,7 @@ ADD_SUBDIRECTORY(server_component)
 ADD_SUBDIRECTORY(protobuf)
 ADD_SUBDIRECTORY(../villagesql/common ${CMAKE_CURRENT_BINARY_DIR}/villagesql/common)
 ADD_SUBDIRECTORY(../villagesql/schema ${CMAKE_CURRENT_BINARY_DIR}/villagesql/schema)
+ADD_SUBDIRECTORY(../villagesql/services ${CMAKE_CURRENT_BINARY_DIR}/villagesql/services)
 ADD_SUBDIRECTORY(../villagesql/sql ${CMAKE_CURRENT_BINARY_DIR}/villagesql/sql)
 ADD_SUBDIRECTORY(../villagesql/system_views ${CMAKE_CURRENT_BINARY_DIR}/villagesql/system_views)
 ADD_SUBDIRECTORY(../villagesql/types ${CMAKE_CURRENT_BINARY_DIR}/villagesql/types)
@@ -928,6 +929,7 @@ ADD_STATIC_LIBRARY(sql_main ${SQL_SOURCE} LINK_LIBRARIES ext::icu ext::xxhash)
 TARGET_SOURCES(sql_main PRIVATE
   $<TARGET_OBJECTS:villagesql_common>
   $<TARGET_OBJECTS:villagesql_schema>
+  $<TARGET_OBJECTS:villagesql_services>
   $<TARGET_OBJECTS:villagesql_sql>
   $<TARGET_OBJECTS:villagesql_system_views>
   $<TARGET_OBJECTS:villagesql_types>
@@ -940,6 +942,7 @@ ADD_DEPENDENCIES(sql_main GenBootstrapPriv)
 ADD_DEPENDENCIES(sql_main GenSysSchema)
 ADD_DEPENDENCIES(sql_main villagesql_common)
 ADD_DEPENDENCIES(sql_main villagesql_schema)
+ADD_DEPENDENCIES(sql_main villagesql_services)
 ADD_DEPENDENCIES(sql_main villagesql_sql)
 ADD_DEPENDENCIES(sql_main villagesql_system_views)
 ADD_DEPENDENCIES(sql_main villagesql_types)

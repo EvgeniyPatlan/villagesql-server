@@ -14,15 +14,15 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef VILLAGESQL_VEB_VEB_QUERY_HOOKS_H_
-#define VILLAGESQL_VEB_VEB_QUERY_HOOKS_H_
+#ifndef VILLAGESQL_SERVICES_QUERY_HOOKS_H_
+#define VILLAGESQL_SERVICES_QUERY_HOOKS_H_
 
 #include "villagesql/veb/veb_file.h"
 
 class THD;
 
 namespace villagesql {
-namespace veb {
+namespace services {
 
 // Register query lifecycle hooks declared by an extension.
 // Appends each hook to the global list; hooks are invoked in registration order
@@ -30,8 +30,9 @@ namespace veb {
 // Does NOT require the victionary write lock — the global hook list has its own
 // mutex.
 // Returns false on success, true on error.
-bool register_query_hooks_from_extension(const std::string &extension_name,
-                                         const ExtensionRegistration &ext_reg);
+bool register_query_hooks_from_extension(
+    const std::string &extension_name,
+    const veb::ExtensionRegistration &ext_reg);
 
 // Unregister all query hooks that belong to the given extension.
 // Called when an extension is uninstalled.
@@ -47,13 +48,14 @@ void invoke_post_execute_query_hooks(THD *thd);
 // Register config variables declared by an extension as MySQL component system
 // variables. Called after load_vef_extension(), outside the victionary lock.
 // Returns false on success, true on error.
-bool register_config_vars_from_extension(const std::string &extension_name,
-                                         const ExtensionRegistration &ext_reg);
+bool register_config_vars_from_extension(
+    const std::string &extension_name,
+    const veb::ExtensionRegistration &ext_reg);
 
 // Unregister config variables that belong to the given extension.
 void unregister_config_vars_from_extension(const std::string &extension_name);
 
-}  // namespace veb
+}  // namespace services
 }  // namespace villagesql
 
-#endif  // VILLAGESQL_VEB_VEB_QUERY_HOOKS_H_
+#endif  // VILLAGESQL_SERVICES_QUERY_HOOKS_H_

@@ -14,7 +14,7 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "villagesql/veb/veb_query_hooks.h"
+#include "villagesql/services/query_hooks.h"
 
 #include <mutex>
 #include <string>
@@ -30,7 +30,7 @@
 #include "villagesql/sdk/include/villagesql/abi/types.h"
 
 namespace villagesql {
-namespace veb {
+namespace services {
 
 namespace {
 
@@ -58,8 +58,9 @@ std::vector<RegisteredConfigVar> g_config_vars;
 
 }  // namespace
 
-bool register_query_hooks_from_extension(const std::string &extension_name,
-                                         const ExtensionRegistration &ext_reg) {
+bool register_query_hooks_from_extension(
+    const std::string &extension_name,
+    const veb::ExtensionRegistration &ext_reg) {
   const vef_registration_t *reg = ext_reg.registration;
   if (reg == nullptr || ext_reg.negotiated_protocol < VEF_PROTOCOL_3 ||
       reg->query_hook_count == 0) {
@@ -143,9 +144,8 @@ void invoke_post_execute_query_hooks(THD *thd) {
   }
 
   // Current schema (may be empty if no database is selected)
-  args.schema =
-      thd->db().str != nullptr && thd->db().length > 0 ? thd->db().str
-                                                        : nullptr;
+  args.schema = thd->db().str != nullptr && thd->db().length > 0 ? thd->db().str
+                                                                 : nullptr;
 
   // Invoke each post-execute hook. Result fields are ignored for this phase.
   for (auto &h : hooks_snapshot) {
@@ -154,8 +154,9 @@ void invoke_post_execute_query_hooks(THD *thd) {
   }
 }
 
-bool register_config_vars_from_extension(const std::string &extension_name,
-                                         const ExtensionRegistration &ext_reg) {
+bool register_config_vars_from_extension(
+    const std::string &extension_name,
+    const veb::ExtensionRegistration &ext_reg) {
   const vef_registration_t *reg = ext_reg.registration;
   if (reg == nullptr || ext_reg.negotiated_protocol < VEF_PROTOCOL_3 ||
       reg->config_var_count == 0) {
@@ -294,5 +295,5 @@ void unregister_config_vars_from_extension(const std::string &extension_name) {
   mysql_plugin_registry_release(registry);
 }
 
-}  // namespace veb
+}  // namespace services
 }  // namespace villagesql

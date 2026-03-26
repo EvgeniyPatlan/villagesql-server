@@ -13,23 +13,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-SET(VILLAGESQL_VEB_SOURCES
-  sql_extension.cc
-  veb_file.cc
+SET(VILLAGESQL_SERVICES_SOURCES
+  query_hooks.cc
 )
 
 # Object library for compilation into sql_main (avoids circular dependencies)
-ADD_LIBRARY(villagesql_veb OBJECT
-  ${VILLAGESQL_VEB_SOURCES})
+ADD_LIBRARY(villagesql_services OBJECT
+  ${VILLAGESQL_SERVICES_SOURCES})
 
-# Link to libraries (OBJECT libraries can have link dependencies for include paths and compile defs)
-TARGET_LINK_LIBRARIES(villagesql_veb PRIVATE extra::rapidjson extra::unordered_dense)
+TARGET_LINK_LIBRARIES(villagesql_services PRIVATE extra::rapidjson extra::unordered_dense)
 
-# Include paths for libarchive (no target to link to, must add manually)
-TARGET_INCLUDE_DIRECTORIES(villagesql_veb SYSTEM PRIVATE
-  ${CMAKE_SOURCE_DIR}/extra/libarchive/libarchive-3.8.1/libarchive
-  ${CMAKE_BINARY_DIR}/extra/libarchive/libarchive-3.8.1/libarchive)
-
-ADD_DEPENDENCIES(villagesql_veb GenError)
-ADD_DEPENDENCIES(villagesql_veb GenServerSource)
-ADD_DEPENDENCIES(villagesql_veb villagesql_common)
+ADD_DEPENDENCIES(villagesql_services GenError)
+ADD_DEPENDENCIES(villagesql_services GenServerSource)
+ADD_DEPENDENCIES(villagesql_services villagesql_common)
