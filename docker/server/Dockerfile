@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Copyright (c) 2026 VillageSQL Contributors
 #
 # This program is free software; you can redistribute it and/or
