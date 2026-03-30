@@ -315,6 +315,12 @@ class TypeContext {
   }
   const std::optional<HashOp> &hash_op() const { return hash_op_; }
 
+  // Returns the storage interface for this type, or nullopt if the type uses
+  // default InnoDB column storage.
+  const std::optional<StorageInterface> &storage_intf() const {
+    return descriptor_->storage_intf();
+  }
+
   // Get cached intrinsic default buffer. Returns nullptr if encoding failed
   // during construction.
   const unsigned char *intrinsic_default_buffer() const {

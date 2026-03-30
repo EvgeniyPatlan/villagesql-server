@@ -29,6 +29,7 @@
 
 #include "villagesql/schema/systable/helpers.h"
 #include "villagesql/sdk/include/villagesql/abi/types.h"
+#include "villagesql/types/storage.h"
 #include "villagesql/types/type_function.h"
 
 namespace villagesql {
@@ -117,14 +118,15 @@ class TypeDescriptor {
   // testing)
   explicit TypeDescriptor(TypeDescriptorKey key) : key_(std::move(key)) {}
 
-  // Full constructor. hash, int_to_params, resolve_params, and
-  // intrinsic_default are optional.
+  // Full constructor. hash, int_to_params, resolve_params, intrinsic_default,
+  // and storage_intf are optional.
   TypeDescriptor(
       TypeDescriptorKey key, unsigned char impl_type, int64_t persisted_len,
       int64_t max_unpersisted_len, EncodeFunction encode, DecodeFunction decode,
       CompareFunction compare, std::optional<HashFunction> hash = std::nullopt,
       std::optional<IntToParamsFunction> int_to_params = std::nullopt,
-      std::optional<ResolveParamsFunction> resolve_params = std::nullopt);
+      std::optional<ResolveParamsFunction> resolve_params = std::nullopt,
+      std::optional<StorageInterface> storage_intf = std::nullopt);
 
   // Disable copy (descriptors should not be copied)
   TypeDescriptor(const TypeDescriptor &) = delete;
@@ -196,6 +198,12 @@ class TypeDescriptor {
     intrinsic_default_fn_ = std::move(fn);
   }
 
+  // Returns the storage interface for this type, or nullopt if the type does
+  // not manage its own column storage.
+  const std::optional<StorageInterface> &storage_intf() const {
+    return storage_intf_;
+  }
+
  private:
   TypeDescriptorKey key_;
 
@@ -214,6 +222,10 @@ class TypeDescriptor {
   std::optional<ResolveParamsFunction> resolve_params_fn_;
 
   std::optional<IntrinsicDefaultFunction> intrinsic_default_fn_;
+
+  // Storage interface provided by the extension for managing column storage.
+  // Empty if the type uses default InnoDB column storage.
+  std::optional<StorageInterface> storage_intf_;
 };
 
 // TableTraits specialization for TypeDescriptor.
