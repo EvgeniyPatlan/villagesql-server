@@ -17,6 +17,7 @@
 #include "villagesql/schema/descriptor/type_context.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cerrno>
 #include <cstdlib>
 #include <utility>
@@ -24,9 +25,110 @@
 
 #include "mysql/strings/m_ctype.h"
 #include "sql/strfunc.h"
+#include "template_utils.h"
 #include "villagesql/include/error.h"
+#include "villagesql/types/special_vdf_call.h"
 
 namespace villagesql {
+
+TypeContext::TypeContext(const TypeContextKey &key,
+                         const TypeDescriptor *descriptor)
+    : descriptor_(descriptor), key_(key) {
+  assert(descriptor);
+  assert(descriptor->key() == key.descriptor_key());
+
+  // Build bound Ops from the descriptor's TypeFunctions + our parameters.
+  // Functions may be absent for key-only descriptors (used in tests).
+  if (descriptor_->has_encode_fn())
+    encode_op_.emplace(descriptor_->encode_fn(), key_.parameters());
+  if (descriptor_->has_decode_fn())
+    decode_op_.emplace(descriptor_->decode_fn(), key_.parameters());
+  if (descriptor_->has_compare_fn())
+    compare_op_.emplace(descriptor_->compare_fn(), key_.parameters());
+  if (descriptor_->hash_fn().has_value())
+    hash_op_.emplace(*descriptor_->hash_fn(), key_.parameters());
+
+  resolve_cached_values();
+}
+
+bool TypeContext::init_intrinsic_default() {
+  // Pre-encode the intrinsic default value. Returns false (success) when a
+  // default is stored. Returns true (failure) when no source produces a valid
+  // default. Variable-length types with no resolved size skip this entirely.
+  //
+  // Sources tried in order:
+  // 1. intrinsic_default_fn: user-supplied VDF producing binary directly.
+  // 2. intrinsic_default_str: encode a user-supplied string literal.
+  //    TODO(villagesql-beta): implement source 2 (next patch).
+  // 3. encode(""): encode the empty string.
+  //
+  // Variable-length types with no resolved parameters have persisted_length_ <=
+  // 0, meaning no fixed storage size is known. Skip pre-encoding a default:
+  // there is no buffer size to target, and such types require parameters before
+  // use.
+  if (persisted_length_ <= 0) return false;
+
+  const size_t storage_size = static_cast<size_t>(persisted_length_);
+  std::vector<unsigned char> buffer(storage_size);
+  size_t encoded_length = 0;
+
+  // Source 1: intrinsic_default_fn.
+  if (descriptor_->intrinsic_default_fn().has_value()) {
+    const auto &params = parameters();
+    vef_type_params_t tp = {params.count(), params.key_data(),
+                            params.value_data()};
+    char error_msg[VEF_MAX_ERROR_LEN] = {};
+    bool failed = descriptor_->intrinsic_default_fn()->invoke(
+        tp, buffer.data(), storage_size, &encoded_length, error_msg);
+    if (!failed && encoded_length == storage_size) {
+      intrinsic_default_buffer_ = std::move(buffer);
+      intrinsic_default_size_ = encoded_length;
+      return false;
+    }
+    LogVSQL(ERROR_LEVEL, "intrinsic_default for type '%s' failed to encode: %s",
+            qualified_name_.c_str(), error_msg);
+    return true;
+  }
+
+  // Source 3: encode(""). (Source 2 will be added in the next patch.)
+  if (!encode_op_.has_value()) {
+    LogVSQL(ERROR_LEVEL,
+            "intrinsic_default for type '%s': no encode function available",
+            qualified_name_.c_str());
+    return true;
+  }
+
+  // TODO(villagesql-beta): consolidate this encode call with TypeEncoder to
+  // avoid duplicating the vdf/fn dispatch logic.
+  const EncodeOp &op = encode_op_.value();
+  if (op.vdf() != nullptr) {
+    SpecialVdfCall<CustomResult, StringArg> vdf_call(op.vdf());
+    const auto &params = op.parameters();
+    vdf_call.init(TypeParameterSlice(params.count(), params.key_data(),
+                                     params.value_data()),
+                  NoInitData{});
+    auto r = vdf_call.invoke(
+        StringSlice("", 0), pointer_cast<uchar *>(buffer.data()), storage_size);
+    if (r && *r == storage_size) {
+      intrinsic_default_buffer_ = std::move(buffer);
+      intrinsic_default_size_ = *r;
+      return false;
+    }
+  } else if (op.fn() != nullptr) {
+    bool fn_failed =
+        op.fn()(buffer.data(), storage_size, "", 0, &encoded_length);
+    if (!fn_failed && encoded_length == storage_size) {
+      intrinsic_default_buffer_ = std::move(buffer);
+      intrinsic_default_size_ = encoded_length;
+      return false;
+    }
+  }
+
+  LogVSQL(ERROR_LEVEL,
+          "intrinsic_default for type '%s' failed to encode from empty string",
+          qualified_name_.c_str());
+  return true;
+}
 
 void TypeContext::resolve_cached_values() {
   // Build qualified_base_name_ once: "ext.type" (no parameters)

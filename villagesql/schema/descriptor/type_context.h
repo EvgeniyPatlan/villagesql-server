@@ -29,6 +29,11 @@
 
 struct MEM_ROOT;
 
+// Forward declaration for test access to the private TypeContext constructor.
+namespace villagesql_unittest {
+class TypeContextTest;
+}  // namespace villagesql_unittest
+
 namespace villagesql {
 
 struct ColumnEntry;
@@ -202,58 +207,12 @@ struct TypeContextKey {
 // locks). This is similar to how MySQL guarantees TABLE_SHARE pointers are
 // valid for the lifetime of a query and freely copy these pointers to every
 // TABLE struct created as part of the execution.
+template <typename EntryType>
+struct TableTraits;
+
 class TypeContext {
  public:
   using key_type = TypeContextKey;
-
-  // Construct a TypeContext by using:
-  // - the TypeContextKey, which has a TypeDescriptorKey and TypeParameters
-  // - the TypeDescriptor from the victionary, which must have been obtained
-  //   under the victionary lock and not via acquire.
-  // Note: this must be constructed under the victionary lock
-  TypeContext(const TypeContextKey &key, const TypeDescriptor *descriptor)
-      : descriptor_(descriptor), key_(key) {
-    assert(descriptor);
-    assert(descriptor->key() == key.descriptor_key());
-
-    // Build bound Ops from the descriptor's TypeFunctions + our parameters.
-    // Functions may be absent for key-only descriptors (used in tests).
-    if (descriptor_->has_encode_fn())
-      encode_op_.emplace(descriptor_->encode_fn(), key_.parameters());
-    if (descriptor_->has_decode_fn())
-      decode_op_.emplace(descriptor_->decode_fn(), key_.parameters());
-    if (descriptor_->has_compare_fn())
-      compare_op_.emplace(descriptor_->compare_fn(), key_.parameters());
-    if (descriptor_->hash_fn().has_value())
-      hash_op_.emplace(*descriptor_->hash_fn(), key_.parameters());
-
-    resolve_cached_values();
-
-    // Pre-encode the intrinsic default value using the type's
-    // intrinsic_default_fn, if registered. This avoids repeated allocations and
-    // encoding every time we need to store an intrinsic default in a NOT NULL
-    // custom field.
-    if (persisted_length_ > 0 &&
-        descriptor_->intrinsic_default_fn().has_value()) {
-      const size_t storage_size = static_cast<size_t>(persisted_length_);
-      std::vector<unsigned char> buffer(storage_size);
-
-      const auto &params = parameters();
-      vef_type_params_t tp = {params.count(), params.key_data(),
-                              params.value_data()};
-
-      char error_msg[VEF_MAX_ERROR_LEN] = {};
-      size_t encoded_length = 0;
-      bool encode_failed = descriptor_->intrinsic_default_fn()->invoke(
-          tp, buffer.data(), storage_size, &encoded_length, error_msg);
-
-      if (!encode_failed && encoded_length == storage_size) {
-        intrinsic_default_buffer_ = std::move(buffer);
-        intrinsic_default_size_ = encoded_length;
-      }
-      // If encoding failed, leave intrinsic_default_buffer_ empty.
-    }
-  }
 
   TypeContext() = delete;
 
@@ -321,17 +280,32 @@ class TypeContext {
     return descriptor_->storage_intf();
   }
 
-  // Get cached intrinsic default buffer. Returns nullptr if encoding failed
-  // during construction.
+  // Get cached intrinsic default buffer. Always valid —
+  // init_intrinsic_default() guarantees this is populated, and
+  // TableTraits::create() returns nullptr on failure.
   const unsigned char *intrinsic_default_buffer() const {
-    return intrinsic_default_buffer_.empty() ? nullptr
-                                            : intrinsic_default_buffer_.data();
+    assert(!intrinsic_default_buffer_.empty());
+    return intrinsic_default_buffer_.data();
   }
 
   // Get the size of the intrinsic default buffer.
   size_t intrinsic_default_size() const { return intrinsic_default_size_; }
 
  private:
+  friend struct TableTraits<TypeContext>;
+  friend class villagesql_unittest::TypeContextTest;
+
+  // Construct a TypeContext. Use TableTraits<TypeContext>::create() instead.
+  // The TypeDescriptor must have been obtained under the victionary lock.
+  TypeContext(const TypeContextKey &key, const TypeDescriptor *descriptor);
+
+  // Pre-encode the intrinsic default value. Called once by
+  // TableTraits<TypeContext>::create() after construction. Returns true on
+  // failure. Sources tried in order: (1) intrinsic_default_fn, (2)
+  // encode(""). Skipped for variable-length types where persisted_length_ <= 0
+  // (no storage size known yet — these types are not used bare without params).
+  bool init_intrinsic_default();
+
   void resolve_cached_values();
 
   // Pointer to the TypeDescriptor in VictionaryClient
@@ -362,10 +336,6 @@ class TypeContext {
   size_t intrinsic_default_size_{0};
 };
 
-// Forward declaration of TableTraits (specialized per entry type)
-template <typename EntryType>
-struct TableTraits;
-
 // TableTraits specialization for TypeContext
 // TypeContext is a MEMORY_ONLY entry type - it's created on-demand rather than
 // loaded from a backing table. The create() method is used by
@@ -379,7 +349,11 @@ struct TableTraits<TypeContext> {
   static std::shared_ptr<TypeContext> create(const TypeContextKey &key,
                                              const TypeDescriptor *descriptor) {
     if (!descriptor) return std::shared_ptr<TypeContext>();
-    return std::make_shared<TypeContext>(key, descriptor);
+    // Use new rather than make_shared: the constructor is private, and
+    // make_shared constructs via the allocator which bypasses friend access.
+    std::shared_ptr<TypeContext> tc(new TypeContext(key, descriptor));
+    if (tc->init_intrinsic_default()) return std::shared_ptr<TypeContext>();
+    return tc;
   }
 };
 
