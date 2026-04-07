@@ -178,7 +178,6 @@ typedef enum : unsigned int {
 // Open issues:
 //   A) How do we handle encodings and collations?
 //   B) Resizing the buffer can probably be done in a smarter way.
-//   C) Support Aggregate functions.
 typedef struct {
   unsigned int major;
   unsigned int minor;
@@ -501,6 +500,30 @@ typedef void (*vef_postrun_func_t)(vef_context_t *ctx, vef_postrun_args_t *args,
                                    vef_postrun_result_t *result);
 
 // =============================================================================
+// Aggregate Functions
+// =============================================================================
+//
+// When a VDF is registered as an aggregate (by setting both clear and
+// accumulate), the main `vdf` function pointer changes role: instead of being
+// called per row, it becomes the "result" function called once per group after
+// all rows have been accumulated. It should read the final state from
+// args->user_data and write the group's output value.
+
+// Reset aggregate state for a new group.
+// Called once at the start of each group. The extension should reset any
+// accumulator state stored in args->user_data.
+typedef void (*vef_vdf_clear_func_t)(vef_context_t *ctx, vef_vdf_args_t *args);
+
+// Accumulate one row into the aggregate.
+// Called once per row within a group. The extension reads values from args
+// and updates its accumulator in args->user_data. If an error occurs during
+// accumulation, write the message to result->error_msg and set
+// result->type = VEF_RESULT_ERROR.
+typedef void (*vef_vdf_accumulate_func_t)(vef_context_t *ctx,
+                                          vef_vdf_args_t *args,
+                                          vef_vdf_result_t *result);
+
+// =============================================================================
 // Function and Type Descriptors
 // =============================================================================
 
@@ -513,7 +536,9 @@ typedef struct {
 
   vef_signature_t *signature;
 
-  // Main function pointer (called for each row)
+  // Main function pointer. For scalar VDFs this is called once per row. For
+  // aggregates (clear and accumulate both set), this becomes the result
+  // function, called once per group to produce the final output value.
   vef_vdf_func_t vdf;
 
   // Optional functions (called once per statement execution)
@@ -527,6 +552,22 @@ typedef struct {
   // If true, the function always returns the same result for the same inputs
   // and has no side effects. The optimizer may use this to cache results.
   bool deterministic;
+
+  // OPTIONAL: Set both to non-NULL to make this function an aggregate.
+  //
+  // Aggregate VDFs use three callbacks:
+  //   1. clear       – resets accumulator state at the start of each group
+  //   2. accumulate  – called once per row to fold it into the accumulator
+  //   3. vdf (above) – becomes the "result" function, called once per group
+  //                    after all rows have been accumulated; it reads the
+  //                    final accumulator state and writes the output value
+  //
+  // State is managed via user_data in vef_vdf_args_t, typically allocated in
+  // prerun and freed in postrun.
+  //
+  // It is an error to set exactly one of these; both must be present or absent.
+  vef_vdf_clear_func_t clear;
+  vef_vdf_accumulate_func_t accumulate;
 } vef_func_desc_t;
 
 // =============================================================================

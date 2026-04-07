@@ -174,6 +174,40 @@ bool vdf_handler::fix_fields(THD *thd [[maybe_unused]],
   return false;
 }
 
+void vdf_handler::clear() {
+  m_udf->vdf_func_desc->clear(&m_context, &m_vdf_args);
+}
+
+void vdf_handler::accumulate(bool *null_value) {
+  marshal_args();
+  vef_vdf_result_t result{};
+  result.type = VEF_RESULT_VALUE;
+  m_error_msg[0] = '\0';
+  result.error_msg = m_error_msg;
+  m_udf->vdf_func_desc->accumulate(&m_context, &m_vdf_args, &result);
+  switch (result.type) {
+    case VEF_RESULT_VALUE:
+      *null_value = false;
+      return;
+    case VEF_RESULT_WARNING:
+      push_warning_printf(
+          current_thd, Sql_condition::SL_WARNING, ER_UDF_ERROR,
+          "VDF error in function '%s': %s", m_udf->name.str,
+          m_error_msg[0] != '\0' ? m_error_msg : "unknown error");
+      *null_value = true;
+      return;
+    case VEF_RESULT_ERROR:
+      my_printf_error(ER_UDF_ERROR, "VDF error in function '%s': %s", MYF(0),
+                      m_udf->name.str,
+                      m_error_msg[0] != '\0' ? m_error_msg : "unknown error");
+      *null_value = true;
+      return;
+    default:
+      *null_value = false;
+      return;
+  }
+}
+
 void vdf_handler::cleanup() {
   // Call postrun if VDF was active and postrun exists
   if (m_active && m_udf->vdf_func_desc->postrun) {

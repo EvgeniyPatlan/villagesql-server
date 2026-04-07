@@ -57,6 +57,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -104,6 +105,51 @@ constexpr const char *REAL = "REAL";
 // Forward declaration for internal helper (defined at end of file)
 constexpr vef_type_t to_vef_type(const char *name);
 
+// Deliberately unimplemented function used to produce a compile error. When
+// build() runs in a constexpr context (as it does inside VEF_GENERATE_ENTRY_POINTS),
+// calling a non-constexpr function is ill-formed. So if the aggregate
+// configuration is invalid (e.g., clear set without accumulate), the build()
+// method calls this function, which forces a compile error with a name that
+// explains what went wrong.
+void config_error__aggregate_must_set_both_clear_and_accumulate();
+
+// Auto-generated prerun/postrun for aggregate state management.
+// Use with .state<T>() on FuncBuilder to avoid writing boilerplate
+// prerun/postrun callbacks for simple aggregate state types.
+template <typename State>
+void auto_prerun(vef_context_t *, vef_prerun_args_t *,
+                 vef_prerun_result_t *result) {
+  result->user_data = new State{};
+  result->type = VEF_RESULT_VALUE;
+}
+
+template <typename State>
+void auto_postrun(vef_context_t *, vef_postrun_args_t *args,
+                  vef_postrun_result_t *) {
+  delete static_cast<State *>(args->user_data);
+}
+
+// =============================================================================
+// Aggregate Callback Wrappers
+// =============================================================================
+//
+// These wrappers let extension authors write aggregate callbacks using typed
+// C++ signatures instead of raw ABI types. The State type is extracted from
+// user_data and passed as a reference.
+//
+// Clear: void my_clear(State &state)
+// Accumulate: void my_acc(State &state, IntArg val, ...)
+// Result: ReturnType my_result(const State &state)
+//      or std::optional<ReturnType> my_result(const State &state)
+//
+// std::optional results map nullopt to SQL NULL.
+
+// Wraps void(State&) -> vef_vdf_clear_func_t
+template <typename State, auto Func>
+void agg_clear_wrapper(vef_context_t *, vef_vdf_args_t *args) {
+  Func(*static_cast<State *>(args->user_data));
+}
+
 // =============================================================================
 // FuncWithMetadata
 // =============================================================================
@@ -115,6 +161,8 @@ struct FuncWithMetadata {
       : f(nullptr),
         prerun(nullptr),
         postrun(nullptr),
+        clear(nullptr),
+        accumulate(nullptr),
         return_type{},
         param_types{},
         num_params(0),
@@ -125,6 +173,8 @@ struct FuncWithMetadata {
   ExtFunc f;
   vef_prerun_func_t prerun;
   vef_postrun_func_t postrun;
+  vef_vdf_clear_func_t clear;
+  vef_vdf_accumulate_func_t accumulate;
   vef_type_t return_type;
   std::array<vef_type_t, kMaxParams> param_types;
   size_t num_params;
@@ -254,6 +304,102 @@ struct Wrapper {
     } else {
       return T(r);
     }
+  }
+};
+
+// =============================================================================
+// Aggregate Typed Wrappers
+// =============================================================================
+//
+// These wrappers let extension authors write aggregate callbacks using typed
+// C++ signatures instead of raw ABI types. The State type is extracted from
+// user_data and passed as a reference.
+//
+// Accumulate: void my_acc(State &state, IntArg val, ...)
+// Result: ReturnType my_result(const State &state)
+//      or std::optional<ReturnType> my_result(const State &state)
+//
+// std::optional results map nullopt to SQL NULL.
+//
+// (agg_clear_wrapper is defined earlier since it has no dependencies.)
+
+// Wraps void(State&, TypedArgs...) -> vef_vdf_accumulate_func_t
+template <typename State, auto Func, size_t NumParams>
+struct AggAccumulateWrapper {
+  static void invoke(vef_context_t *ctx, vef_vdf_args_t *args,
+                     vef_vdf_result_t *result) {
+    invoke_impl(ctx, args, result, std::make_index_sequence<NumParams>{});
+  }
+
+ private:
+  using Params = typename FuncParamTypes<decltype(Func)>::type;
+
+  template <typename T>
+  static T make_arg(vef_invalue_t *v) {
+    if constexpr (std::is_same_v<T, vef_invalue_t *>) {
+      return v;
+    } else {
+      return T(v);
+    }
+  }
+
+  template <size_t... Is>
+  static void invoke_impl(vef_context_t *ctx, vef_vdf_args_t *args,
+                          vef_vdf_result_t *,
+                          std::index_sequence<Is...>) {
+    auto &state = *static_cast<State *>(args->user_data);
+    std::array<vef_invalue_t, NumParams> vals{
+        get_invalue(ctx, args, static_cast<unsigned int>(Is))...};
+    Func(state, make_arg<std::tuple_element_t<1 + Is, Params>>(&vals[Is])...);
+  }
+};
+
+// Wraps T(const State&) or std::optional<T>(const State&) -> vef_vdf_func_t
+template <typename State, auto Func>
+struct AggResultWrapper {
+  static void invoke(vef_context_t *, vef_vdf_args_t *args,
+                     vef_vdf_result_t *result) {
+    const auto &state = *static_cast<State *>(args->user_data);
+    write_result(Func(state), result);
+  }
+
+ private:
+  template <typename T>
+  static void write_result(const std::optional<T> &val,
+                           vef_vdf_result_t *result) {
+    if (!val.has_value()) {
+      result->type = VEF_RESULT_NULL;
+    } else {
+      write_scalar(*val, result);
+    }
+  }
+
+  template <typename T>
+  static void write_result(const T &val, vef_vdf_result_t *result) {
+    write_scalar(val, result);
+  }
+
+  static void write_scalar(long long v, vef_vdf_result_t *r) {
+    r->int_value = v;
+    r->type = VEF_RESULT_VALUE;
+  }
+
+  static void write_scalar(double v, vef_vdf_result_t *r) {
+    r->real_value = v;
+    r->type = VEF_RESULT_VALUE;
+  }
+
+  static void write_scalar(const std::string &v, vef_vdf_result_t *r) {
+    if (v.size() > r->max_str_len) {
+      r->type = VEF_RESULT_ERROR;
+      snprintf(r->error_msg, VEF_MAX_ERROR_LEN,
+               "aggregate result (%zu bytes) exceeds buffer (%zu bytes)",
+               v.size(), r->max_str_len);
+      return;
+    }
+    memcpy(r->str_buf, v.data(), v.size());
+    r->actual_len = v.size();
+    r->type = VEF_RESULT_VALUE;
   }
 };
 
@@ -824,6 +970,8 @@ struct StaticFuncDesc {
   ExtFunc vdf_;
   vef_prerun_func_t prerun_;
   vef_postrun_func_t postrun_;
+  vef_vdf_clear_func_t clear_;
+  vef_vdf_accumulate_func_t accumulate_;
   size_t buffer_size_;
   bool deterministic_;
   bool (*check_params_cache_bound_)();
@@ -835,6 +983,8 @@ struct StaticFuncDesc {
         vdf_(meta.f),
         prerun_(meta.prerun),
         postrun_(meta.postrun),
+        clear_(meta.clear),
+        accumulate_(meta.accumulate),
         buffer_size_(meta.buffer_size),
         deterministic_(meta.deterministic),
         check_params_cache_bound_(meta.check_params_cache_bound) {
@@ -851,6 +1001,8 @@ struct StaticFuncDesc {
   constexpr ExtFunc vdf() const { return vdf_; }
   constexpr vef_prerun_func_t prerun() const { return prerun_; }
   constexpr vef_postrun_func_t postrun() const { return postrun_; }
+  constexpr vef_vdf_clear_func_t clear() const { return clear_; }
+  constexpr vef_vdf_accumulate_func_t accumulate() const { return accumulate_; }
   constexpr size_t buffer_size() const { return buffer_size_; }
   constexpr bool deterministic() const { return deterministic_; }
   constexpr auto check_params_cache_bound() const -> bool (*)() {
@@ -885,6 +1037,8 @@ __attribute__((visibility("hidden"))) vef_func_desc_t *materialize_func_desc(
   desc.postrun = func_data.postrun();
   desc.buffer_size = func_data.buffer_size();
   desc.deterministic = func_data.deterministic();
+  desc.clear = func_data.clear();
+  desc.accumulate = func_data.accumulate();
 
   return &desc;
 }
@@ -989,6 +1143,8 @@ struct FuncBuilder {
         buffer_size_(0),
         prerun_(nullptr),
         postrun_(nullptr),
+        clear_(nullptr),
+        accumulate_(nullptr),
         deterministic_(false) {}
 
   const char *name_;
@@ -997,6 +1153,8 @@ struct FuncBuilder {
   size_t buffer_size_;
   vef_prerun_func_t prerun_;
   vef_postrun_func_t postrun_;
+  vef_vdf_clear_func_t clear_;
+  vef_vdf_accumulate_func_t accumulate_;
   bool deterministic_;
 
   constexpr FuncBuilder<Func, NumParams> &returns(const char *t) {
@@ -1011,6 +1169,8 @@ struct FuncBuilder {
     next.buffer_size_ = buffer_size_;
     next.prerun_ = prerun_;
     next.postrun_ = postrun_;
+    next.clear_ = clear_;
+    next.accumulate_ = accumulate_;
     next.deterministic_ = deterministic_;
     for (size_t i = 0; i < NumParams; ++i) {
       next.param_types_[i] = param_types_[i];
@@ -1041,18 +1201,107 @@ struct FuncBuilder {
     return *this;
   }
 
+  // Aggregate callbacks. Accepts either raw ABI function pointers or typed
+  // C++ functions. Typed functions have their State deduced from the first
+  // parameter.
+  //
+  // Raw ABI:
+  //   .clear<&my_raw_clear>()       // void(vef_context_t*, vef_vdf_args_t*)
+  //   .accumulate<&my_raw_acc>()    // void(vef_context_t*, vef_vdf_args_t*,
+  //                                 //      vef_vdf_result_t*)
+  //
+  // Typed (use with .state<T>()):
+  //   .clear<&my_clear>()           // void(MyState&)
+  //   .accumulate<&my_acc>()        // void(MyState&, IntArg, ...)
+  //
+  // The result function is the Func template parameter of make_func<>:
+  //   make_func<&my_result>("name") // T(const MyState&) or
+  //                                 // optional<T>(const MyState&)
+  //
+  // Example:
+  //   void my_clear(MyState &s) { s = {}; }
+  //   void my_acc(MyState &s, IntArg val) { ... }
+  //   std::optional<long long> my_result(const MyState &s) { return s.val; }
+  //
+  //   make_func<&my_result>("my_agg")
+  //       .returns(INT).param(INT)
+  //       .state<MyState>()
+  //       .clear<&my_clear>()
+  //       .accumulate<&my_acc>()
+  //       .build()
+
+  template <auto Fn>
+  constexpr FuncBuilder<Func, NumParams> &clear() {
+    if constexpr (std::is_same_v<decltype(Fn), vef_vdf_clear_func_t>) {
+      clear_ = Fn;
+    } else {
+      using Params = typename FuncParamTypes<decltype(Fn)>::type;
+      using State = std::remove_reference_t<std::tuple_element_t<0, Params>>;
+      clear_ = &agg_clear_wrapper<State, Fn>;
+    }
+    return *this;
+  }
+
+  template <auto Fn>
+  constexpr FuncBuilder<Func, NumParams> &accumulate() {
+    if constexpr (std::is_same_v<decltype(Fn), vef_vdf_accumulate_func_t>) {
+      accumulate_ = Fn;
+    } else {
+      using Params = typename FuncParamTypes<decltype(Fn)>::type;
+      using State = std::remove_reference_t<std::tuple_element_t<0, Params>>;
+      accumulate_ = &AggAccumulateWrapper<State, Fn, NumParams>::invoke;
+    }
+    return *this;
+  }
+
+  // Set the aggregate state type. Automatically generates prerun (allocates
+  // State via value-initialization) and postrun (deletes State).
+  template <typename State>
+  constexpr FuncBuilder<Func, NumParams> &state() {
+    prerun_ = &auto_prerun<State>;
+    postrun_ = &auto_postrun<State>;
+    return *this;
+  }
+
   // Finalize the function definition and produce the StaticFuncDesc
   constexpr StaticFuncDesc<NumParams> build() const {
     static_assert(NumParams <= kMaxParams,
                   "Too many parameters (max is kMaxParams)");
+    // Catch mismatched clear/accumulate at compile time. build() is evaluated
+    // in a constexpr context by VEF_GENERATE_ENTRY_POINTS, so reaching a
+    // non-constexpr call produces a compile error. Also validated at
+    // registration time as a safety net.
+    if ((clear_ == nullptr) != (accumulate_ == nullptr)) {
+      config_error__aggregate_must_set_both_clear_and_accumulate();
+    }
 
     using AllParams = typename FuncParamTypes<decltype(Func)>::type;
     using UniquePTuple = typename unique_params_types<AllParams>::type;
 
     FuncWithMetadata meta{};
-    meta.f = &Wrapper<Func, NumParams>::invoke;
+    if constexpr (std::is_same_v<decltype(Func), vef_vdf_func_t>) {
+      // Raw ABI signature — use directly.
+      meta.f = Func;
+    } else if constexpr (std::tuple_size_v<AllParams> == 1 &&
+                         std::is_lvalue_reference_v<
+                             std::tuple_element_t<0, AllParams>> &&
+                         std::is_const_v<std::remove_reference_t<
+                             std::tuple_element_t<0, AllParams>>>) {
+      // Typed aggregate result: T(const State&) or optional<T>(const State&).
+      // Wrap with AggResultWrapper to extract user_data and write the return
+      // value to the ABI result struct.
+      using State =
+          std::remove_const_t<std::remove_reference_t<
+              std::tuple_element_t<0, AllParams>>>;
+      meta.f = &AggResultWrapper<State, Func>::invoke;
+    } else {
+      // Typed scalar VDF — wrap arguments and result.
+      meta.f = &Wrapper<Func, NumParams>::invoke;
+    }
     meta.prerun = prerun_;
     meta.postrun = postrun_;
+    meta.clear = clear_;
+    meta.accumulate = accumulate_;
     meta.return_type = to_vef_type(return_type_);
     meta.num_params = NumParams;
     meta.buffer_size = buffer_size_;

@@ -1,0 +1,173 @@
+# Test aggregate VDF functions
+# Verifies that VDFs registered with clear/accumulate callbacks work as
+# aggregate functions with GROUP BY, HAVING, window functions, etc.
+
+# Setup VEB directory for testing
+--let $veb_dir = $MYSQLTEST_VARDIR/veb
+--exec mkdir -p $veb_dir
+
+call mtr.add_suppression("Orphaned expansion directory found but not removed");
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+--let $restart_parameters = restart: --veb-dir=$veb_dir
+--source include/restart_mysqld.inc
+--source include/villagesql/binlog_check_begin.inc
+
+# Build and install the aggregate VDF test extension
+--let $extension_name = agg_vdf_ext
+--let $extension_version = 1.0.0
+--let $extension_source = $MYSQL_TEST_DIR/suite/villagesql/std_data/aggregate_vdf.cc
+--source include/villagesql/create_extension_sdk.inc
+
+INSTALL EXTENSION agg_vdf_ext;
+
+CREATE TABLE t1 (
+  id INT PRIMARY KEY,
+  val INT,
+  category VARCHAR(20)
+);
+
+INSERT INTO t1 VALUES
+  (1, 10, 'A'),
+  (2, 20, 'A'),
+  (3, 30, 'B'),
+  (4, 40, 'B'),
+  (5, 50, 'B');
+
+# Basic aggregate with GROUP BY
+SELECT category, agg_vdf_ext.vdf_sum(val) AS total
+FROM t1
+GROUP BY category
+ORDER BY category;
+
+# Whole-table aggregate (no GROUP BY)
+SELECT agg_vdf_ext.vdf_sum(val) AS total FROM t1;
+
+# Aggregate on empty table
+CREATE TABLE t_empty (id INT PRIMARY KEY, val INT);
+SELECT agg_vdf_ext.vdf_sum(val) AS total FROM t_empty;
+DROP TABLE t_empty;
+
+# Multiple aggregate VDFs in one query
+SELECT category,
+  agg_vdf_ext.vdf_sum(val) AS total,
+  agg_vdf_ext.vdf_count(val) AS cnt
+FROM t1
+GROUP BY category
+ORDER BY category;
+
+# Mixed scalar and aggregate VDFs
+SELECT category,
+  agg_vdf_ext.vdf_sum(val) AS total,
+  agg_vdf_ext.simple_double(MIN(val)) AS doubled_min
+FROM t1
+GROUP BY category
+ORDER BY category;
+
+# HAVING clause with aggregate VDF
+SELECT category, agg_vdf_ext.vdf_sum(val) AS total
+FROM t1
+GROUP BY category
+HAVING agg_vdf_ext.vdf_sum(val) > 50
+ORDER BY category;
+
+# ORDER BY aggregate VDF
+SELECT category, agg_vdf_ext.vdf_sum(val) AS total
+FROM t1
+GROUP BY category
+ORDER BY agg_vdf_ext.vdf_sum(val) DESC;
+
+# NULL handling: some NULLs in aggregated column
+CREATE TABLE t_nulls (
+  id INT PRIMARY KEY,
+  val INT,
+  category VARCHAR(20)
+);
+
+INSERT INTO t_nulls VALUES
+  (1, 10, 'A'),
+  (2, NULL, 'A'),
+  (3, 30, 'A'),
+  (4, NULL, 'B'),
+  (5, NULL, 'B');
+
+SELECT category,
+  agg_vdf_ext.vdf_sum(val) AS total,
+  agg_vdf_ext.vdf_count(val) AS cnt
+FROM t_nulls
+GROUP BY category
+ORDER BY category;
+
+# NULL handling: all NULLs in a group (vdf_sum returns NULL, vdf_count returns 0)
+SELECT category, agg_vdf_ext.vdf_sum(val) AS total
+FROM t_nulls
+WHERE category = 'B'
+GROUP BY category;
+
+DROP TABLE t_nulls;
+
+# Subquery with aggregate VDF
+SELECT * FROM t1
+WHERE val > (SELECT agg_vdf_ext.vdf_sum(val) / 5 FROM t1)
+ORDER BY id;
+
+# Window function with aggregate VDF (not supported for UDF aggregates)
+--error ER_PARSE_ERROR
+SELECT id, val, category,
+  agg_vdf_ext.vdf_sum(val) OVER (PARTITION BY category) AS category_total
+FROM t1
+ORDER BY id;
+
+# Unqualified aggregate VDF call
+SELECT category, vdf_sum(val) AS total
+FROM t1
+GROUP BY category
+ORDER BY category;
+
+# vdf_concat: string aggregate with GROUP BY
+SELECT category, agg_vdf_ext.vdf_concat(category) AS names
+FROM t1
+GROUP BY category
+ORDER BY category;
+
+# vdf_concat: whole-table
+SELECT agg_vdf_ext.vdf_concat(category) AS all_cats FROM t1;
+
+# vdf_concat: empty table
+CREATE TABLE t_empty_str (id INT PRIMARY KEY, name VARCHAR(20));
+SELECT agg_vdf_ext.vdf_concat(name) AS result FROM t_empty_str;
+DROP TABLE t_empty_str;
+
+# vdf_max: raw ABI aggregate with GROUP BY
+SELECT category, agg_vdf_ext.vdf_max(val) AS max_val
+FROM t1
+GROUP BY category
+ORDER BY category;
+
+# vdf_max: whole-table
+SELECT agg_vdf_ext.vdf_max(val) AS max_val FROM t1;
+
+# vdf_max with NULLs
+CREATE TABLE t_nulls2 (id INT PRIMARY KEY, val INT, category VARCHAR(20));
+INSERT INTO t_nulls2 VALUES (1, 10, 'A'), (2, NULL, 'A'), (3, NULL, 'B');
+SELECT category, agg_vdf_ext.vdf_max(val) AS max_val
+FROM t_nulls2
+GROUP BY category
+ORDER BY category;
+DROP TABLE t_nulls2;
+
+# All four aggregates in one query
+SELECT category,
+  agg_vdf_ext.vdf_sum(val) AS total,
+  agg_vdf_ext.vdf_count(val) AS cnt,
+  agg_vdf_ext.vdf_max(val) AS max_val,
+  agg_vdf_ext.vdf_concat(category) AS cats
+FROM t1
+GROUP BY category
+ORDER BY category;
+
+# Cleanup
+DROP TABLE t1;
+
+UNINSTALL EXTENSION agg_vdf_ext;
+
+--source include/villagesql/binlog_check_end.inc

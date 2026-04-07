@@ -411,6 +411,49 @@ void complex_conjugate_impl(vef_context_t *ctx, vef_invalue_t *in,
   ReturnComplex(Complex{cx->re, -cx->im}, out);
 }
 
+// Aggregate: complex_sum(COMPLEX) -> COMPLEX
+// Sums complex values component-wise. Returns NULL for empty groups.
+
+using ComplexSumState = std::optional<Complex>;
+
+void complex_sum_clear(vef_context_t *ctx, vef_vdf_args_t *args) {
+  auto *state = static_cast<ComplexSumState *>(args->user_data);
+  *state = std::nullopt;
+}
+
+void complex_sum_accumulate(vef_context_t *ctx, vef_vdf_args_t *args,
+                            vef_vdf_result_t *result) {
+  auto *state = static_cast<ComplexSumState *>(args->user_data);
+  vef_invalue_t val = villagesql::func_builder::get_invalue(ctx, args, 0);
+  if (!val.is_null) {
+    auto cx = TryLoadFromInValue(&val);
+    if (!cx.has_value()) {
+      ReturnError("argument malformed", result);
+      return;
+    }
+    Complex total = state->value_or(Complex{0.0, 0.0});
+    total.re += cx->re;
+    total.im += cx->im;
+    *state = total;
+  }
+}
+
+void complex_sum_result(vef_context_t *ctx, vef_vdf_args_t *args,
+                        vef_vdf_result_t *out) {
+  auto *state = static_cast<ComplexSumState *>(args->user_data);
+  if (!state->has_value()) {
+    out->type = VEF_RESULT_NULL;
+    return;
+  }
+  if (out->max_bin_len < kComplexSize) {
+    ReturnError("response buffer too small", out);
+    return;
+  }
+  Complex total = state->value();
+  total.canonicalize();
+  ReturnComplex(total, out);
+}
+
 // Type name NTTPs — required for auto-generating VDF names like
 // "COMPLEX::from_string" without macros. Each make_type<kName>() call uses
 // the pointer identity of kName to key independent static name buffers, so
@@ -499,4 +542,12 @@ VEF_GENERATE_ENTRY_POINTS(
                   .returns(COMPLEX)
                   .param(COMPLEX)
                   .deterministic()
+                  .build())
+        // Aggregate functions
+        .func(make_func<&complex_sum_result>("complex_sum")
+                  .returns(COMPLEX)
+                  .param(COMPLEX)
+                  .state<ComplexSumState>()
+                  .clear<&complex_sum_clear>()
+                  .accumulate<&complex_sum_accumulate>()
                   .build()))
