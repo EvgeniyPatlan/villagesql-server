@@ -287,20 +287,17 @@ int tvector_compare(const TVectorParams &p,
   return 0;
 }
 
-// Implicit default for TVECTOR: writes N zero elements into the buffer.
-// Reads the "dimension" and "type" parameters to determine the byte size.
-bool tvector_default(const TVectorParams &p,
-                     villagesql::Span<unsigned char> buffer, size_t *length,
-                     char *error_msg) {
-  size_t byte_size = static_cast<size_t>(p.dimension) * p.bytes_per_elem;
-  if (byte_size > buffer.size()) {
-    snprintf(error_msg, VEF_MAX_ERROR_LEN,
-             "TVECTOR intrinsic_default: buffer too small");
-    return true;
+// Implicit default for TVECTOR: returns "[0,0,...,0]" with p.dimension zeros.
+// The server converts this string using the type's from_string function.
+const char *tvector_default(const TVectorParams &p, char * /*error_msg*/) {
+  static thread_local std::string buf;
+  buf = "[";
+  for (int64_t i = 0; i < p.dimension; i++) {
+    if (i > 0) buf += ",";
+    buf += "0";
   }
-  memset(buffer.data(), 0, byte_size);
-  *length = byte_size;
-  return false;
+  buf += "]";
+  return buf.c_str();
 }
 
 // Dot product: (TVECTOR, TVECTOR) -> REAL
@@ -353,7 +350,7 @@ VEF_GENERATE_ENTRY_POINTS(
     make_extension("vsql_tvector", "0.0.1")
         .type(TVECTOR)
         .func(make_intrinsic_default<&tvector_default>(
-            "tvector_intrinsic_default", TVECTOR))
+            "tvector_intrinsic_default"))
         .func(make_func<&tvector_dot_product>("tvector_dot_product")
                   .returns(REAL)
                   .param(TVECTOR)
