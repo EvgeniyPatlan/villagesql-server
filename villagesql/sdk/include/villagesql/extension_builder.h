@@ -35,10 +35,12 @@
 #include <villagesql/sdk_version.h>
 #include <villagesql/storage_builder.h>
 #include <villagesql/type_builder.h>
+#include <villagesql/vsql/sys_var_builder.h>
 
 namespace villagesql {
 namespace extension_builder {
 
+using namespace sys_var_builder;
 using namespace func_builder;
 using namespace storage_builder;
 using namespace type_builder;
@@ -47,35 +49,45 @@ using namespace type_builder;
 // ExtensionBuilder
 // =============================================================================
 //
-// Stores functions and types by value using tuples, allowing inline definition
-// without separate variable declarations.
+// Stores functions, types, and config vars by value using tuples, allowing
+// inline definition without separate variable declarations.
 
-template <typename FuncTuple, typename TypeTuple>
+template <typename FuncTuple, typename TypeTuple, typename SysVarTuple>
 struct ExtensionBuilder {
   std::string_view name_;
   std::string_view version_;
   FuncTuple funcs_;
   TypeTuple types_;
+  SysVarTuple sys_vars_;
   vef_protocol_t min_protocol_;
 
   // Add a function (returns new builder with function appended)
   template <typename F>
   constexpr auto func(F f) const {
     auto new_funcs = std::tuple_cat(funcs_, std::make_tuple(f));
-    return ExtensionBuilder<decltype(new_funcs), TypeTuple>{
-        name_, version_, new_funcs, types_, min_protocol_};
+    return ExtensionBuilder<decltype(new_funcs), TypeTuple, SysVarTuple>{
+        name_, version_, new_funcs, types_, sys_vars_, min_protocol_};
   }
 
   // Add a type (returns new builder with type appended).
   // If the type requires a higher protocol than min_protocol_, min_protocol_
   // is raised automatically.
-  constexpr auto type(const TypeDescriptor &type) const {
-    auto new_types = std::tuple_cat(types_, std::make_tuple(type));
-    const auto &t = type.vef_desc;
+  constexpr auto type(const TypeDescriptor &td) const {
+    auto new_types = std::tuple_cat(types_, std::make_tuple(td));
+    const auto &t = td.vef_desc;
     const vef_protocol_t new_min =
         t.protocol > min_protocol_ ? t.protocol : min_protocol_;
-    return ExtensionBuilder<FuncTuple, decltype(new_types)>{
-        name_, version_, funcs_, new_types, new_min};
+    return ExtensionBuilder<FuncTuple, decltype(new_types), SysVarTuple>{
+        name_, version_, funcs_, new_types, sys_vars_, new_min};
+  }
+
+  // Add a system variable. System variables require at least VEF_PROTOCOL_2.
+  constexpr auto sys_var(const SysVarDescriptor &cv) const {
+    auto new_cvs = std::tuple_cat(sys_vars_, std::make_tuple(cv));
+    const vef_protocol_t new_min =
+        VEF_PROTOCOL_2 > min_protocol_ ? VEF_PROTOCOL_2 : min_protocol_;
+    return ExtensionBuilder<FuncTuple, TypeTuple, decltype(new_cvs)>{
+        name_, version_, funcs_, types_, new_cvs, new_min};
   }
 
   // Add a type object that carries embedded SQL-callable VDFs (e.g. the
@@ -92,8 +104,9 @@ struct ExtensionBuilder {
         t.descriptor.vef_desc.protocol > min_protocol_
             ? t.descriptor.vef_desc.protocol
             : min_protocol_;
-    return ExtensionBuilder<decltype(new_funcs), decltype(new_types)>{
-        name_, version_, new_funcs, new_types, new_min};
+    return ExtensionBuilder<decltype(new_funcs), decltype(new_types),
+                            SysVarTuple>{name_,     version_,  new_funcs,
+                                         new_types, sys_vars_, new_min};
   }
 
   // This is here only for testing, please don't depend on it.
@@ -101,15 +114,18 @@ struct ExtensionBuilder {
   // If the server offers a lower protocol, registration will fail with an
   // error message explaining the version requirement.
   constexpr auto test_only_require_protocol(vef_protocol_t p) const {
-    return ExtensionBuilder<FuncTuple, TypeTuple>{name_, version_, funcs_,
-                                                  types_, p};
+    return ExtensionBuilder<FuncTuple, TypeTuple, SysVarTuple>{
+        name_, version_, funcs_, types_, sys_vars_, p};
   }
+
+  // Compile-time counts
+  static constexpr size_t kFuncCount = std::tuple_size_v<FuncTuple>;
+  static constexpr size_t kTypeCount = std::tuple_size_v<TypeTuple>;
+  static constexpr size_t kSysVarCount = std::tuple_size_v<SysVarTuple>;
 
   // Accessors
   constexpr std::string_view name() const { return name_; }
   constexpr std::string_view version() const { return version_; }
-  constexpr size_t func_count() const { return std::tuple_size_v<FuncTuple>; }
-  constexpr size_t type_count() const { return std::tuple_size_v<TypeTuple>; }
   constexpr vef_protocol_t min_protocol() const { return min_protocol_; }
 
   template <size_t I>
@@ -121,12 +137,17 @@ struct ExtensionBuilder {
   constexpr const auto &type_at() const {
     return std::get<I>(types_);
   }
+
+  template <size_t I>
+  constexpr const auto &sys_var_at() const {
+    return std::get<I>(sys_vars_);
+  }
 };
 
 // Entry point to create an extension builder
 constexpr auto make_extension(std::string_view name, std::string_view version) {
-  return ExtensionBuilder<std::tuple<>, std::tuple<>>{
-      name, version, {}, {}, VEF_PROTOCOL_1};
+  return ExtensionBuilder<std::tuple<>, std::tuple<>, std::tuple<>>{
+      name, version, {}, {}, {}, VEF_PROTOCOL_1};
 }
 
 }  // namespace extension_builder
@@ -152,6 +173,15 @@ void vef_fill_type_ptrs(vef_type_desc_t **arr, const Ext &e,
                         std::index_sequence<Is...>) {
   ((arr[Is] =
         const_cast<vef_type_desc_t *>(&e.template type_at<Is>().vef_desc)),
+   ...);
+}
+
+// Fills arr[I] with the vef_sys_var_desc_t* for each system variable.
+template <typename Ext, size_t... Is>
+void vef_fill_sys_var_ptrs(vef_sys_var_desc_t **arr, const Ext &e,
+                           std::index_sequence<Is...>) {
+  ((arr[Is] =
+        const_cast<vef_sys_var_desc_t *>(&e.template sys_var_at<Is>().desc)),
    ...);
 }
 
@@ -199,13 +229,19 @@ const char *vef_check_params_cache(const Ext &e, std::index_sequence<Is...>) {
 }
 
 // Core registration logic called by VEF_GENERATE_ENTRY_POINTS.
-// FuncCount and TypeCount are explicit template parameters so that array
-// sizes are compile-time constants without relying on VLAs.
-template <typename Ext, size_t FuncCount, size_t TypeCount>
+// FuncCount, TypeCount, and SysVarCount are explicit template parameters
+// so that array sizes are compile-time constants without relying on VLAs.
+template <typename Ext, size_t FuncCount, size_t TypeCount, size_t SysVarCount>
 vef_registration_t *vef_register_impl(vef_registration_t &reg,
                                       bool &initialized,
                                       vef_register_arg_t *arg, const Ext &ext) {
   if (initialized) return &reg;
+
+  // Capture server-provided function pointers for protocol >= 2.
+  if (arg->protocol >= VEF_PROTOCOL_2) {
+    villagesql::sys_var::g_get_variable = arg->get_variable;
+    villagesql::sys_var::g_set_variable = arg->set_variable;
+  }
 
   if (arg->protocol < ext.min_protocol()) {
     static char error_buf[128];
@@ -220,6 +256,7 @@ vef_registration_t *vef_register_impl(vef_registration_t &reg,
 
   static vef_func_desc_t *func_ptrs[FuncCount > 0 ? FuncCount : 1];
   static vef_type_desc_t *type_ptrs[TypeCount > 0 ? TypeCount : 1];
+  static vef_sys_var_desc_t *sys_var_ptrs[SysVarCount > 0 ? SysVarCount : 1];
 
   if constexpr (FuncCount > 0) {
     vef_init_auto_names(ext, std::make_index_sequence<FuncCount>{});
@@ -228,6 +265,10 @@ vef_registration_t *vef_register_impl(vef_registration_t &reg,
   if constexpr (TypeCount > 0) {
     vef_fill_type_ptrs(type_ptrs, ext, std::make_index_sequence<TypeCount>{});
     vef_init_type_params(ext, std::make_index_sequence<TypeCount>{});
+  }
+  if constexpr (SysVarCount > 0) {
+    vef_fill_sys_var_ptrs(sys_var_ptrs, ext,
+                          std::make_index_sequence<SysVarCount>{});
   }
 
   if constexpr (FuncCount > 0) {
@@ -255,6 +296,8 @@ vef_registration_t *vef_register_impl(vef_registration_t &reg,
   reg.funcs = FuncCount > 0 ? func_ptrs : nullptr;
   reg.type_count = TypeCount;
   reg.types = TypeCount > 0 ? type_ptrs : nullptr;
+  reg.sys_var_count = SysVarCount;
+  reg.sys_vars = SysVarCount > 0 ? sys_var_ptrs : nullptr;
 
   initialized = true;
   return &reg;
@@ -280,8 +323,10 @@ vef_registration_t *vef_register_impl(vef_registration_t &reg,
   static vef_registration_t *_vef_do_register(vef_register_arg_t *arg) {     \
     using namespace villagesql::extension_builder;                           \
     static constexpr auto kExt = (ext);                                      \
+    using ExtType = decltype(kExt);                                          \
     return villagesql::detail::vef_register_impl<                            \
-        decltype(kExt), kExt.func_count(), kExt.type_count()>(               \
+        decltype(kExt), ExtType::kFuncCount, ExtType::kTypeCount,            \
+        ExtType::kSysVarCount>(                                              \
         _vef_reg, _vef_reg_initialized, arg, kExt);                          \
   }
 
@@ -291,24 +336,25 @@ vef_registration_t *vef_register_impl(vef_registration_t &reg,
 // Must be called in a .cc file, not a header (defines functions/variables).
 // Delegates registration logic to villagesql::detail::vef_register_impl.
 
-#define VEF_GENERATE_ENTRY_POINTS(ext)                                   \
-  namespace {                                                            \
-  vef_registration_t vef_reg_;                                           \
-  bool vef_reg_initialized_ = false;                                     \
-  }                                                                      \
-                                                                         \
-  extern "C" vef_registration_t *vef_register(vef_register_arg_t *arg) { \
-    using namespace villagesql::extension_builder;                       \
-    static constexpr auto kExt = (ext);                                  \
-    return villagesql::detail::vef_register_impl<                        \
-        decltype(kExt), kExt.func_count(), kExt.type_count()>(           \
-        vef_reg_, vef_reg_initialized_, arg, kExt);                      \
-  }                                                                      \
-                                                                         \
-  extern "C" void vef_unregister(vef_unregister_arg_t *arg,              \
-                                 vef_registration_t *reg) {              \
-    (void)arg;                                                           \
-    (void)reg;                                                           \
+#define VEF_GENERATE_ENTRY_POINTS(ext)                                     \
+  namespace {                                                              \
+  vef_registration_t vef_reg_;                                             \
+  bool vef_reg_initialized_ = false;                                       \
+  }                                                                        \
+                                                                           \
+  extern "C" vef_registration_t *vef_register(vef_register_arg_t *arg) {   \
+    using namespace villagesql::extension_builder;                         \
+    static constexpr auto kExt = (ext);                                    \
+    using ExtType = decltype(kExt);                                        \
+    return villagesql::detail::vef_register_impl<                          \
+        decltype(kExt), ExtType::kFuncCount, ExtType::kTypeCount,          \
+        ExtType::kSysVarCount>(vef_reg_, vef_reg_initialized_, arg, kExt); \
+  }                                                                        \
+                                                                           \
+  extern "C" void vef_unregister(vef_unregister_arg_t *arg,                \
+                                 vef_registration_t *reg) {                \
+    (void)arg;                                                             \
+    (void)reg;                                                             \
   }
 
 #endif  // VILLAGESQL_SDK_EXTENSION_BUILDER_H

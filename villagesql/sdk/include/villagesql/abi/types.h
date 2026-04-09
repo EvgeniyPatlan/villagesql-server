@@ -167,6 +167,12 @@ typedef enum : unsigned int {
                    // + Replace vef_vdf_args_t.values_v1 flat array with
                    //   vef_vdf_args_t.values pointer array (allows
                    //   vef_invalue_t to grow in future protocol versions).
+                   // + Extension system variables (vef_sys_var_desc_t):
+                   //   server registers these as MySQL component system
+                   //   variables on the extension's behalf.
+                   // + get_variable/set_variable function pointers added to
+                   //   vef_register_arg_t: thread-safe access to MySQL
+                   //   component system variables from any extension VDF.
 } vef_protocol_t;
 
 // Max length of error messages in caller-provided buffers.
@@ -196,12 +202,38 @@ typedef struct {
   // We foresee adding logger or distributed trace information in this context
 } vef_context_t;
 
+// Function pointer types for system variable access, passed to extensions
+// via vef_register_arg_t. Use "mysql_server" as component_name to access
+// built-in MySQL variables (e.g., max_connections).
+//
+// get_variable: get the global value of a system variable.
+//   component_name: extension name or "mysql_server" for built-in variables.
+//   name:           variable name without the component prefix.
+//   val:            on input, a buffer; on output, a pointer to the value.
+//   val_len:        on input, buffer size; on output, length copied.
+//   Returns false on success, true on error.
+//
+// set_variable: set the value of a system variable.
+//   scope: "GLOBAL", "PERSIST", or "PERSIST_ONLY"; NULL defaults to GLOBAL.
+//   val:   new value as a string (e.g. "42", "true", "hello").
+//   Returns false on success, true on error.
+typedef bool (*vef_get_variable_fn)(const char *component_name,
+                                    const char *name, void **val,
+                                    size_t *val_len);
+typedef bool (*vef_set_variable_fn)(const char *component_name,
+                                    const char *name, const char *scope,
+                                    const char *val);
+
 typedef struct {
   // protocol >= VEF_PROTOCOL_1
   vef_protocol_t protocol;
 
   vef_version_t mysql_version;
   vef_version_t vef_version;
+
+  // protocol >= VEF_PROTOCOL_2
+  vef_get_variable_fn get_variable;
+  vef_set_variable_fn set_variable;
 } vef_register_arg_t;
 
 typedef struct {
@@ -694,6 +726,62 @@ typedef struct {
   const vef_type_storage_intf_t *storage_intf;
 } vef_type_desc_t;
 
+// Config Variables
+//
+// Extensions declare configuration variables here. The server registers them
+// as MySQL component system variables on the extension's behalf at load time,
+// and unregisters them at unload time.
+//
+// Variables are accessible in SQL as:
+//   SELECT @@global.extension_name.variable_name
+//   SET GLOBAL extension_name.variable_name = value
+//
+typedef enum : int {
+  VEF_VAR_BOOL = 0,
+  VEF_VAR_INT = 1,
+  VEF_VAR_DOUBLE = 2,
+  VEF_VAR_STR = 3,
+} vef_var_type_t;
+
+typedef struct {
+  vef_protocol_t protocol;
+
+  // Variable name (without extension prefix). Encoded using UTF-8.
+  const char *name;
+
+  // Description shown in metadata tables (e.g., INFORMATION_SCHEMA).
+  const char *comment;
+
+  vef_var_type_t type;
+
+  // Pointer to storage in the extension .so. Must remain valid for the
+  // lifetime of the extension. MySQL writes directly to this storage when
+  // the user sets the variable. Use the typed field in the union below
+  // matching the declared type.
+  union {
+    struct {
+      double *value_ptr;
+      double def_val;
+      double min_val;
+      double max_val;
+    } dbl;
+    struct {
+      long long *value_ptr;
+      long long def_val;
+      long long min_val;
+      long long max_val;
+    } integer;
+    struct {
+      bool *value_ptr;
+      bool def_val;
+    } boolean;
+    struct {
+      char **value_ptr;
+      const char *def_val;
+    } str;
+  };
+} vef_sys_var_desc_t;
+
 typedef struct {
   // protocol >= VEF_PROTOCOL_1
   vef_protocol_t protocol;
@@ -713,6 +801,10 @@ typedef struct {
 
   unsigned int type_count;
   vef_type_desc_t **types;
+
+  // protocol >= VEF_PROTOCOL_2
+  unsigned int sys_var_count;
+  vef_sys_var_desc_t **sys_vars;
 } vef_registration_t;
 
 // The returned objects can be freed when the registration is passed to the

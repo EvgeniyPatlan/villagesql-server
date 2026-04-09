@@ -45,6 +45,7 @@
 #include "villagesql/schema/descriptor/func_descriptor.h"
 #include "villagesql/schema/descriptor/type_descriptor.h"
 #include "villagesql/schema/victionary_client.h"
+#include "villagesql/services/sys_vars.h"
 #include "villagesql/veb/sql_extension.h"
 
 #include <archive.h>
@@ -640,6 +641,14 @@ bool load_installed_extensions(THD *thd) {
       if (register_funcs_from_extension(*thd, extension_name, expected_version,
                                         registration)) {
         LogVSQL(ERROR_LEVEL, "Failed to register VDFs for extension '%s'",
+                extension_name.c_str());
+        return true;
+      }
+
+      if (villagesql::services::register_sys_vars_from_extension(
+              extension_name, registration)) {
+        LogVSQL(ERROR_LEVEL,
+                "Failed to register config vars for extension '%s'",
                 extension_name.c_str());
         return true;
       }
@@ -1367,7 +1376,9 @@ bool load_vef_extension(const std::string &so_path,
   vef_register_arg_t register_arg = {
       max_protocol,
       {MYSQL_VERSION_MAJOR, MYSQL_VERSION_MINOR, MYSQL_VERSION_PATCH, nullptr},
-      {VSQL_MAJOR_VERSION, VSQL_MINOR_VERSION, VSQL_PATCH_VERSION, nullptr}};
+      {VSQL_MAJOR_VERSION, VSQL_MINOR_VERSION, VSQL_PATCH_VERSION, nullptr},
+      villagesql::services::get_variable,
+      villagesql::services::set_variable};
 
   vef_registration_t *reg = vef_register(&register_arg);
   if (reg == nullptr) {
