@@ -163,6 +163,19 @@ bool vdf_handler::fix_fields(THD *thd [[maybe_unused]],
     }
   }
 
+  // Data-driven state allocation (from .state<T>() in the SDK).
+  // The VEF owns the buffer; state_init/state_destroy handle construction
+  // and destruction in place.
+  if (m_udf->vdf_protocol >= VEF_PROTOCOL_2 &&
+      m_udf->vdf_func_desc->state_size > 0 && !m_vdf_args.user_data) {
+    void *buf = my_malloc(PSI_NOT_INSTRUMENTED,
+                          m_udf->vdf_func_desc->state_size, MYF(0));
+    if (!buf) return true;
+    m_udf->vdf_func_desc->state_init(buf);
+    m_vdf_args.user_data = buf;
+    m_state_data_driven = true;
+  }
+
   // Set return type_context if this VDF returns a custom type
   if (signature != nullptr && signature->return_type.id == VEF_TYPE_CUSTOM) {
     villagesql::SetVDFReturnTypeContext(thd, m_udf->extension_name, signature,
@@ -209,12 +222,19 @@ void vdf_handler::accumulate(bool *null_value) {
 }
 
 void vdf_handler::cleanup() {
-  // Call postrun if VDF was active and postrun exists
-  if (m_active && m_udf->vdf_func_desc->postrun) {
-    vef_postrun_args_t postrun_args{};
-    postrun_args.user_data = m_vdf_args.user_data;
-    vef_postrun_result_t postrun_result{};
-    m_udf->vdf_func_desc->postrun(&m_context, &postrun_args, &postrun_result);
+  if (m_active) {
+    if (m_state_data_driven) {
+      m_udf->vdf_func_desc->state_destroy(m_vdf_args.user_data);
+      my_free(m_vdf_args.user_data);
+      m_vdf_args.user_data = nullptr;
+      m_state_data_driven = false;
+    } else if (m_udf->vdf_func_desc->postrun) {
+      vef_postrun_args_t postrun_args{};
+      postrun_args.user_data = m_vdf_args.user_data;
+      vef_postrun_result_t postrun_result{};
+      m_udf->vdf_func_desc->postrun(&m_context, &postrun_args,
+                                     &postrun_result);
+    }
   }
   m_active = false;
 }

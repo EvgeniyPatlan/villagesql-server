@@ -113,20 +113,16 @@ constexpr vef_type_t to_vef_type(const char *name);
 // explains what went wrong.
 void config_error__aggregate_must_set_both_clear_and_accumulate();
 
-// Auto-generated prerun/postrun for aggregate state management.
-// Use with .state<T>() on FuncBuilder to avoid writing boilerplate
-// prerun/postrun callbacks for simple aggregate state types.
+// Auto-generated state lifecycle for .state<T>().
+// The VEF allocates the buffer; these just construct/destruct in place.
 template <typename State>
-void auto_prerun(vef_context_t *, vef_prerun_args_t *,
-                 vef_prerun_result_t *result) {
-  result->user_data = new State{};
-  result->type = VEF_RESULT_VALUE;
+void auto_state_init(void *buf) {
+  new (buf) State{};
 }
 
 template <typename State>
-void auto_postrun(vef_context_t *, vef_postrun_args_t *args,
-                  vef_postrun_result_t *) {
-  delete static_cast<State *>(args->user_data);
+void auto_state_destroy(void *buf) {
+  static_cast<State *>(buf)->~State();
 }
 
 // =============================================================================
@@ -168,7 +164,11 @@ struct FuncWithMetadata {
         num_params(0),
         buffer_size(0),
         deterministic(false),
-        check_params_cache_bound(nullptr) {}
+        check_params_cache_bound(nullptr),
+        state_size(0),
+        state_align(0),
+        state_init(nullptr),
+        state_destroy(nullptr) {}
 
   ExtFunc f;
   vef_prerun_func_t prerun;
@@ -184,6 +184,10 @@ struct FuncWithMetadata {
   // function that returns true if the cache has been bound. Set by the cache
   // wrapper selection in make_type_encode/decode/compare/intrinsic_default.
   bool (*check_params_cache_bound)();
+  size_t state_size;
+  size_t state_align;
+  vef_state_init_func_t state_init;
+  vef_state_destroy_func_t state_destroy;
 };
 
 // =============================================================================
@@ -970,6 +974,10 @@ struct StaticFuncDesc {
   size_t buffer_size_;
   bool deterministic_;
   bool (*check_params_cache_bound_)();
+  size_t state_size_;
+  size_t state_align_;
+  vef_state_init_func_t state_init_;
+  vef_state_destroy_func_t state_destroy_;
 
   constexpr StaticFuncDesc(const char *name, const FuncWithMetadata &meta)
       : name_(name),
@@ -982,7 +990,11 @@ struct StaticFuncDesc {
         accumulate_(meta.accumulate),
         buffer_size_(meta.buffer_size),
         deterministic_(meta.deterministic),
-        check_params_cache_bound_(meta.check_params_cache_bound) {
+        check_params_cache_bound_(meta.check_params_cache_bound),
+        state_size_(meta.state_size),
+        state_align_(meta.state_align),
+        state_init_(meta.state_init),
+        state_destroy_(meta.state_destroy) {
     for (size_t i = 0; i < NumParams && i < meta.num_params; ++i) {
       params_[i] = meta.param_types[i];
     }
@@ -1002,6 +1014,12 @@ struct StaticFuncDesc {
   constexpr bool deterministic() const { return deterministic_; }
   constexpr auto check_params_cache_bound() const -> bool (*)() {
     return check_params_cache_bound_;
+  }
+  constexpr size_t state_size() const { return state_size_; }
+  constexpr size_t state_align() const { return state_align_; }
+  constexpr vef_state_init_func_t state_init() const { return state_init_; }
+  constexpr vef_state_destroy_func_t state_destroy() const {
+    return state_destroy_;
   }
 };
 
@@ -1034,6 +1052,10 @@ __attribute__((visibility("hidden"))) vef_func_desc_t *materialize_func_desc(
   desc.deterministic = func_data.deterministic();
   desc.clear = func_data.clear();
   desc.accumulate = func_data.accumulate();
+  desc.state_size = func_data.state_size();
+  desc.state_align = func_data.state_align();
+  desc.state_init = func_data.state_init();
+  desc.state_destroy = func_data.state_destroy();
 
   return &desc;
 }
@@ -1140,7 +1162,11 @@ struct FuncBuilder {
         postrun_(nullptr),
         clear_(nullptr),
         accumulate_(nullptr),
-        deterministic_(false) {}
+        deterministic_(false),
+        state_size_(0),
+        state_align_(0),
+        state_init_(nullptr),
+        state_destroy_(nullptr) {}
 
   const char *name_;
   const char *return_type_;
@@ -1151,6 +1177,10 @@ struct FuncBuilder {
   vef_vdf_clear_func_t clear_;
   vef_vdf_accumulate_func_t accumulate_;
   bool deterministic_;
+  size_t state_size_;
+  size_t state_align_;
+  vef_state_init_func_t state_init_;
+  vef_state_destroy_func_t state_destroy_;
 
   constexpr FuncBuilder<Func, NumParams> &returns(const char *t) {
     return_type_ = t;
@@ -1167,6 +1197,10 @@ struct FuncBuilder {
     next.clear_ = clear_;
     next.accumulate_ = accumulate_;
     next.deterministic_ = deterministic_;
+    next.state_size_ = state_size_;
+    next.state_align_ = state_align_;
+    next.state_init_ = state_init_;
+    next.state_destroy_ = state_destroy_;
     for (size_t i = 0; i < NumParams; ++i) {
       next.param_types_[i] = param_types_[i];
     }
@@ -1249,12 +1283,15 @@ struct FuncBuilder {
     return *this;
   }
 
-  // Set the aggregate state type. Automatically generates prerun (allocates
-  // State via value-initialization) and postrun (deletes State).
+  // Declare the aggregate state type as data. The VEF allocates and manages
+  // the state buffer; auto_state_init/auto_state_destroy handle construction
+  // and destruction in place.
   template <typename State>
   constexpr FuncBuilder<Func, NumParams> &state() {
-    prerun_ = &auto_prerun<State>;
-    postrun_ = &auto_postrun<State>;
+    state_size_ = sizeof(State);
+    state_align_ = alignof(State);
+    state_init_ = &auto_state_init<State>;
+    state_destroy_ = &auto_state_destroy<State>;
     return *this;
   }
 
@@ -1301,6 +1338,10 @@ struct FuncBuilder {
     meta.num_params = NumParams;
     meta.buffer_size = buffer_size_;
     meta.deterministic = deterministic_;
+    meta.state_size = state_size_;
+    meta.state_align = state_align_;
+    meta.state_init = state_init_;
+    meta.state_destroy = state_destroy_;
     for (size_t i = 0; i < NumParams; ++i) {
       meta.param_types[i] = to_vef_type(param_types_[i]);
     }

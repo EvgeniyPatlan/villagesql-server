@@ -78,6 +78,10 @@ long long vdf_count_result(const CountState &state) { return state; }
 // vdf_concat: aggregate that concatenates STRING values with commas.
 // Returns NULL for empty groups.
 
+// NOTE: std::optional<std::string> performs heap allocation for the string
+// data. For production use, prefer fixed-size state types to avoid allocations
+// during aggregation -- e.g., accumulate into a pre-sized char[] buffer and
+// track the length manually.
 using ConcatState = std::optional<std::string>;
 
 void vdf_concat_clear(ConcatState &state) { state = std::nullopt; }

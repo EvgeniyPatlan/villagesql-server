@@ -524,6 +524,21 @@ typedef void (*vef_vdf_accumulate_func_t)(vef_context_t *ctx,
                                           vef_vdf_result_t *result);
 
 // =============================================================================
+// State Lifecycle (data-driven aggregate state)
+// =============================================================================
+//
+// Used by .state<T>() in the SDK to declare aggregate state as data rather
+// than opaque prerun/postrun callbacks. The VEF allocates state_size bytes
+// and calls state_init to placement-construct the state; on cleanup it calls
+// state_destroy (destructor only) then frees the memory itself.
+
+// Placement-constructs state into a pre-allocated buffer of state_size bytes.
+typedef void (*vef_state_init_func_t)(void *buf);
+
+// Calls the state destructor. Must NOT free the buffer.
+typedef void (*vef_state_destroy_func_t)(void *buf);
+
+// =============================================================================
 // Function and Type Descriptors
 // =============================================================================
 
@@ -568,6 +583,14 @@ typedef struct {
   // It is an error to set exactly one of these; both must be present or absent.
   vef_vdf_clear_func_t clear;
   vef_vdf_accumulate_func_t accumulate;
+
+  // Data-driven aggregate state (alternative to prerun/postrun for state
+  // allocation). When state_size > 0, the VEF allocates the buffer, calls
+  // state_init to construct, and state_destroy + free on cleanup.
+  size_t state_size;
+  size_t state_align;
+  vef_state_init_func_t state_init;
+  vef_state_destroy_func_t state_destroy;
 } vef_func_desc_t;
 
 // =============================================================================

@@ -74,6 +74,7 @@ class vdf_handler {
   size_t m_result_buffer_size{0};
   char *m_error_msg{nullptr};
   bool m_active{false};
+  bool m_state_data_driven{false};
   const villagesql::TypeContext *m_return_type_context{nullptr};
 
   // Marshal arguments into m_invalues array based on declared parameter types
