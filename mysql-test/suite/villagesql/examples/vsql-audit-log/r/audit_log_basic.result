@@ -1,0 +1,32 @@
+INSTALL EXTENSION vsql_audit_log;
+SET GLOBAL vsql_audit_log.audit_log_policy = 'NONE';
+SET GLOBAL vsql_audit_log.audit_log_file = 'MYSQLTEST_VARDIR/vsql_audit.log';
+SET GLOBAL vsql_audit_log.audit_log_policy = 'ALL';
+CREATE USER IF NOT EXISTS 'audit_test'@'localhost' IDENTIFIED BY 'password';
+GRANT ALL ON test.* TO 'audit_test'@'localhost';
+SELECT 1 + 1 AS result;
+result
+2
+DROP USER 'audit_test'@'localhost';
+SET GLOBAL vsql_audit_log.audit_log_policy = 'NONE';
+SELECT 2 + 2 AS result;
+result
+4
+SET GLOBAL vsql_audit_log.audit_log_policy = 'QUERIES';
+SELECT 3 + 3 AS result;
+result
+6
+SET GLOBAL vsql_audit_log.audit_log_policy = 'LOGINS';
+SELECT 4 + 4 AS result;
+result
+8
+[general/query] user=root query=SET GLOBAL vsql_audit_log.audit_log_policy = 'ALL' db=test
+[general/query] user=root query=CREATE USER IF NOT EXISTS 'audit_test'@'localhost' IDENTIFIED BY 'password' db=test
+[general/query] user=root query=GRANT ALL ON test.* TO 'audit_test'@'localhost' db=test
+[connection/connect] user=audit_test status=0 db=test
+[general/query] user=audit_test query=SELECT 1 + 1 AS result db=test
+[connection/disconnect] user=audit_test status= db=test
+[general/query] user=root query=DROP USER 'audit_test'@'localhost' db=test
+[general/query] user=root query=SET GLOBAL vsql_audit_log.audit_log_policy = 'QUERIES' db=test
+[general/query] user=root query=SELECT 3 + 3 AS result db=test
+UNINSTALL EXTENSION vsql_audit_log;

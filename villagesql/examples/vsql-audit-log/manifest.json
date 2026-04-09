@@ -1,0 +1,7 @@
+{
+  "name": "vsql_audit_log",
+  "version": "0.0.1",
+  "description": "VillageSQL audit log extension — JSON audit log compatible with MySQL Enterprise Audit format",
+  "author": "VillageSQL Community",
+  "license": "GPL-2.0"
+}

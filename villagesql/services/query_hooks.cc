@@ -100,10 +100,48 @@ void on_query_event(THD *thd, mysql_event_tracking_query_subclass_t subclass) {
 
 void on_connection_event(THD *thd,
                          mysql_event_tracking_connection_subclass_t subclass,
-                         int /*errcode*/) {
-  // TODO(villagesql): invoke connect/disconnect hooks when implemented
-  (void)thd;
-  (void)subclass;
+                         int errcode) {
+  if (thd == nullptr) return;
+
+  vef_query_hook_phase_t phase;
+  if (subclass & EVENT_TRACKING_CONNECTION_CONNECT) {
+    phase = VEF_QUERY_HOOK_CONNECT;
+  } else if (subclass & EVENT_TRACKING_CONNECTION_DISCONNECT) {
+    phase = VEF_QUERY_HOOK_DISCONNECT;
+  } else {
+    return;
+  }
+
+  auto hooks = std::atomic_load(&g_hooks);
+  if (hooks->empty()) return;
+
+  vef_query_hook_args_t args{};
+  args.phase = phase;
+
+  const Security_context *sctx = thd->security_context();
+  args.user = sctx->priv_user().str;
+  args.host = sctx->ip().str;
+  args.connection_id = thd->thread_id();
+  args.port = thd->peer_port;
+  args.schema = thd->db().str != nullptr && thd->db().length > 0 ? thd->db().str
+                                                                 : nullptr;
+
+  if (phase == VEF_QUERY_HOOK_CONNECT) {
+    args.status =
+        errcode != 0
+            ? (thd->is_error() ? thd->get_stmt_da()->mysql_errno() : errcode)
+            : 0;
+  }
+
+  for (auto &h : *hooks) {
+    if (h.desc->phase != phase) continue;
+    vef_query_hook_result_t result{};
+    h.desc->hook(&h.ctx, &args, &result);
+    if (result.error_msg != nullptr && result.error_msg[0] != '\0') {
+      LogVSQL(WARNING_LEVEL, "Connection hook error in extension '%s': %s",
+              h.extension_name.c_str(), result.error_msg);
+    }
+  }
 }
 
 static void on_post_execute(THD *thd) {

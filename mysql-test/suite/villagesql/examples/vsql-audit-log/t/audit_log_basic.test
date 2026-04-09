@@ -1,0 +1,78 @@
+INSTALL EXTENSION vsql_audit_log;
+
+--let $log_file = $MYSQLTEST_VARDIR/vsql_audit.log
+
+# Disable logging while we configure the log file path.
+SET GLOBAL vsql_audit_log.audit_log_policy = 'NONE';
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+eval SET GLOBAL vsql_audit_log.audit_log_file = '$log_file';
+
+# -----------------------------------------------------------------------
+# Policy: ALL — both logins and queries are logged
+# -----------------------------------------------------------------------
+SET GLOBAL vsql_audit_log.audit_log_policy = 'ALL';
+
+# Connect as a new user to generate a connect event. The current connection
+# (root) was established before the extension was installed so it won't appear.
+CREATE USER IF NOT EXISTS 'audit_test'@'localhost' IDENTIFIED BY 'password';
+GRANT ALL ON test.* TO 'audit_test'@'localhost';
+
+--connect(audit_conn, localhost, audit_test, password, test)
+SELECT 1 + 1 AS result;
+--disconnect audit_conn
+--connection default
+
+DROP USER 'audit_test'@'localhost';
+
+# -----------------------------------------------------------------------
+# Policy: NONE — nothing is logged
+# -----------------------------------------------------------------------
+SET GLOBAL vsql_audit_log.audit_log_policy = 'NONE';
+SELECT 2 + 2 AS result;
+
+# -----------------------------------------------------------------------
+# Policy: QUERIES — only queries logged, not logins
+# -----------------------------------------------------------------------
+SET GLOBAL vsql_audit_log.audit_log_policy = 'QUERIES';
+SELECT 3 + 3 AS result;
+
+# -----------------------------------------------------------------------
+# Policy: LOGINS — only logins logged, not queries
+# -----------------------------------------------------------------------
+SET GLOBAL vsql_audit_log.audit_log_policy = 'LOGINS';
+SELECT 4 + 4 AS result;
+
+# Read and normalize the log file
+--perl
+use strict;
+use JSON;
+my $log_file = $ENV{MYSQLTEST_VARDIR} . "/vsql_audit.log";
+open(my $fh, "<", $log_file) or die "Cannot open log: $log_file: $!";
+while (my $line = <$fh>) {
+  chomp $line;
+  my $rec = eval { decode_json($line) };
+  next unless $rec;
+  # Normalize volatile fields
+  $rec->{timestamp} = "<ts>";
+  $rec->{connection_id} = "<id>";
+  # Re-encode in a stable key order for the result file
+  my $class = $rec->{class} // "";
+  my $event = $rec->{event} // "";
+  my $user  = $rec->{account}{user} // "";
+  my $host  = $rec->{account}{host} // "";
+  my $status = $rec->{connection_data}{status} // "";
+  my $db    = $rec->{connection_data}{db} // $rec->{general_data}{db} // "";
+  my $query = $rec->{general_data}{query} // "";
+  my $qt    = defined $rec->{general_data}{query_time}
+              ? "<t>" : "";
+  if ($class eq "connection") {
+    print "[$class/$event] user=$user status=$status db=$db\n";
+  } else {
+    print "[$class/$event] user=$user query=$query db=$db\n";
+  }
+}
+close($fh);
+EOF
+
+UNINSTALL EXTENSION vsql_audit_log;
+--remove_file $log_file

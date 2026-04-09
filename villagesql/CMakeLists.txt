@@ -292,6 +292,37 @@ IF(NOT WITHOUT_SERVER)
   add_custom_target(keyring_reader_veb ALL)
   add_dependencies(keyring_reader_veb copy_vsql_keyring_reader_veb)
 
+  ExternalProject_Add(vsql_audit_log_extension
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples/vsql-audit-log
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-audit-log-build
+    CMAKE_GENERATOR ${CMAKE_GENERATOR}
+    CMAKE_ARGS
+      "-DCMAKE_PREFIX_PATH=${CMAKE_SOURCE_DIR}"
+      "-DVillageSQLExtensionFramework_INCLUDE_DIR=${SDK_STAGING_DIR}/include-dev"
+      "-DVillageSQL_VEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+    DEPENDS sdk
+    BUILD_ALWAYS ON
+    INSTALL_COMMAND ""
+  )
+
+  add_custom_target(copy_vsql_audit_log_veb
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/veb_output_directory
+    COMMAND ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-audit-log-build/vsql_audit_log.veb
+      ${CMAKE_BINARY_DIR}/veb_output_directory/
+    DEPENDS vsql_audit_log_extension
+    COMMENT "Copying vsql_audit_log.veb to veb_output_directory"
+  )
+
+  add_custom_target(audit_log_veb ALL)
+  add_dependencies(audit_log_veb copy_vsql_audit_log_veb)
+
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-audit-log-build/vsql_audit_log.veb
+    DESTINATION ${INSTALL_VEBDIR}
+    COMPONENT ExampleVebs
+  )
+
   ExternalProject_Add(vsql_slow_query_log_extension
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples/vsql-slow-query-log
     BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-slow-query-log-build

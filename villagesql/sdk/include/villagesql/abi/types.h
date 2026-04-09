@@ -832,7 +832,8 @@ typedef struct {
   // POSTPARSE only.
   bool is_prepared;
 
-  // POSTEXECUTE only: 0 on success, non-zero MySQL error code on failure.
+  // POSTEXECUTE and CONNECT: 0 on success, non-zero MySQL error code on
+  // failure. For CONNECT, a non-zero value means authentication failed.
   int status;
   const char *sqlstate;       // SQLSTATE string (5 chars + NUL), or NULL
   const char *error_message;  // error message text, or NULL
@@ -852,7 +853,7 @@ typedef struct {
   const char *schema;
 } vef_query_hook_args_t;
 
-// Result written by the hook. Ignored for POSTEXECUTE, CONNECT (except
+// Result written by the hook. Ignored for POSTEXECUTE (except
 // error_msg), and DISCONNECT.
 typedef struct {
   // PREPARSE / POSTPARSE: if non-NULL, the server uses this as the new query
