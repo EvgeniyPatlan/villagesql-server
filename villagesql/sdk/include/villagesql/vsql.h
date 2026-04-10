@@ -21,12 +21,15 @@
 // =============================================================================
 //
 // This is the recommended header for writing VillageSQL extensions.
-// It provides everything you need: function definitions, type definitions,
-// typed wrappers, system variables, and extension registration.
+//
+//   #include <villagesql/vsql.h>
+//   using namespace vsql;
+//
+// The vsql namespace provides everything you need: function definitions,
+// type definitions, system variables, and extension registration.
 //
 //
-// QUICK START
-// -----------
+// ---- QUICK START ------------------------------------------------------------
 //
 //   #include <villagesql/vsql.h>
 //   using namespace vsql;
@@ -39,17 +42,17 @@
 //   int  complex_compare(Span<const unsigned char> a,
 //                        Span<const unsigned char> b);
 //
-//   // 2. Define the type as a constexpr object
+//   // 2. Define the type
 //   static constexpr const char kComplexTypeName[] = "COMPLEX";
 //   constexpr auto COMPLEX = make_type<kComplexTypeName>()
 //       .persisted_length(16)
 //       .max_decode_buffer_length(64)
-//       .from_string<&complex_from_string>()  // statically checked signature
+//       .from_string<&complex_from_string>()
 //       .to_string<&complex_to_string>()
 //       .compare<&complex_compare>()
 //       .build();  // compile error if any required operation is missing
 //
-//   // 3. Implement regular VDFs, using COMPLEX as a type reference
+//   // 3. Write functions that operate on COMPLEX values
 //   void complex_add(CustomArg a, CustomArg b, CustomResult out) { ... }
 //
 //   // 4. Register
@@ -63,20 +66,13 @@
 //           .build()))
 //
 //
-// TYPED WRAPPERS
-// --------------
+// ---- FUNCTIONS --------------------------------------------------------------
 //
-// Typed wrappers provide a type-safe interface for writing extension
-// functions. Each parameter and return type has a corresponding wrapper
-// class with methods for null checking and value access:
+// Extension functions are defined with make_func<&impl>("sql_name") and
+// registered with .func() on the extension builder.
 //
-//   Input:   IntArg, RealArg, StringArg
-//            CustomArg, CustomArgWith<P>
-//   Output:  IntResult, RealResult, StringResult
-//            CustomResult, CustomResultWith<P>
-//
-// The framework detects the parameter types from your function signature
-// and adapts automatically:
+// Use typed wrappers for parameters and return values — the framework
+// detects your function's C++ signature and adapts automatically:
 //
 //   void add_impl(IntArg a, IntArg b, IntResult out) {
 //     if (a.is_null() || b.is_null()) { out.set_null(); return; }
@@ -85,8 +81,13 @@
 //
 //   make_func<&add_impl>("add").returns(INT).param(INT).param(INT).build();
 //
-// For binary (custom) types, write directly into the caller-provided buffer
-// to avoid copies:
+// Available wrapper types:
+//
+//   Input:   IntArg, RealArg, StringArg, CustomArg, CustomArgWith<P>
+//   Output:  IntResult, RealResult, StringResult, CustomResult,
+//            CustomResultWith<P>
+//
+// For binary (custom) types, write directly into the caller-provided buffer:
 //
 //   void rot13_impl(CustomArg in, CustomResult out) {
 //     if (in.is_null()) { out.set_null(); return; }
@@ -96,107 +97,26 @@
 //     out.set_length(src.size());
 //   }
 //
-//
-// DEFINING FUNCTIONS
-// ------------------
-//
-// Functions are defined using make_func<&impl>("name") and chained builder
-// methods, ending with .build():
+// Builder options:
 //
 //   make_func<&my_impl>("my_func")
-//     .returns(INT)       // Return type
-//     .param(INT)         // First parameter
-//     .param(STRING)      // Second parameter
-//     .buffer_size(256)   // Optional: output buffer size
-//     .build()            // Finalize the function definition
-//
-// Available types for .returns() and .param():
-//   - INT    - 64-bit integer
-//   - STRING - Variable-length string
-//   - REAL   - Double-precision float
-//   - Custom type objects defined with make_type (see DEFINING TYPES)
-//
-//
-// PRERUN/POSTRUN FUNCTIONS
-// ------------------------
-//
-// For prerun/postrun functions (per-statement setup/teardown):
-//
-//   make_func<&my_impl>("my_func")
-//     .returns(STRING)
-//     .prerun<&my_prerun>()   // Called before first row
-//     .postrun<&my_postrun>() // Called after last row
+//     .returns(INT)           // Return type
+//     .param(INT)             // First parameter
+//     .param(STRING)          // Second parameter
+//     .buffer_size(256)       // Optional: output buffer size
+//     .deterministic()        // Optional: mark as deterministic
 //     .build()
 //
-// Note: Prerun and postrun functions can be a cumbersome API. The func builder
-// already handles simple cases (e.g., type checking for functions with fixed
-// args and allocating fixed buffer sizes). We want to cover more cases. If
-// you find that you need to use prerun or postrun functions, please come talk
-// to us so we can understand your use case.
+// Available types for .returns() and .param():
+//   INT, STRING, REAL, or any custom type object from make_type.
+//
+// For aggregate functions and prerun/postrun hooks, see ADVANCED below.
 //
 //
-// AGGREGATE FUNCTIONS
-// -------------------
+// ---- TYPES ------------------------------------------------------------------
 //
-// Aggregate VDFs (like SQL SUM, COUNT, etc.) accumulate state across rows
-// within each GROUP BY group, then return a final result per group.
-//
-// The recommended approach uses .state<T>() with typed callbacks. Define a
-// state type, then write clear, accumulate, and result functions using C++
-// types:
-//
-//   using SumState = std::optional<long long>;
-//
-//   void my_clear(SumState &s)       { s = std::nullopt; }
-//   void my_acc(SumState &s, IntArg v) {
-//     if (!v.is_null()) s = s.value_or(0) + v.value();
-//   }
-//   std::optional<long long> my_result(const SumState &s) { return s; }
-//
-//   make_func<&my_result>("my_sum")
-//       .returns(INT)
-//       .param(INT)
-//       .state<SumState>()
-//       .clear<&my_clear>()
-//       .accumulate<&my_acc>()
-//       .build()
-//
-// How it works:
-//   - .state<T>() generates prerun (allocates T via value-initialization) and
-//     postrun (deletes T) automatically. T is stored in user_data.
-//   - .clear<&fn>() wraps void(State&) -> vef_vdf_clear_func_t
-//   - .accumulate<&fn>() wraps void(State&, TypedArgs...) ->
-//     vef_vdf_accumulate_func_t. TypedArgs are deduced from the function
-//     signature (IntArg, StringArg, etc.).
-//   - The result function (make_func template parameter) can return T directly
-//     (never NULL) or std::optional<T> (nullopt -> SQL NULL).
-//
-// For results that are never NULL (e.g., COUNT), use a plain state type:
-//
-//   using CountState = long long;
-//   void count_clear(CountState &s) { s = 0; }
-//   void count_acc(CountState &s, IntArg v) { if (!v.is_null()) s++; }
-//   long long count_result(const CountState &s) { return s; }
-//
-// You can also use the raw ABI directly for full control:
-//
-//   make_func<&raw_result>("my_agg")
-//       .returns(INT).param(INT)
-//       .prerun<&my_prerun>()      // void(ctx, prerun_args, prerun_result)
-//       .postrun<&my_postrun>()    // void(ctx, postrun_args, postrun_result)
-//       .clear<&my_clear>()        // void(ctx, vdf_args)
-//       .accumulate<&my_acc>()     // void(ctx, vdf_args, vdf_result)
-//       .build()
-//
-// See aggregate_vdf.cc in the test suite for complete examples of both styles.
-//
-//
-// DEFINING TYPES
-// --------------
-//
-// Custom types are defined using make_type<kName>() with chained builder
-// methods, ending with .build(). The type name must be a static constexpr
-// char array (required for use as a template parameter):
+// Custom types are defined with make_type<kName>() at file scope. The type
+// name must be a static constexpr char array:
 //
 //   static constexpr const char kMyTypeName[] = "MYTYPE";
 //
@@ -209,13 +129,18 @@
 //       .hash<&my_hash>()                 // Optional: hash function
 //       .build();                         // Compile error if required ops missing
 //
+// Calling .build() without from_string, to_string, or compare is a compile
+// error. Each builder method also static_asserts that the function signature
+// matches the expected type.
+//
 // The type builder auto-generates VDF names ("MYTYPE::from_string", etc.)
 // and embeds the type operations in the type object. When you pass the type
 // to .type() on the extension builder, the operations are registered
 // automatically — no separate .func() calls needed.
 //
-// The resulting type object converts implicitly to const char*, so it can
-// be passed directly to .returns() and .param() on function builders.
+// The resulting type object converts implicitly to const char*, so you can
+// pass it directly to .returns(MYTYPE) and .param(MYTYPE) on function
+// builders.
 //
 // Type operation signatures:
 //
@@ -240,96 +165,23 @@
 //   .intrinsic_default_vdf("vdf_name")          // or a VDF registered separately
 //                                               // with make_intrinsic_default()
 //
-//
-// PARAMETERIZED TYPES
-// -------------------
-//
-// If the type has SQL-level parameters (e.g., TVECTOR(1536)), define a params
-// struct and a parse function, then register them with .params<P, &parse>()
-// on the type builder. Type operation functions take const P& as their first
-// argument; the SDK detects this signature and wires up a memoized parse
-// cache automatically.
-//
-// The parse function is called based on the canonicalized output of the
-// resolve_params function; all parameter error checking should be done there.
-//
-// The parse function can be a static method on the struct (shown below) or
-// any free function with the signature:
-//   P parse_fn(const std::map<std::string, std::string>& params)
-//
-//   struct MyParams {
-//     int64_t dimension;
-//     static MyParams parse(const std::map<std::string, std::string>& p) {
-//       return {.dimension = stoll(p.at("dimension"))};
-//     }
-//   };
-//
-//   // Type operations take const P& as first argument:
-//   bool my_encode(const MyParams& p, std::string_view from,
-//                  Span<unsigned char> buf, size_t* length) { ... }
-//
-//   static constexpr const char kMyTypeName[] = "MYTYPE";
-//   constexpr auto MYTYPE = make_type<kMyTypeName>()
-//       .persisted_length(...)
-//       .params<MyParams, &MyParams::parse>()
-//       .from_string<&my_encode>()
-//       ...
-//       .build();
-//
-// For types with MYTYPE(N) integer shorthand and explicit parameter
-// resolution, also provide:
-//
-//   .int_to_params<&fn>()     // bool fn(int64_t, map<string,string>&, char*)
-//   .resolve_params<&fn>()    // bool fn(const map<string,string>&,
-//                             //         ResolvedTypeParams*, char*)
-//
-// Omitting .params<>() while using const P& signatures will fail at
-// registration time.
-// TODO(villagesql-beta): make this a compile time error.
-//
-// Note if a Params type is registered for more than one custom type, each
-// custom type MUST register the same parse function.
-// TODO(villagesql-beta): remove this restriction.
+// For parameterized types (e.g. TVECTOR(1536)), see ADVANCED below.
 //
 //
-// SYSTEM VARIABLES
-// ----------------
+// ---- REGISTERING THE EXTENSION ----------------------------------------------
 //
-// Extensions can declare system variables accessible from SQL:
-//
-//   make_extension("myext", "1.0")
-//     .sys_var(make_sys_var_int("threshold_ms",
-//                               "Slow query threshold in ms",
-//                               &g_threshold_ms, 1000, 0, 3600000))
-//     .sys_var(make_sys_var_str("log_file",
-//                               "Path to log file",
-//                               &g_log_file, "/tmp/myext.log"))
-//
-// Available builders: make_sys_var_bool, make_sys_var_int, make_sys_var_double,
-// make_sys_var_str. Each takes (name, comment, value_ptr, default, ...).
-//
-// Variables are accessible in SQL as:
-//   SELECT @@global.myext.threshold_ms;
-//   SET GLOBAL myext.threshold_ms = 500;
-//
-// From extension code, use sys_var::get() and sys_var::set().
-//
-//
-// REGISTERING THE EXTENSION
-// -------------------------
-//
-// Use VEF_GENERATE_ENTRY_POINTS with make_extension() to generate the
-// extern "C" vef_register() and vef_unregister() functions that the
-// server calls to load the extension:
+// VEF_GENERATE_ENTRY_POINTS generates the extern "C" vef_register() and
+// vef_unregister() entry points that the server calls to load the extension:
 //
 //   VEF_GENERATE_ENTRY_POINTS(
 //     make_extension("my_ext", "1.0.0")
 //       .type(MYTYPE)
-//       .func(make_func<&func1_impl>("func1").returns(INT).build()))
+//       .func(make_func<&func1_impl>("func1").returns(INT).build())
+//       .sys_var(make_sys_var_int("limit", "Max items", &g_limit, 100, 0, 10000))
+//   )
 //
 //
-// COMPLETE EXAMPLE
-// ----------------
+// ---- COMPLETE EXAMPLE -------------------------------------------------------
 //
 //   #include <villagesql/vsql.h>
 //   #include <cstring>
@@ -399,12 +251,170 @@
 //         .build()))
 //
 //
-// LIMITATIONS
-// -----------
+// =============================================================================
+// ADVANCED
+// =============================================================================
+//
+//
+// ---- AGGREGATE FUNCTIONS ----------------------------------------------------
+//
+// Aggregate VDFs (like SQL SUM, COUNT, etc.) accumulate state across rows
+// within each GROUP BY group, then return a final result per group.
+//
+// The recommended approach uses .state<T>() with typed callbacks. Define a
+// state type, then write clear, accumulate, and result functions using C++
+// types:
+//
+//   using SumState = std::optional<long long>;
+//
+//   void my_clear(SumState &s)       { s = std::nullopt; }
+//   void my_acc(SumState &s, IntArg v) {
+//     if (!v.is_null()) s = s.value_or(0) + v.value();
+//   }
+//   std::optional<long long> my_result(const SumState &s) { return s; }
+//
+//   make_func<&my_result>("my_sum")
+//       .returns(INT)
+//       .param(INT)
+//       .state<SumState>()
+//       .clear<&my_clear>()
+//       .accumulate<&my_acc>()
+//       .build()
+//
+// How it works:
+//   - .state<T>() generates prerun (allocates T via value-initialization) and
+//     postrun (deletes T) automatically. T is stored in user_data.
+//   - .clear<&fn>() wraps void(State&) -> vef_vdf_clear_func_t
+//   - .accumulate<&fn>() wraps void(State&, TypedArgs...) ->
+//     vef_vdf_accumulate_func_t. TypedArgs are deduced from the function
+//     signature (IntArg, StringArg, etc.).
+//   - The result function (make_func template parameter) can return T directly
+//     (never NULL) or std::optional<T> (nullopt -> SQL NULL).
+//
+// For results that are never NULL (e.g., COUNT), use a plain state type:
+//
+//   using CountState = long long;
+//   void count_clear(CountState &s) { s = 0; }
+//   void count_acc(CountState &s, IntArg v) { if (!v.is_null()) s++; }
+//   long long count_result(const CountState &s) { return s; }
+//
+// You can also use the raw ABI directly for full control:
+//
+//   make_func<&raw_result>("my_agg")
+//       .returns(INT).param(INT)
+//       .prerun<&my_prerun>()      // void(ctx, prerun_args, prerun_result)
+//       .postrun<&my_postrun>()    // void(ctx, postrun_args, postrun_result)
+//       .clear<&my_clear>()        // void(ctx, vdf_args)
+//       .accumulate<&my_acc>()     // void(ctx, vdf_args, vdf_result)
+//       .build()
+//
+// See aggregate_vdf.cc in the test suite for complete examples of both styles.
+//
+//
+// ---- PRERUN/POSTRUN ---------------------------------------------------------
+//
+// For prerun/postrun functions (per-statement setup/teardown):
+//
+//   make_func<&my_impl>("my_func")
+//     .returns(STRING)
+//     .prerun<&my_prerun>()   // Called before first row
+//     .postrun<&my_postrun>() // Called after last row
+//     .build()
+//
+// Note: Prerun and postrun functions can be a cumbersome API. The func builder
+// already handles simple cases (e.g., type checking for functions with fixed
+// args and allocating fixed buffer sizes). We want to cover more cases. If
+// you find that you need to use prerun or postrun functions, please come talk
+// to us so we can understand your use case.
+//
+//
+// ---- PARAMETERIZED TYPES ----------------------------------------------------
+//
+// If the type has SQL-level parameters (e.g., TVECTOR(1536)), define a params
+// struct and a parse function, then register them with .params<P, &parse>()
+// on the type builder. Type operation functions take const P& as their first
+// argument; the SDK detects this signature and wires up a memoized parse
+// cache automatically.
+//
+// The parse function is called based on the canonicalized output of the
+// resolve_params function; all parameter error checking should be done there.
+//
+// The parse function can be a static method on the struct (shown below) or
+// any free function with the signature:
+//   P parse_fn(const std::map<std::string, std::string>& params)
+//
+//   struct MyParams {
+//     int64_t dimension;
+//     static MyParams parse(const std::map<std::string, std::string>& p) {
+//       return {.dimension = stoll(p.at("dimension"))};
+//     }
+//   };
+//
+//   // Type operations take const P& as first argument:
+//   bool my_encode(const MyParams& p, std::string_view from,
+//                  Span<unsigned char> buf, size_t* length) { ... }
+//
+//   static constexpr const char kMyTypeName[] = "MYTYPE";
+//   constexpr auto MYTYPE = make_type<kMyTypeName>()
+//       .persisted_length(...)
+//       .params<MyParams, &MyParams::parse>()
+//       .from_string<&my_encode>()
+//       ...
+//       .build();
+//
+// For types with MYTYPE(N) integer shorthand and explicit parameter
+// resolution, also provide:
+//
+//   .int_to_params<&fn>()     // bool fn(int64_t, map<string,string>&, char*)
+//   .resolve_params<&fn>()    // bool fn(const map<string,string>&,
+//                             //         ResolvedTypeParams*, char*)
+//
+// Omitting .params<>() while using const P& signatures will fail at
+// registration time.
+// TODO(villagesql-beta): make this a compile time error.
+//
+// Note if a Params type is registered for more than one custom type, each
+// custom type MUST register the same parse function.
+// TODO(villagesql-beta): remove this restriction.
+//
+//
+// ---- SYSTEM VARIABLES -------------------------------------------------------
+//
+// Extensions can declare system variables accessible from SQL:
+//
+//   make_extension("myext", "1.0")
+//     .sys_var(make_sys_var_int("threshold_ms",
+//                               "Slow query threshold in ms",
+//                               &g_threshold_ms, 1000, 0, 3600000))
+//     .sys_var(make_sys_var_str("log_file",
+//                               "Path to log file",
+//                               &g_log_file, "/tmp/myext.log"))
+//
+// Available builders: make_sys_var_bool, make_sys_var_int, make_sys_var_double,
+// make_sys_var_str. Each takes (name, comment, value_ptr, default, ...).
+//
+// Variables are accessible in SQL as:
+//   SELECT @@global.myext.threshold_ms;
+//   SET GLOBAL myext.threshold_ms = 500;
+//
+// From extension code, use sys_var::get() and sys_var::set().
+//
+//
+// ---- LIMITATIONS ------------------------------------------------------------
 //
 // - intrinsic_default VDFs must be registered separately with
 //   make_intrinsic_default(). Reference them by name with
 //   .intrinsic_default_vdf("vdf_name") on the type builder.
+//
+//
+// ---- OLDER API --------------------------------------------------------------
+//
+// You may encounter extensions using <villagesql/extension.h> with a
+// different type builder: make_type("name") (string argument) with separate
+// .func(make_type_encode<&fn>(...)) registration calls. This still works
+// but is more verbose. The make_type<kName>() builder documented above is
+// preferred for new code. See villagesql/type_builder.h for details on
+// the older API.
 
 #include <villagesql/extension.h>
 
