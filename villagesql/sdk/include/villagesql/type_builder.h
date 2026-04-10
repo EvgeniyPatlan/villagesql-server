@@ -16,7 +16,9 @@
 #ifndef VILLAGESQL_SDK_TYPE_BUILDER_H
 #define VILLAGESQL_SDK_TYPE_BUILDER_H
 
-// This file provides the underlying templates for type definition.
+// This file provides the original string-based type builder.
+// For new extensions, prefer the type builder in <villagesql/vsql.h>,
+// which adds compile-time checking and auto-generated VDF names.
 // For full documentation and examples, see extension.h.
 
 #include <villagesql/abi/types.h>
