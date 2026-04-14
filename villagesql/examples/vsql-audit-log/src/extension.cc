@@ -68,12 +68,12 @@ static bool policy_log_queries() {
 // Write a single JSON audit record to the log file.
 // The record is written as a single line followed by a newline, matching the
 // MySQL audit log newline-delimited JSON format.
-// Returns false on success, true on failure (sets result->error_msg).
-static bool write_record(const char *json, vef_query_hook_result_t *result) {
+// Returns false on success, true on failure (sets result.block()).
+static bool write_record(const char *json, QueryHookResult &result) {
   std::lock_guard<std::mutex> lock(g_log_mutex);
   FILE *f = fopen(g_log_file, "a");
   if (f == nullptr) {
-    result->error_msg = "vsql_audit_log: failed to open log file";
+    result.block("vsql_audit_log: failed to open log file");
     return true;
   }
   fprintf(f, "%s\n", json);
@@ -117,17 +117,16 @@ static void json_escape(const char *in, char *out, size_t out_size) {
   out[j] = '\0';
 }
 
-static void on_connect(vef_context_t * /*ctx*/, vef_query_hook_args_t *args,
-                       vef_query_hook_result_t *result) {
+static void on_connect(const QueryHookArgs &args, QueryHookResult &result) {
   if (!policy_log_logins()) return;
 
   char ts[32];
-  format_timestamp(ts, sizeof(ts), args->query_start_utime);
+  format_timestamp(ts, sizeof(ts), args.query_start_utime());
 
   char user[256], host[256], db[256];
-  json_escape(args->user, user, sizeof(user));
-  json_escape(args->host, host, sizeof(host));
-  json_escape(args->schema, db, sizeof(db));
+  json_escape(args.user(), user, sizeof(user));
+  json_escape(args.host(), host, sizeof(host));
+  json_escape(args.schema(), db, sizeof(db));
 
   char record[2048];
   snprintf(record, sizeof(record),
@@ -136,23 +135,22 @@ static void on_connect(vef_context_t * /*ctx*/, vef_query_hook_args_t *args,
            "\"connection_id\":%lu,"
            "\"account\":{\"user\":\"%s\",\"host\":\"%s\"},"
            "\"connection_data\":{\"status\":%d,\"db\":\"%s\"}}",
-           ts, args->status == 0 ? "connect" : "failed_connect",
-           args->connection_id, user, host, args->status, db);
+           ts, args.status() == 0 ? "connect" : "failed_connect",
+           args.connection_id(), user, host, args.status(), db);
 
   write_record(record, result);
 }
 
-static void on_disconnect(vef_context_t * /*ctx*/, vef_query_hook_args_t *args,
-                          vef_query_hook_result_t *result) {
+static void on_disconnect(const QueryHookArgs &args, QueryHookResult &result) {
   if (!policy_log_logins()) return;
 
   char ts[32];
-  format_timestamp(ts, sizeof(ts), args->query_start_utime);
+  format_timestamp(ts, sizeof(ts), args.query_start_utime());
 
   char user[256], host[256], db[256];
-  json_escape(args->user, user, sizeof(user));
-  json_escape(args->host, host, sizeof(host));
-  json_escape(args->schema, db, sizeof(db));
+  json_escape(args.user(), user, sizeof(user));
+  json_escape(args.host(), host, sizeof(host));
+  json_escape(args.schema(), db, sizeof(db));
 
   char record[2048];
   snprintf(record, sizeof(record),
@@ -161,31 +159,30 @@ static void on_disconnect(vef_context_t * /*ctx*/, vef_query_hook_args_t *args,
            "\"connection_id\":%lu,"
            "\"account\":{\"user\":\"%s\",\"host\":\"%s\"},"
            "\"connection_data\":{\"db\":\"%s\"}}",
-           ts, args->connection_id, user, host, db);
+           ts, args.connection_id(), user, host, db);
 
   write_record(record, result);
 }
 
-static void on_query(vef_context_t * /*ctx*/, vef_query_hook_args_t *args,
-                     vef_query_hook_result_t *result) {
+static void on_query(const QueryHookArgs &args, QueryHookResult &result) {
   if (!policy_log_queries()) return;
 
   char ts[32];
-  format_timestamp(ts, sizeof(ts), args->query_start_utime);
+  format_timestamp(ts, sizeof(ts), args.query_start_utime());
 
   char user[256], host[256], db[256];
-  json_escape(args->user, user, sizeof(user));
-  json_escape(args->host, host, sizeof(host));
-  json_escape(args->schema, db, sizeof(db));
+  json_escape(args.user(), user, sizeof(user));
+  json_escape(args.host(), host, sizeof(host));
+  json_escape(args.schema(), db, sizeof(db));
 
   // Escape query — may be large; truncate at 4096 chars.
   char query[4096];
   char query_trunc[4096];
-  if (args->query != nullptr && args->query_len > 0) {
-    size_t len = args->query_len < sizeof(query_trunc) - 1
-                     ? args->query_len
-                     : sizeof(query_trunc) - 1;
-    memcpy(query_trunc, args->query, len);
+  auto q = args.query();
+  if (!q.empty()) {
+    size_t len =
+        q.size() < sizeof(query_trunc) - 1 ? q.size() : sizeof(query_trunc) - 1;
+    memcpy(query_trunc, q.data(), len);
     query_trunc[len] = '\0';
   } else {
     query_trunc[0] = '\0';
@@ -200,8 +197,8 @@ static void on_query(vef_context_t * /*ctx*/, vef_query_hook_args_t *args,
            "\"account\":{\"user\":\"%s\",\"host\":\"%s\"},"
            "\"general_data\":{\"query\":\"%s\",\"status\":%d,"
            "\"query_time\":%.6f,\"db\":\"%s\"}}",
-           ts, args->connection_id, user, host, query, args->status,
-           args->query_time_secs, db);
+           ts, args.connection_id(), user, host, query, args.status(),
+           args.query_time_secs(), db);
 
   write_record(record, result);
 }

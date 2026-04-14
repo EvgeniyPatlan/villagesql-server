@@ -31,7 +31,8 @@
 //   VEF_QUERY_HOOK_DISCONNECT   - client disconnection
 //
 // Hook functions use the typed C++ signature:
-//   void my_hook(const vsql::QueryHookArgs &args, vsql::QueryHookResult &result)
+//   void my_hook(const vsql::QueryHookArgs &args, vsql::QueryHookResult
+//   &result)
 
 #include <cstddef>
 #include <cstring>
@@ -54,7 +55,8 @@ class QueryHookArgs {
 
   vef_query_hook_phase_t phase() const { return a_->phase; }
 
-  // Available for PREPARSE, POSTPARSE, POSTEXECUTE. Empty for CONNECT/DISCONNECT.
+  // Available for PREPARSE, POSTPARSE, POSTEXECUTE. Empty for
+  // CONNECT/DISCONNECT.
   std::string_view query() const {
     return a_->query ? std::string_view(a_->query, a_->query_len)
                      : std::string_view{};

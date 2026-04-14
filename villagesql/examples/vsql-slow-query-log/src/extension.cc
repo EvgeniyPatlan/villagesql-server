@@ -78,9 +78,8 @@ static void slow_query_hook(const QueryHookArgs &args, QueryHookResult &) {
   //   SET timestamp=N;
   //   <query>;
   fprintf(f, "# Time: %s\n", ts);
-  fprintf(f, "# User@Host: %s @ %s  Id: %lu\n",
-          args.user() ? args.user() : "", args.host() ? args.host() : "",
-          args.connection_id());
+  fprintf(f, "# User@Host: %s @ %s  Id: %lu\n", args.user() ? args.user() : "",
+          args.host() ? args.host() : "", args.connection_id());
   fprintf(f,
           "# Schema: %s  Query_time: %.6f  Lock_time: %.6f"
           "  Rows_sent: %llu  Rows_examined: %llu\n",
