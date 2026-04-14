@@ -102,6 +102,7 @@ add_custom_target(sdk ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/abi/types.h"
     "${SDK_STAGING_DIR}/include-dev/villagesql/abi/"
   COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/vsql/keyring.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/vsql/sys_var_builder.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/vsql/type_builder.h"
     "${SDK_STAGING_DIR}/include-dev/villagesql/vsql/"
@@ -252,6 +253,20 @@ IF(NOT WITHOUT_SERVER)
     INSTALL_COMMAND ""
   )
 
+  ExternalProject_Add(vsql_keyring_reader_extension
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples/vsql-keyring-reader
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-keyring-reader-build
+    CMAKE_GENERATOR ${CMAKE_GENERATOR}
+    CMAKE_ARGS
+      "-DCMAKE_PREFIX_PATH=${CMAKE_SOURCE_DIR}"
+      "-DVillageSQLExtensionFramework_INCLUDE_DIR=${SDK_STAGING_DIR}/include-dev"
+      "-DVillageSQL_VEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+    DEPENDS sdk
+    BUILD_ALWAYS ON
+    INSTALL_COMMAND ""
+  )
+
   add_custom_target(copy_vsql_config_vars_test_veb
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/veb_output_directory
     COMMAND ${CMAKE_COMMAND} -E copy
@@ -263,6 +278,18 @@ IF(NOT WITHOUT_SERVER)
 
   add_custom_target(config_vars_test_veb ALL)
   add_dependencies(config_vars_test_veb copy_vsql_config_vars_test_veb)
+
+  add_custom_target(copy_vsql_keyring_reader_veb
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/veb_output_directory
+    COMMAND ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-keyring-reader-build/vsql_keyring_reader.veb
+      ${CMAKE_BINARY_DIR}/veb_output_directory/
+    DEPENDS vsql_keyring_reader_extension
+    COMMENT "Copying vsql_keyring_reader.veb to veb_output_directory"
+  )
+
+  add_custom_target(keyring_reader_veb ALL)
+  add_dependencies(keyring_reader_veb copy_vsql_keyring_reader_veb)
 
   ExternalProject_Add(vsql_test_only_extension
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test-extensions/vsql-test-only
