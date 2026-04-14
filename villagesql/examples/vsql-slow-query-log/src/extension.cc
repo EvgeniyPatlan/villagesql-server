@@ -53,16 +53,14 @@ static char *g_log_filename;
 
 static std::mutex g_log_mutex;
 
-static void slow_query_hook(vef_context_t * /*ctx*/,
-                            vef_query_hook_args_t *args,
-                            vef_query_hook_result_t * /*result*/) {
+static void slow_query_hook(const QueryHookArgs &args, QueryHookResult &) {
   if (!g_enabled) return;
-  if (args->query_time_secs * 1000.0 < static_cast<double>(g_threshold_ms))
+  if (args.query_time_secs() * 1000.0 < static_cast<double>(g_threshold_ms))
     return;
 
   // Format timestamp from query start time
-  time_t now = static_cast<time_t>(args->query_start_utime / 1000000);
-  uint32_t usec = static_cast<uint32_t>(args->query_start_utime % 1000000);
+  time_t now = static_cast<time_t>(args.query_start_utime() / 1000000);
+  uint32_t usec = static_cast<uint32_t>(args.query_start_utime() % 1000000);
   struct tm tm_buf;
   gmtime_r(&now, &tm_buf);
   char ts[48];
@@ -80,16 +78,18 @@ static void slow_query_hook(vef_context_t * /*ctx*/,
   //   SET timestamp=N;
   //   <query>;
   fprintf(f, "# Time: %s\n", ts);
-  fprintf(f, "# User@Host: %s @ %s  Id: %lu\n", args->user ? args->user : "",
-          args->host ? args->host : "", args->connection_id);
+  fprintf(f, "# User@Host: %s @ %s  Id: %lu\n",
+          args.user() ? args.user() : "", args.host() ? args.host() : "",
+          args.connection_id());
   fprintf(f,
           "# Schema: %s  Query_time: %.6f  Lock_time: %.6f"
           "  Rows_sent: %llu  Rows_examined: %llu\n",
-          args->schema ? args->schema : "", args->query_time_secs,
-          args->lock_time_secs, (unsigned long long)args->rows_sent,
-          (unsigned long long)args->rows_examined);
+          args.schema() ? args.schema() : "", args.query_time_secs(),
+          args.lock_time_secs(), (unsigned long long)args.rows_sent(),
+          (unsigned long long)args.rows_examined());
   fprintf(f, "SET timestamp=%llu;\n", (unsigned long long)now);
-  fprintf(f, "%.*s;\n", (int)args->query_len, args->query ? args->query : "");
+  auto q = args.query();
+  fprintf(f, "%.*s;\n", (int)q.size(), q.data());
   fclose(f);
 }
 
