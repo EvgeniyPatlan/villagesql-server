@@ -1,4 +1,4 @@
-# Cross-Extension VDF Type References
+# Extension Dependencies
 
 ## Status
 
@@ -17,12 +17,23 @@ This is currently impossible.
 
 ## Scope
 
-This design covers VDFs whose parameters or return types reference custom types
-from another extension. It does not cover:
+This design covers:
 
+- Extensions declaring dependencies on other extensions
+- VDFs whose parameters or return types reference non-parameterized custom types
+  from a dependency extension
+- Dependency-aware extension loading, installation, and uninstallation
+
+Limitations (out of scope for this design):
+
+- Parameterized external types (e.g., `TVECTOR(1536)` from another extension)
 - Extension X defining new types that build on or compose types from extension Y
 - Type inheritance or subtyping across extensions
 - Shared aggregate state across extensions
+- Version constraints on dependencies (the manifest format is designed to allow
+  adding these later)
+- Transitive dependency resolution (if A depends on B and B depends on C, A must
+  explicitly declare C if it needs C's types)
 
 ## Design
 
@@ -128,10 +139,11 @@ API passes a compile-time type object:
 ```
 
 For external types, the extension doesn't have the type object at compile time.
-A string-based API using the qualified name format:
+Two naming options for the SDK API:
+
+**Option I: Overload `.param()` with a qualified string**
 
 ```cpp
-// New: external type reference using qualified name
 make_func<&complex_polar_impl>("complex_polar")
     .returns(REAL)
     .param("vsql_complex.COMPLEX")
@@ -139,8 +151,25 @@ make_func<&complex_polar_impl>("complex_polar")
     .build()
 ```
 
-The `.param(const char *)` overload parses the qualified name and sets the
-appropriate ABI fields (either Option A or B from above).
+Pro: consistent with the `ext.TYPE` convention already used internally and in
+SQL. Con: a string that happens to contain a dot silently becomes an external
+type reference; easy to miss in code review.
+
+**Option II: Separate `.param_ext()` method**
+
+```cpp
+make_func<&complex_polar_impl>("complex_polar")
+    .returns(REAL)
+    .param_ext("vsql_complex", "COMPLEX")
+    .deterministic()
+    .build()
+```
+
+Pro: explicit — obvious at the call site that this is a cross-extension
+reference. Con: a second method to learn; two string arguments instead of one.
+
+Both options need corresponding `.returns()` / `.returns_ext()` variants for
+return types. The choice is deferred to implementation (see Open Questions).
 
 ### 5. Query-Time Validation
 
@@ -241,6 +270,26 @@ cross-extension VDF from the type's binary format. We chose binary because:
 | Install/Uninstall | `sql_extension.cc` | Validate deps on install; check reverse deps on uninstall; manage dependency table rows |
 | SDK builder | `func_builder.h`, `extension_builder.h` | `.param("ext.TYPE")` overload |
 | System tables | `villagesql_schema.sql.in` | Add `villagesql.extension_dependencies` table |
+
+## Open Questions
+
+1. **ABI representation of external type references:** Option A (new
+   `extension_name` field on `vef_type_t`) vs Option B (qualified
+   `"ext.TYPE"` string in existing `custom_type` field). See section 3.
+
+2. **SDK API naming:** `.param("vsql_complex.COMPLEX")` (overloaded) vs
+   `.param_ext("vsql_complex", "COMPLEX")` (explicit). See section 4.
+
+3. **Protocol version:** Should the new ABI fields go into VEF_PROTOCOL_2
+   (which is still marked unstable) or a new VEF_PROTOCOL_3?
+
+4. **Transitive dependencies:** If A depends on B and B depends on C, should A
+   be able to use C's types without declaring C as a direct dependency? For now
+   the answer is no (explicit only), but this may be revisited.
+
+5. **Schema migration:** How do existing installations get the new
+   `villagesql.extension_dependencies` table? Need to integrate with the
+   existing schema versioning in `villagesql.properties`.
 
 ## Future Work
 
