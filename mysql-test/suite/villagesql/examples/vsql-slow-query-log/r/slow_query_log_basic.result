@@ -1,0 +1,41 @@
+INSTALL EXTENSION vsql_slow_query_log;
+SET GLOBAL vsql_slow_query_log.log_file = 'MYSQLTEST_VARDIR/vsql_slow_query.log';
+SET GLOBAL vsql_slow_query_log.threshold_ms = 0;
+SET GLOBAL vsql_slow_query_log.enabled = ON;
+SELECT 1 + 1 AS result;
+result
+2
+SELECT NOW();
+NOW()
+<now>
+SET GLOBAL vsql_slow_query_log.threshold_ms = 1000;
+SELECT 2 + 2 AS result;
+result
+4
+SELECT NOW();
+NOW()
+<now>
+SELECT SLEEP(1.1);
+SLEEP(1.1)
+0
+# Time: <ts>
+# User@Host: root @   Id: <id>
+# Schema: test  Query_time: <t>  Lock_time: <t>  Rows_sent: 0  Rows_examined: 0
+SET timestamp=<ts>;
+SET GLOBAL vsql_slow_query_log.enabled = ON;
+# Time: <ts>
+# User@Host: root @   Id: <id>
+# Schema: test  Query_time: <t>  Lock_time: <t>  Rows_sent: 1  Rows_examined: 1
+SET timestamp=<ts>;
+SELECT 1 + 1 AS result;
+# Time: <ts>
+# User@Host: root @   Id: <id>
+# Schema: test  Query_time: <t>  Lock_time: <t>  Rows_sent: 1  Rows_examined: 1
+SET timestamp=<ts>;
+SELECT NOW();
+# Time: <ts>
+# User@Host: root @   Id: <id>
+# Schema: test  Query_time: <t>  Lock_time: <t>  Rows_sent: 1  Rows_examined: 1
+SET timestamp=<ts>;
+SELECT SLEEP(1.1);
+UNINSTALL EXTENSION vsql_slow_query_log;

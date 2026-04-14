@@ -112,6 +112,9 @@ using villagesql::func_builder::make_func;
 // Re-export sys_var and keyring namespaces
 namespace sys_var = villagesql::sys_var;
 namespace keyring = villagesql::keyring;
+// Re-export query hook builder
+using villagesql::query_hook_builder::make_query_hook;
+
 using villagesql::sys_var_builder::make_sys_var_bool;
 using villagesql::sys_var_builder::make_sys_var_double;
 using villagesql::sys_var_builder::make_sys_var_int;

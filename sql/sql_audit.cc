@@ -1,4 +1,5 @@
 /* Copyright (c) 2007, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -63,6 +64,7 @@
 #include "sql_string.h"
 #include "strxnmov.h"
 #include "thr_mutex.h"
+#include "villagesql/services/query_hooks.h"
 
 namespace {
 /**
@@ -907,6 +909,8 @@ int mysql_event_tracking_connection_notify(
     const char *subclass_name, int errcode) {
   mysql_event_tracking_connection_data event;
 
+  villagesql::services::on_connection_event(thd, subclass, errcode);
+
   /*
     Do not take into account m_auditing_activated flag. Always generate
     events of the MYSQL_AUDIT_CONNECTION_CLASS class.
@@ -1093,6 +1097,8 @@ int mysql_event_tracking_query_notify(
     THD *thd, mysql_event_tracking_query_subclass_t subclass,
     const char *subclass_name) {
   mysql_event_tracking_query_data event;
+
+  villagesql::services::on_query_event(thd, subclass);
 
   if (thd->check_event_subscribers(Event_tracking_class::QUERY, subclass, true))
     return 0;

@@ -16,6 +16,7 @@
 SET(VILLAGESQL_SERVICES_SOURCES
   keyring.cc
   sys_vars.cc
+  query_hooks.cc
 )
 
 # Object library for compilation into sql_main (avoids circular dependencies)

@@ -47,6 +47,7 @@
 #include "villagesql/schema/descriptor/type_descriptor.h"
 #include "villagesql/schema/victionary_client.h"
 #include "villagesql/services/keyring.h"
+#include "villagesql/services/query_hooks.h"
 #include "villagesql/services/sys_vars.h"
 #include "villagesql/veb/sql_extension.h"
 #include "villagesql/veb/veb_register_type.h"
@@ -686,10 +687,17 @@ bool load_installed_extensions(THD *thd) {
         return true;
       }
 
-      if (villagesql::services::register_sys_vars_from_extension(
+      if (villagesql::services::register_query_hooks_from_extension(
               extension_name, registration)) {
         LogVSQL(ERROR_LEVEL,
-                "Failed to register config vars for extension '%s'",
+                "Failed to register query hooks for extension '%s'",
+                extension_name.c_str());
+        return true;
+      }
+
+      if (villagesql::services::register_sys_vars_from_extension(
+              extension_name, registration)) {
+        LogVSQL(ERROR_LEVEL, "Failed to register sys vars for extension '%s'",
                 extension_name.c_str());
         return true;
       }

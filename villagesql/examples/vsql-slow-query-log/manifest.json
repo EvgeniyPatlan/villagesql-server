@@ -1,0 +1,7 @@
+{
+  "name": "vsql_slow_query_log",
+  "version": "0.0.1",
+  "description": "VillageSQL slow query log extension",
+  "author": "VillageSQL Community",
+  "license": "GPL-2.0"
+}
