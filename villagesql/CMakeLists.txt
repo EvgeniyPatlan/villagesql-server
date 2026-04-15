@@ -323,6 +323,37 @@ IF(NOT WITHOUT_SERVER)
     COMPONENT ExampleVebs
   )
 
+  ExternalProject_Add(vsql_rate_limiter_extension
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples/vsql-rate-limiter
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-rate-limiter-build
+    CMAKE_GENERATOR ${CMAKE_GENERATOR}
+    CMAKE_ARGS
+      "-DCMAKE_PREFIX_PATH=${CMAKE_SOURCE_DIR}"
+      "-DVillageSQLExtensionFramework_INCLUDE_DIR=${SDK_STAGING_DIR}/include-dev"
+      "-DVillageSQL_VEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+    DEPENDS sdk
+    BUILD_ALWAYS ON
+    INSTALL_COMMAND ""
+  )
+
+  add_custom_target(copy_vsql_rate_limiter_veb
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/veb_output_directory
+    COMMAND ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-rate-limiter-build/vsql_rate_limiter.veb
+      ${CMAKE_BINARY_DIR}/veb_output_directory/
+    DEPENDS vsql_rate_limiter_extension
+    COMMENT "Copying vsql_rate_limiter.veb to veb_output_directory"
+  )
+
+  add_custom_target(rate_limiter_veb ALL)
+  add_dependencies(rate_limiter_veb copy_vsql_rate_limiter_veb)
+
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-rate-limiter-build/vsql_rate_limiter.veb
+    DESTINATION ${INSTALL_VEBDIR}
+    COMPONENT ExampleVebs
+  )
+
   ExternalProject_Add(vsql_slow_query_log_extension
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples/vsql-slow-query-log
     BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/examples/vsql-slow-query-log-build

@@ -1098,7 +1098,7 @@ int mysql_event_tracking_query_notify(
     const char *subclass_name) {
   mysql_event_tracking_query_data event;
 
-  villagesql::services::on_query_event(thd, subclass);
+  if (villagesql::services::on_query_event(thd, subclass)) return 1;
 
   if (thd->check_event_subscribers(Event_tracking_class::QUERY, subclass, true))
     return 0;

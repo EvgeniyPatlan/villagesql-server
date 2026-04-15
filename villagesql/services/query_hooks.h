@@ -42,9 +42,19 @@ bool register_query_hooks_from_extension(
 // Called when an extension is uninstalled.
 void unregister_query_hooks_from_extension(const std::string &extension_name);
 
+// Invoked from sql_parse.cc (dispatch_command, COM_QUERY path) before the
+// parser runs. Dispatches VEF_QUERY_HOOK_PREPARSE hooks. This is a separate
+// call site from on_query_event because the sql_audit.cc event tracking
+// framework has no pre-parse event — its earliest query event (QUERY_START)
+// fires after parsing is complete.
+// Returns true if a hook blocked the query (error set on THD).
+bool on_pre_parse(THD *thd);
+
 // Invoked from mysql_event_tracking_query_notify in sql_audit.cc.
-// Dispatches to registered VEF hooks based on the query subclass.
-void on_query_event(THD *thd, mysql_event_tracking_query_subclass_t subclass);
+// Dispatches VEF_QUERY_HOOK_POSTEXECUTE hooks (QUERY_STATUS_END).
+// Note: VEF_QUERY_HOOK_PREPARSE is NOT dispatched here — see on_pre_parse().
+// Returns true if a hook blocked the query (error set on THD).
+bool on_query_event(THD *thd, mysql_event_tracking_query_subclass_t subclass);
 
 // Invoked from mysql_event_tracking_connection_notify in sql_audit.cc.
 // Dispatches to registered VEF hooks based on the connection subclass.

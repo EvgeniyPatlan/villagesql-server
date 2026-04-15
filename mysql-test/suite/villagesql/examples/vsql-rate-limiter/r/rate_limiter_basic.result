@@ -1,0 +1,28 @@
+INSTALL EXTENSION vsql_rate_limiter;
+SET GLOBAL vsql_rate_limiter.max_queries_post_parse = 3;
+SET GLOBAL vsql_rate_limiter.max_queries_pre_parse = 5;
+SET GLOBAL vsql_rate_limiter.window_secs = 1;
+SELECT vsql_rate_limiter.reset();
+vsql_rate_limiter.reset()
+1
+SET GLOBAL vsql_rate_limiter.enabled = ON;
+SELECT 1 AS q1;
+q1
+1
+SELECT 2 AS q2;
+q2
+2
+SELECT 3 AS q3;
+q3
+3
+SELECT 4 AS q4;
+ERROR HY000: Query rate limit exceeded
+SELECT 5 AS q5;
+ERROR HY000: Query rate limit exceeded
+SELECT 6 AS q6;
+ERROR HY000: Query rate limit exceeded (pre-parse limit)
+SELECT 7 AS q7;
+q7
+7
+SET GLOBAL vsql_rate_limiter.enabled = OFF;
+UNINSTALL EXTENSION vsql_rate_limiter;

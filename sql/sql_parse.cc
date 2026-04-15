@@ -186,6 +186,7 @@
 #include "template_utils.h"
 #include "thr_lock.h"
 #include "villagesql/include/error.h"
+#include "villagesql/services/query_hooks.h"
 #include "violite.h"
 
 #ifdef WITH_LOCK_ORDER
@@ -2122,6 +2123,11 @@ bool dispatch_command(THD *thd, const COM_DATA *com_data,
 #endif
 
       const LEX_CSTRING orig_query = thd->query();
+
+      if (villagesql::services::on_pre_parse(thd)) {
+        MYSQL_NOTIFY_STATEMENT_QUERY_ATTRIBUTES(thd->m_statement_psi, false);
+        break;
+      }
 
       Parser_state parser_state;
       if (parser_state.init(thd, thd->query().str, thd->query().length)) {

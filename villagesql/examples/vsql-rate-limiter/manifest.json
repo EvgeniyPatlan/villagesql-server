@@ -1,0 +1,7 @@
+{
+  "name": "vsql_rate_limiter",
+  "version": "0.0.1",
+  "description": "VillageSQL rate limiter extension — blocks queries exceeding a per-user per-window limit",
+  "author": "VillageSQL Community",
+  "license": "GPL-2.0"
+}

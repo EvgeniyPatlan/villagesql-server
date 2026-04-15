@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "my_sys.h"
+#include "mysqld_error.h"
 #include "sql/auth/sql_security_ctx.h"
 #include "sql/sql_class.h"
 #include "sql/sql_lex.h"
@@ -92,10 +93,90 @@ void unregister_query_hooks_from_extension(const std::string &extension_name) {
   std::atomic_store(&g_hooks, new_hooks);
 }
 
-void on_query_event(THD *thd, mysql_event_tracking_query_subclass_t subclass) {
+// Dispatch PREPARSE hooks. Called before the parser runs; only query text,
+// user, and connection info are available. Returns true if a hook blocked
+// the query and set an error on the THD.
+bool on_pre_parse(THD *thd) {
+  if (thd == nullptr) return false;
+
+  auto hooks = std::atomic_load(&g_hooks);
+  if (hooks->empty()) return false;
+
+  vef_query_hook_args_t args{};
+  args.phase = VEF_QUERY_HOOK_PREPARSE;
+
+  LEX_CSTRING query = thd->query();
+  args.query = query.str;
+  args.query_len = query.length;
+
+  const Security_context *sctx = thd->security_context();
+  args.user = sctx->priv_user().str;
+  args.host = sctx->ip().str;
+  args.connection_id = thd->thread_id();
+  args.port = thd->peer_port;
+  args.in_transaction = thd->in_active_multi_stmt_transaction();
+  args.schema = thd->db().str != nullptr && thd->db().length > 0 ? thd->db().str
+                                                                 : nullptr;
+
+  for (auto &h : *hooks) {
+    if (h.desc->phase != VEF_QUERY_HOOK_PREPARSE) continue;
+    vef_query_hook_result_t result{};
+    h.desc->hook(&h.ctx, &args, &result);
+    if (result.error_msg != nullptr && result.error_msg[0] != '\0') {
+      my_printf_error(ER_VILLAGESQL_GENERIC_ERROR, "%s", MYF(0),
+                      result.error_msg);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Dispatch POSTPARSE hooks. Called at QUERY_START, after parsing but before
+// execution. Returns true if a hook blocked the query (error set on THD).
+static bool on_post_parse(THD *thd) {
+  if (thd == nullptr) return false;
+
+  auto hooks = std::atomic_load(&g_hooks);
+  if (hooks->empty()) return false;
+
+  vef_query_hook_args_t args{};
+  args.phase = VEF_QUERY_HOOK_POSTPARSE;
+
+  LEX_CSTRING query = thd->query();
+  args.query = query.str;
+  args.query_len = query.length;
+
+  const Security_context *sctx = thd->security_context();
+  args.user = sctx->priv_user().str;
+  args.host = sctx->ip().str;
+  args.connection_id = thd->thread_id();
+  args.port = thd->peer_port;
+  args.in_transaction = thd->in_active_multi_stmt_transaction();
+  args.sql_command = static_cast<int>(thd->lex->sql_command);
+  args.schema = thd->db().str != nullptr && thd->db().length > 0 ? thd->db().str
+                                                                 : nullptr;
+
+  for (auto &h : *hooks) {
+    if (h.desc->phase != VEF_QUERY_HOOK_POSTPARSE) continue;
+    vef_query_hook_result_t result{};
+    h.desc->hook(&h.ctx, &args, &result);
+    if (result.error_msg != nullptr && result.error_msg[0] != '\0') {
+      my_printf_error(ER_VILLAGESQL_GENERIC_ERROR, "%s", MYF(0),
+                      result.error_msg);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool on_query_event(THD *thd, mysql_event_tracking_query_subclass_t subclass) {
+  if (subclass & EVENT_TRACKING_QUERY_START) {
+    return on_post_parse(thd);
+  }
   if (subclass & EVENT_TRACKING_QUERY_STATUS_END) {
     on_post_execute(thd);
   }
+  return false;
 }
 
 void on_connection_event(THD *thd,

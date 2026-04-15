@@ -1,0 +1,31 @@
+INSTALL EXTENSION vsql_rate_limiter;
+
+# Configure before enabling so the SET GLOBAL commands don't count.
+SET GLOBAL vsql_rate_limiter.max_queries_post_parse = 3;
+SET GLOBAL vsql_rate_limiter.max_queries_pre_parse = 5;
+SET GLOBAL vsql_rate_limiter.window_secs = 1;
+SELECT vsql_rate_limiter.reset();
+SET GLOBAL vsql_rate_limiter.enabled = ON;
+
+# First three queries succeed (within soft limit)
+SELECT 1 AS q1;
+SELECT 2 AS q2;
+SELECT 3 AS q3;
+
+# Query 4 and 5 exceed soft limit but are within hard limit — blocked at POSTPARSE
+--error 3219
+SELECT 4 AS q4;
+--error 3219
+SELECT 5 AS q5;
+
+# Query 6 exceeds hard limit — blocked at PREPARSE
+--error 3219
+SELECT 6 AS q6;
+
+# After window expires, queries succeed again
+--sleep 2
+SELECT 7 AS q7;
+
+SET GLOBAL vsql_rate_limiter.enabled = OFF;
+
+UNINSTALL EXTENSION vsql_rate_limiter;
