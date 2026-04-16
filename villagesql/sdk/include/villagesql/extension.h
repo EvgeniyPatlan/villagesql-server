@@ -111,22 +111,25 @@
 //   make_func<&process>("process").returns(MYTYPE).param(STRING).build()
 //
 //
-// PRERUN/POSTRUN FUNCTIONS
-// ------------------------
+// PRERUN/POSTRUN FUNCTIONS (Escape Hatch)
+// ----------------------------------------
 //
-// For prerun/postrun functions (per-statement setup/teardown):
+// Prerun and postrun are "Escape Hatches" — raw callbacks for per-statement
+// setup/teardown. The func builder already handles common cases (type
+// checking, buffer allocation, aggregate state). If you need prerun/postrun,
+// we'd love to hear about your use case so we can improve the Happy Path.
+//
+// To use them, define the corresponding macros before including this header:
+//
+//   #define VEF_ESCAPE_HATCH_PRERUN
+//   #define VEF_ESCAPE_HATCH_POSTRUN
+//   #include <villagesql/extension.h>
 //
 //   make_func<&my_impl>("my_func")
 //     .returns(STRING)
-//     .prerun<&my_prerun>()   // Called before first row
-//     .postrun<&my_postrun>() // Called after last row
+//     .escape_hatch().prerun<&my_prerun>()   // Called before first row
+//     .escape_hatch().postrun<&my_postrun>() // Called after last row
 //     .build()
-//
-// Note: Prerun and postrun functions can be a cumbersome API. The func builder
-// already handles simple cases (e.g., type checking for functions with fixed
-// args and allocating fixed buffer sizes). We want to cover more cases. If
-// you find that you need to use prerun or postrun functions, please come talk
-// to us so we can understand your use case.
 //
 //
 // AGGREGATE FUNCTIONS
@@ -172,14 +175,17 @@
 //   void count_acc(CountState &s, IntArg v) { if (!v.is_null()) s++; }
 //   long long count_result(const CountState &s) { return s; }
 //
-// You can also use the raw ABI directly for full control:
+// You can also use the raw ABI directly for full control (Escape Hatch):
+//
+//   #define VEF_ESCAPE_HATCH_PRERUN
+//   #define VEF_ESCAPE_HATCH_POSTRUN
 //
 //   make_func<&raw_result>("my_agg")
 //       .returns(INT).param(INT)
-//       .prerun<&my_prerun>()      // void(ctx, prerun_args, prerun_result)
-//       .postrun<&my_postrun>()    // void(ctx, postrun_args, postrun_result)
-//       .clear<&my_clear>()        // void(ctx, vdf_args)
-//       .accumulate<&my_acc>()     // void(ctx, vdf_args, vdf_result)
+//       .escape_hatch().prerun<&my_prerun>()   // void(ctx, prerun_args, prerun_result)
+//       .escape_hatch().postrun<&my_postrun>() // void(ctx, postrun_args, postrun_result)
+//       .clear<&my_clear>()                    // void(ctx, vdf_args)
+//       .accumulate<&my_acc>()                 // void(ctx, vdf_args, vdf_result)
 //       .build()
 //
 // See aggregate_vdf.cc in the test suite for complete examples of both styles.

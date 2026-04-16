@@ -65,6 +65,7 @@
 #include <utility>
 
 #include <villagesql/abi/types.h>
+#include <villagesql/escape_hatch.h>
 #include <villagesql/func_types.h>
 #include <villagesql/type_params_cache.h>
 
@@ -1116,6 +1117,64 @@ struct apply_params_cache_checker<std::tuple<Ps...>>
     : params_cache_checker<Ps...> {};
 
 // =============================================================================
+// EscapeHatchProxy
+// =============================================================================
+
+// Proxy returned by FuncBuilder::escape_hatch(). Exposes raw, low-level
+// builder methods that bypass the Happy Path. Each method requires the
+// corresponding VEF_ESCAPE_HATCH_* macro to be defined.
+//
+// Usage:
+//   #define VEF_ESCAPE_HATCH_PRERUN
+//   #define VEF_ESCAPE_HATCH_POSTRUN
+//   #include <villagesql/extension.h>
+//
+//   make_func<&my_func>("name")
+//     .returns(INT).param(INT)
+//     .escape_hatch().prerun<&my_prerun>()
+//     .escape_hatch().postrun<&my_postrun>()
+//     .build()
+template <auto Func, size_t NumParams>
+struct FuncBuilder;
+
+template <auto Func, size_t NumParams>
+struct EscapeHatchProxy {
+  FuncBuilder<Func, NumParams> &builder_;
+
+  template <vef_prerun_func_t Hook>
+  constexpr FuncBuilder<Func, NumParams> &prerun() {
+    static_assert(
+        escape_hatch::prerun_enabled,
+        "\n\n"
+        "  prerun() is a VDF Escape Hatch -- a raw callback that bypasses\n"
+        "  the Happy Path's type safety and ergonomics.\n\n"
+        "  If you need this, we'd love to hear about your use case so we\n"
+        "  can improve the Happy Path. Please reach out:\n"
+        "  https://github.com/villagesql/villagesql/discussions\n\n"  // TODO(villagesql-beta): placeholder URL
+        "  To proceed, add this before your VillageSQL #includes:\n"
+        "    #define VEF_ESCAPE_HATCH_PRERUN\n\n");
+    builder_.prerun_ = Hook;
+    return builder_;
+  }
+
+  template <vef_postrun_func_t Hook>
+  constexpr FuncBuilder<Func, NumParams> &postrun() {
+    static_assert(
+        escape_hatch::postrun_enabled,
+        "\n\n"
+        "  postrun() is a VDF Escape Hatch -- a raw callback that bypasses\n"
+        "  the Happy Path's type safety and ergonomics.\n\n"
+        "  If you need this, we'd love to hear about your use case so we\n"
+        "  can improve the Happy Path. Please reach out:\n"
+        "  https://github.com/villagesql/villagesql/discussions\n\n"  // TODO(villagesql-beta): placeholder URL
+        "  To proceed, add this before your VillageSQL #includes:\n"
+        "    #define VEF_ESCAPE_HATCH_POSTRUN\n\n");
+    builder_.postrun_ = Hook;
+    return builder_;
+  }
+};
+
+// =============================================================================
 // FuncBuilder
 // =============================================================================
 
@@ -1184,16 +1243,8 @@ struct FuncBuilder {
     return *this;
   }
 
-  template <vef_prerun_func_t Hook>
-  constexpr FuncBuilder<Func, NumParams> &prerun() {
-    prerun_ = Hook;
-    return *this;
-  }
-
-  template <vef_postrun_func_t Hook>
-  constexpr FuncBuilder<Func, NumParams> &postrun() {
-    postrun_ = Hook;
-    return *this;
+  constexpr EscapeHatchProxy<Func, NumParams> escape_hatch() {
+    return {*this};
   }
 
   // Aggregate callbacks. Accepts either raw ABI function pointers or typed

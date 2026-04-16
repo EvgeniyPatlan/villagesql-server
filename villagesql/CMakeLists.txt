@@ -86,6 +86,7 @@ add_custom_target(sdk ALL
 
   # Copy dev (unstable) SDK headers
   COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/escape_hatch.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/extension.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/extension_builder.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/villagesql/func_builder.h"

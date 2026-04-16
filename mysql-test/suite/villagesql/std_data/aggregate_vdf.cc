@@ -38,6 +38,8 @@
 // Also includes simple_double(INT) -> INT as a scalar VDF for testing mixed
 // scalar/aggregate queries.
 
+#define VEF_ESCAPE_HATCH_PRERUN
+#define VEF_ESCAPE_HATCH_POSTRUN
 #include <villagesql/extension.h>
 
 #include <optional>
@@ -181,8 +183,8 @@ VEF_GENERATE_ENTRY_POINTS(
         .func(make_func<&vdf_max_result>("vdf_max")
                   .returns(INT)
                   .param(INT)
-                  .prerun<&vdf_max_prerun>()
-                  .postrun<&vdf_max_postrun>()
+                  .escape_hatch().prerun<&vdf_max_prerun>()
+                  .escape_hatch().postrun<&vdf_max_postrun>()
                   .clear<&vdf_max_clear>()
                   .accumulate<&vdf_max_accumulate>()
                   .build())
