@@ -37,6 +37,7 @@
 #include "sql/item_sum.h"
 #include "sql/key.h"
 #include "sql/parse_tree_column_attrs.h"
+#include "sql/sp_pcontext.h"
 #include "sql/sql_class.h"
 #include "sql/sql_list.h"
 #include "sql/sql_udf.h"
@@ -48,6 +49,7 @@
 #include "villagesql/schema/descriptor/type_descriptor.h"
 #include "villagesql/schema/schema_manager.h"
 #include "villagesql/schema/systable/custom_columns.h"
+#include "villagesql/schema/systable/helpers.h"
 #include "villagesql/schema/tmp_metadata.h"
 #include "villagesql/schema/util.h"
 #include "villagesql/schema/victionary_client.h"
@@ -832,7 +834,8 @@ static void do_field_custom_to_string(Copy_field *, const Field *from,
   to->store(buf.ptr(), buf.length(), buf.charset());
 }
 
-FieldCopyFunc *GetCopyFunc(const Field *from, const Field *to) {
+FieldCopyFunc *GetCopyFunc(const Field *from [[maybe_unused]],
+                           const Field *to) {
   assert(from->has_type_context());
   if (to->has_type_context()) {
     // TODO(villagesql-performance): split to targeted copy functions
@@ -1247,23 +1250,6 @@ void ClearAlterCustomFields(THD *thd) {
   thd->villagesql_alter_custom_fields.clear();
 }
 
-bool ValidateCustomTypeContext(THD *thd) {
-  // TODO(villagesql-beta): Remove these restrictions once custom types are
-  // fully supported in these contexts.
-
-  // Check for stored procedures/functions
-  // Tested by:
-  // mysql-test/suite/villagesql/stored_procedure/t/stored_procedure_call_complex.test
-  if (thd->sp_runtime_ctx != nullptr) {
-    villagesql_error(
-        "Custom types are not yet supported in stored procedures/functions",
-        MYF(0));
-    return true;
-  }
-
-  return false;  // Context is supported
-}
-
 bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
                                     const LEX_STRING &extension_name,
                                     uint arg_count, Item **args,
@@ -1388,6 +1374,185 @@ std::shared_ptr<const TypeContext> AcquireTypeContextClientManaged(
   auto &vclient = VictionaryClient::instance();
   auto guard = vclient.get_read_lock();
   return vclient.type_contexts().acquire_client_managed(source_tc->key());
+}
+
+bool InjectCustomSpParams(
+    const char *db_name, const char *sp_name, const sp_pcontext *pctx,
+    Field **fields, Bounds_checked_array<Item *> var_items,
+    std::vector<std::shared_ptr<const TypeContext>> &type_refs,
+    bool *had_custom_params) {
+  assert(had_custom_params != nullptr);
+
+  // Null db/sp_name means there is nothing to inject — not an error.
+  if (!db_name || !sp_name) {
+    *had_custom_params = false;
+    return false;
+  }
+
+  auto &vclient = VictionaryClient::instance();
+  // Called during startup before VictionaryClient is ready (e.g. system SPs);
+  // nothing to inject yet, so treat as a no-op rather than an error.
+  if (!vclient.is_initialized()) {
+    *had_custom_params = false;
+    return false;
+  }
+
+  // Background: SP params and DECLARE variables have no persistent table share
+  // to cache their TypeContext on (unlike table columns). MySQL also normalizes
+  // their types in the DD (e.g. COMPLEX -> varbinary(16)), so the TypeContext
+  // must be re-attached to the freshly-created sp_rcontext fields on every
+  // CALL. The sp_params system table is the source of truth: it is written at
+  // CREATE PROCEDURE time and reloaded from disk on server restart.
+  //
+  // TypeContexts are in-memory only (not persisted). They are created on first
+  // use from the TypeDescriptor (which is registered when the extension loads).
+  // Once created they live in the victionary's type_contexts cache for the
+  // lifetime of the server (or until the extension is uninstalled).
+  //
+  // Locking strategy:
+  //   First pass (read lock): look up sp_params, collect the matching fields,
+  //   and check whether every TypeContext is already in the cache.
+  //   Second pass:
+  //     Hot path — all cached (every CALL after the first post-restart call):
+  //       read lock + acquire_client_managed, no writes needed.
+  //     Cold path — some missing (first CALL after server start or extension
+  //       reload): write lock + get_or_create_client_managed to populate the
+  //       cache. After this, the hot path is always taken.
+  struct Match {
+    const SpParamEntry *param_entry;
+    uint field_idx;
+    TypeDescriptorKey type_descriptor_key;
+    TypeContextKey type_context_key;
+  };
+  std::vector<Match> matches;
+  bool needs_create = false;
+
+  {
+    // TODO(villagesql-performance): consider ways in which we would not need to
+    // grab victionary locks on every call.
+    auto guard = vclient.get_read_lock();
+
+    auto sp_params = vclient.GetCustomSpParamsForSP(std::string(db_name),
+                                                    std::string(sp_name));
+    if (sp_params.empty()) {
+      *had_custom_params = false;
+      return false;
+    }
+
+    // Iterate over all SP variable definitions (params + DECLARE vars from all
+    // contexts) and collect those with a matching custom param entry.
+    List<Create_field> field_def_lst;
+    pctx->retrieve_field_definitions(&field_def_lst);
+
+    List_iterator_fast<Create_field> it(field_def_lst);
+    Create_field *cdef;
+    uint field_idx = 0;
+    while ((cdef = it++)) {
+      // Nameless fields are return-value placeholders added by MySQL for stored
+      // functions (index 0). Skip them but keep field_idx in sync.
+      if (!cdef->field_name) {
+        field_idx++;
+        continue;
+      }
+
+      // Find the matching sp_params entry for this field by name. Most fields
+      // are plain SQL types with no entry — only custom-typed ones match.
+      const SpParamEntry *param_entry = nullptr;
+      for (const SpParamEntry *entry : sp_params) {
+        if (my_strcasecmp(system_charset_info, cdef->field_name,
+                          entry->param_name().c_str()) == 0) {
+          param_entry = entry;
+          break;
+        }
+      }
+
+      if (param_entry == nullptr) {
+        field_idx++;
+        continue;
+      }
+
+      TypeDescriptorKey tdk(param_entry->type_name, param_entry->extension_name,
+                            param_entry->extension_version);
+      TypeContextKey tck(
+          tdk, TypeParameters::from_json(param_entry->type_parameters));
+
+      if (!vclient.type_contexts().get_committed(tck)) needs_create = true;
+
+      matches.push_back(
+          {param_entry, field_idx, std::move(tdk), std::move(tck)});
+      field_idx++;
+    }
+  }  // read lock released
+
+  // sp_params was non-empty but no fields matched. This means custom_sp_params
+  // has entries for params that don't exist in the SP's field definitions —
+  // a bug in the CREATE PROCEDURE path.
+  assert(!matches.empty());
+
+  *had_custom_params = true;
+
+  // Second pass: inject TypeContexts into fields and items (see locking
+  // strategy above). get_tc resolves a TypeContext shared_ptr from the
+  // victionary — the only difference between the hot and cold paths.
+  auto inject = [&](auto get_tc) -> bool {
+    for (auto &m : matches) {
+      const TypeDescriptor *type_descriptor =
+          vclient.type_descriptors().get_committed(m.type_descriptor_key);
+      if (should_assert_if_null(type_descriptor)) {
+        LogVSQL(ERROR_LEVEL,
+                "Failed to find type %s in extension %s, version %s for SP "
+                "variable %s in %s.%s",
+                m.param_entry->type_name.c_str(),
+                m.param_entry->extension_name.c_str(),
+                m.param_entry->extension_version.c_str(),
+                m.param_entry->param_name().c_str(), db_name, sp_name);
+        return true;
+      }
+
+      std::shared_ptr<const TypeContext> tc_ref =
+          get_tc(m.type_context_key, type_descriptor);
+      if (!tc_ref) {
+        my_error(ER_OUTOFMEMORY, MYF(ME_FATALERROR), sizeof(TypeContext));
+        return true;
+      }
+
+      // fields[i] can be null for unused variable slots in the var table.
+      if (fields[m.field_idx]) {
+        fields[m.field_idx]->set_type_context(tc_ref.get());
+      }
+
+      // Sync TypeContext into the Item wrapper so SP body statements
+      // (e.g. INSERT INTO t VALUES (in_param)) see the correct custom type.
+      // The Item_field delegates has_type_context() to its field pointer, but
+      // set_type_context() on the Item base caches it for non-field items
+      // (Item_sp_variable) that call get_type_context() on this_item().
+      // TODO(villagesql-ga): Once Item_field delegates set_type_context() to
+      // its underlying Field, this call can be dropped for field-backed items.
+      if (var_items.array() && var_items[m.field_idx]) {
+        var_items[m.field_idx]->set_type_context(tc_ref.get());
+      }
+
+      // Transfer ownership to caller. sp_rcontext holds these shared_ptrs in
+      // m_custom_type_refs to keep the TypeContext alive for the duration of
+      // the CALL — without this the victionary could drop the refcount to zero
+      // and free the TypeContext while the fields still point to it.
+      type_refs.push_back(std::move(tc_ref));
+    }
+    return false;
+  };
+
+  if (needs_create) {
+    auto guard = vclient.get_write_lock();
+    return inject([&](const TypeContextKey &key, const TypeDescriptor *td) {
+      // Cold path: populate the cache for future calls.
+      return vclient.type_contexts().get_or_create_client_managed(key, td);
+    });
+  } else {
+    auto guard = vclient.get_read_lock();
+    return inject([&](const TypeContextKey &key, const TypeDescriptor *) {
+      return vclient.type_contexts().acquire_client_managed(key);
+    });
+  }
 }
 
 }  // namespace villagesql

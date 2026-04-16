@@ -1,4 +1,5 @@
 /* Copyright (c) 2002, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -428,6 +429,17 @@ class sp_head {
 
   /// Stored program flags.
   uint m_flags;
+
+  // VillageSQL: tri-state cache for whether this SP has custom-typed params.
+  // UNCHECKED (0) on first call; set to HAS_CUSTOM (1) or NO_CUSTOM (2) after
+  // the first victionary lookup. sp_head is never shared across threads
+  // (IS_INVOKED prevents it), so no synchronization is needed.
+  enum : int8_t {
+    VSQL_SP_PARAMS_UNCHECKED = 0,
+    VSQL_SP_PARAMS_HAS_CUSTOM = 1,
+    VSQL_SP_PARAMS_NO_CUSTOM = 2,
+  };
+  int8_t m_vsql_custom_params_state{VSQL_SP_PARAMS_UNCHECKED};
 
   /**
     Instrumentation interface for SP.
