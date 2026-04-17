@@ -31,19 +31,32 @@
 #include <tuple>
 #include <utility>
 
-#include <villagesql/func_builder.h>
 #include <villagesql/sdk_version.h>
-#include <villagesql/storage_builder.h>
 #include <villagesql/type_builder.h>
 #include <villagesql/vsql/keyring.h>
 #include <villagesql/vsql/sys_var_builder.h>
 
 namespace villagesql {
+
+// Forward-declare the func_builder namespace so that extension_builder.h can
+// be included before func_builder.h (e.g. when alphabetical include order
+// puts extension_builder.h before func_builder.h). The actual symbols are
+// supplied by whichever func_builder header the caller includes.
+namespace func_builder {
+template <typename FuncData, size_t Index>
+vef_func_desc_t *materialize_func_desc(const FuncData &func_data);
+}  // namespace func_builder
+
 namespace extension_builder {
 
-using namespace sys_var_builder;
+using sys_var_builder::SysVarDescriptor;
+using type_builder::TypeDescriptor;
+
+// Re-export func_builder and type_builder symbols so the VEF_GENERATE_*
+// macros can resolve make_func, INT, STRING, make_type, etc. without
+// additional using-declarations at the call site. Whichever func_builder
+// header was included (v1 or vsql) determines which make_func is in scope.
 using namespace func_builder;
-using namespace storage_builder;
 using namespace type_builder;
 
 // =============================================================================
@@ -308,7 +321,6 @@ vef_registration_t *vef_register_impl(vef_registration_t &reg,
 
 }  // namespace detail
 }  // namespace villagesql
-
 
 // VEF_GENERATE_REGISTRATION
 //
