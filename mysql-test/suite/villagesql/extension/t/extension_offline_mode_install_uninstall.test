@@ -1,0 +1,31 @@
+# Test INSTALL/UNINSTALL EXTENSION while offline_mode = ON.
+# Verifies that a super-user connection can install and uninstall extensions
+# while the server is in offline mode.
+
+--echo # Install vsql_complex extension
+INSTALL EXTENSION vsql_complex;
+
+--echo # Verify extension is installed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # Enter offline mode
+SET GLOBAL offline_mode = ON;
+
+--echo # Uninstall while in offline mode
+UNINSTALL EXTENSION vsql_complex;
+
+--echo # Verify extension was removed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # Reinstall while still in offline mode
+INSTALL EXTENSION vsql_complex;
+
+--echo # Verify extension is installed again
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # Leave offline mode
+SET GLOBAL offline_mode = OFF;
+
+--echo # Cleanup
+UNINSTALL EXTENSION vsql_complex;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;

@@ -28,7 +28,7 @@ namespace villagesql {
 namespace veb {
 
 // Get full path to a file/directory within veb_dir
-// e.g., get_veb_path("foo.veb") → "/usr/local/mysql/lib/veb/foo.veb"
+// e.g., get_veb_path("foo-1.0.0.veb") → "/usr/local/mysql/lib/veb/foo-1.0.0.veb"
 // Returns empty string on error
 std::string get_veb_path(const std::string &filename);
 
@@ -37,11 +37,16 @@ std::string get_veb_path(const std::string &filename);
 // Returns false on success, true on error
 bool calculate_file_sha256(const std::string &filepath, std::string &hash_hex);
 
-// Load manifest.json from a VEB file and extract the "version" field
-// Opens {name}.veb as a tar archive using libarchive
-// Parses manifest.json using RapidJSON
-// Returns false on success, true on error
-// On success, version is populated with the extension version
+// Scan veb_dir for files matching {name}-*.veb and return the version string.
+// If exactly one versioned file is found, version is set and returns false.
+// If zero files are found, sets an error and returns true.
+// If multiple files are found, sets an error (caller must specify VERSION) and
+// returns true.
+bool find_veb_version(const std::string &name, std::string &version);
+
+// Load manifest.json from {name}-{version}.veb and validate the version field.
+// Opens the archive using libarchive and parses manifest.json using RapidJSON.
+// Returns false on success, true on error.
 bool load_veb_manifest(const std::string &name, std::string &version);
 
 // Expand VEB archive to directory:
@@ -50,15 +55,16 @@ bool load_veb_manifest(const std::string &name, std::string &version);
 // Directory structure created:
 //   .veb_expansion_cache/
 //     my_extension/
-//       abc123def.../        (SHA256 of my_extension.veb)
+//       abc123def.../        (SHA256 of my_extension-{version}.veb)
 //         manifest.json
 //         lib/
 //           my_extension.so
 //
-// If .veb_expansion_cache/{name}/{sha256}/ already exists, skips extraction
-// Returns false on success, true on error
-// On success, expanded_path contains full path and sha256_hash contains hash
+// If .veb_expansion_cache/{name}/{sha256}/ already exists, skips extraction.
+// Returns false on success, true on error.
+// On success, expanded_path contains full path and sha256_hash contains hash.
 bool expand_veb_to_directory(const std::string &name,
+                             const std::string &version,
                              std::string &expanded_path,
                              std::string &sha256_hash);
 

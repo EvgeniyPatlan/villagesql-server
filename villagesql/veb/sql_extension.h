@@ -31,21 +31,34 @@ extern char *opt_veb_dir_ptr;
 extern char opt_veb_dir[FN_REFLEN];
 
 // This class implements the INSTALL EXTENSION statement.
+//
+// Syntax variants:
+//   INSTALL EXTENSION name
+//     -- installs; fails if multiple versioned .veb files exist on disk
+//   INSTALL EXTENSION name VERSION 'x.y.z'
+//     -- installs the named version
+//   INSTALL EXTENSION name VERSION 'x.y.z' UPDATE
+//     -- replaces the currently-installed extension; requires offline_mode = ON
 class Sql_cmd_install_extension : public Sql_cmd {
  public:
-  explicit Sql_cmd_install_extension(const LEX_CSTRING &name) : m_name(name) {}
+  explicit Sql_cmd_install_extension(const LEX_CSTRING &name,
+                                     const LEX_CSTRING &version,
+                                     bool update = false)
+      : m_name(name), m_version(version), m_update(update) {}
 
   enum_sql_command sql_command_code() const override {
     return SQLCOM_INSTALL_EXTENSION;
   }
 
-  // Install a new extension.
+  // Install a new extension (or update an existing one if m_update is true).
   // @param thd  Thread context
   // @returns false if success, true otherwise
   bool execute(THD *thd) override;
 
  private:
   LEX_CSTRING m_name;
+  LEX_CSTRING m_version;
+  bool m_update;
 };
 
 // This class implements the UNINSTALL EXTENSION statement.

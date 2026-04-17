@@ -1,0 +1,69 @@
+# restart: --veb-dir=MYSQLTEST_VARDIR/veb
+# Build and install v1 of update_test extension
+Creating extension update_test using SDK...
+Created update_test-1.0.0.veb
+INSTALL EXTENSION update_test;
+# Verify v1 is installed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+update_test	1.0.0
+# Create table and insert rows using the COUNTER type
+CREATE TABLE t (id INT PRIMARY KEY, val update_test.COUNTER);
+INSERT INTO t VALUES (1, '10');
+INSERT INTO t VALUES (2, '20');
+INSERT INTO t VALUES (3, '5');
+# v1: to_string produces "v1:N", counter_double returns N*2
+SELECT id, update_test.counter_to_string(val) AS str,
+update_test.counter_double(val) AS doubled
+FROM t ORDER BY id;
+id	str	doubled
+1	v1:10	20
+2	v1:20	40
+3	v1:5	10
+# Build update_test_incompatible: drops the COUNTER type entirely (should be rejected)
+Creating extension update_test using SDK...
+Created update_test-2.0.0-bad.veb
+SET GLOBAL offline_mode = ON;
+# Update to a version that drops the COUNTER type must fail
+INSTALL EXTENSION update_test VERSION '2.0.0-bad' UPDATE;
+ERROR HY000: Cannot update extension 'update_test': type 'COUNTER' existed in version 1.0.0 but is missing from the new version
+SET GLOBAL offline_mode = OFF;
+# Verify the original v1 is still installed after the failed update
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+update_test	1.0.0
+SELECT id, update_test.counter_to_string(val) AS str,
+update_test.counter_double(val) AS doubled
+FROM t ORDER BY id;
+id	str	doubled
+1	v1:10	20
+2	v1:20	40
+3	v1:5	10
+# Build v2 of update_test (same binary storage, new to_string and VDF behavior)
+Creating extension update_test using SDK...
+Created update_test-2.0.0.veb
+# Update requires offline_mode = ON; without it the command must fail
+INSTALL EXTENSION update_test VERSION '2.0.0' UPDATE;
+ERROR HY000: INSTALL EXTENSION ... UPDATE requires the server to be in offline mode. Run SET GLOBAL offline_mode = ON before updating.
+# Enter offline mode and update
+SET GLOBAL offline_mode = ON;
+INSTALL EXTENSION update_test VERSION '2.0.0' UPDATE;
+SET GLOBAL offline_mode = OFF;
+# Verify v2 is now installed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+update_test	2.0.0
+# v2: to_string produces "v2:N", counter_double returns N*3
+# The stored binary data is unchanged, only the interpretation changes
+SELECT id, update_test.counter_to_string(val) AS str,
+update_test.counter_double(val) AS doubled
+FROM t ORDER BY id;
+id	str	doubled
+1	v2:10	30
+2	v2:20	60
+3	v2:5	15
+# Clean up
+DROP TABLE t;
+UNINSTALL EXTENSION update_test;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION

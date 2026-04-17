@@ -19,6 +19,7 @@ call mtr.add_suppression("Orphaned expansion directory found but not removed");
 --echo #
 
 --echo # Missing VEB file
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
 --error ER_VILLAGESQL_GENERIC_ERROR
 INSTALL EXTENSION nonexistent;
 

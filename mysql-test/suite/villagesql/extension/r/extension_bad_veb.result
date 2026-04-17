@@ -6,7 +6,7 @@ call mtr.add_suppression("Orphaned expansion directory found but not removed");
 #
 # Missing VEB file
 INSTALL EXTENSION nonexistent;
-ERROR HY000: VEB file not found: nonexistent.veb
+ERROR HY000: No VEB file found for extension 'nonexistent' in 'MYSQLTEST_VARDIR/veb/'
 # Invalid archive format (not a tar file)
 INSTALL EXTENSION bad_archive;
 ERROR HY000: Cannot open VEB file 'bad_archive.veb': Unrecognized archive format

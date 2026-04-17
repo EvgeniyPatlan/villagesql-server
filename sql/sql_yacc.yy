@@ -18216,7 +18216,26 @@ install_stmt:
           {
             LEX *lex= Lex;
             lex->sql_command= SQLCOM_INSTALL_EXTENSION;
-            lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_install_extension(to_lex_cstring($3));
+            lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_install_extension(
+                to_lex_cstring($3), {nullptr, 0}, false);
+            $$ = nullptr;
+          }
+        // TODO(villagesql-rebase): INSTALL EXTENSION VERSION grammar rule, check placement during MySQL rebase
+        | INSTALL_SYM EXTENSION_SYM IDENT_sys IDENT_sys TEXT_STRING_sys
+          {
+            LEX *lex= Lex;
+            lex->sql_command= SQLCOM_INSTALL_EXTENSION;
+            lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_install_extension(
+                to_lex_cstring($3), to_lex_cstring($5), false);
+            $$ = nullptr;
+          }
+        // TODO(villagesql-rebase): INSTALL EXTENSION VERSION UPDATE grammar rule, check placement during MySQL rebase
+        | INSTALL_SYM EXTENSION_SYM IDENT_sys IDENT_sys TEXT_STRING_sys UPDATE_SYM
+          {
+            LEX *lex= Lex;
+            lex->sql_command= SQLCOM_INSTALL_EXTENSION;
+            lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_install_extension(
+                to_lex_cstring($3), to_lex_cstring($5), true);
             $$ = nullptr;
           }
         | INSTALL_SYM COMPONENT_SYM TEXT_STRING_sys_list opt_install_set_value_list
