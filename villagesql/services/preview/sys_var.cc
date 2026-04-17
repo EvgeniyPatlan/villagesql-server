@@ -17,7 +17,10 @@
 #include "villagesql/services/preview/sys_var.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -32,6 +35,7 @@
 #include "villagesql/include/error.h"
 #include "villagesql/sdk/include/villagesql/abi/preview/sys_var.h"
 #include "villagesql/services/sys_var_access.h"
+#include "villagesql/veb/veb_file.h"
 
 namespace villagesql::services {
 
@@ -115,6 +119,73 @@ static void vef_sys_var_update_trampoline(MYSQL_THD, SYS_VAR *, void *val_ptr,
   if (change.type == VEF_VAR_STR && change.str_val != nullptr)
     change.str_val = str_val_copy.c_str();
   if (on_change != nullptr && change.var_name != nullptr) on_change(&change);
+}
+
+// Returns true if `value` (a persisted string) is compatible with `new_type`,
+// considering the new var's range constraints. Used when a sys var survives
+// UPDATE with a changed type: incompatible values are dropped rather than
+// silently mis-applied.
+bool is_persisted_value_compatible(const std::string &value,
+                                   vef_var_type_t new_type,
+                                   const vef_sys_var_desc_t *new_v) {
+  switch (new_type) {
+    case VEF_VAR_STR:
+      return true;  // any string is valid for a string var
+
+    case VEF_VAR_INT: {
+      if (value.empty()) return false;
+      errno = 0;
+      char *end = nullptr;
+      long long v = strtoll(value.c_str(), &end, 10);
+      if (errno != 0 || end == value.c_str() || *end != '\0') return false;
+      if (new_v != nullptr) {
+        if (v < new_v->integer.min_val || v > new_v->integer.max_val)
+          return false;
+      }
+      return true;
+    }
+
+    case VEF_VAR_DOUBLE: {
+      if (value.empty()) return false;
+      errno = 0;
+      char *end = nullptr;
+      double v = strtod(value.c_str(), &end);
+      if (errno != 0 || end == value.c_str() || *end != '\0') return false;
+      if (new_v != nullptr) {
+        if (v < new_v->dbl.min_val || v > new_v->dbl.max_val) return false;
+      }
+      return true;
+    }
+
+    case VEF_VAR_BOOL: {
+      // Accept the canonical forms MySQL uses when persisting bool vars.
+      std::string up;
+      up.reserve(value.size());
+      for (char c : value)
+        up += static_cast<char>(toupper(static_cast<unsigned char>(c)));
+      return up == "0" || up == "1" || up == "ON" || up == "OFF" ||
+             up == "TRUE" || up == "FALSE";
+    }
+  }
+  return false;
+}
+
+const vef_sys_var_descriptor_list_t *find_sys_var_descriptor_list(
+    const vef_registration_t *reg) {
+  if (reg == nullptr || reg->protocol < VEF_PROTOCOL_3 ||
+      reg->required_capabilities == nullptr ||
+      reg->required_capability_count == 0)
+    return nullptr;
+
+  for (uint32_t i = 0; i < reg->required_capability_count; ++i) {
+    const vef_required_capability_t &req = reg->required_capabilities[i];
+    if (req.name != nullptr && req.capability_config != nullptr &&
+        strcmp(req.name, VEF_PREVIEW_SYS_VAR_NAME) == 0) {
+      return static_cast<const vef_sys_var_descriptor_list_t *>(
+          req.capability_config);
+    }
+  }
+  return nullptr;
 }
 
 }  // namespace
@@ -411,6 +482,139 @@ void on_depopulate_sys_var(const DepopulateContext &ctx) {
   }
 
   mysql_plugin_registry_release(registry);
+}
+
+bool register_sys_vars_from_extension(const std::string &extension_name,
+                                      const vef_registration_t *reg) {
+  const vef_sys_var_descriptor_list_t *list = find_sys_var_descriptor_list(reg);
+  if (list == nullptr) return false;
+
+  PopulateContext ctx;
+  ctx.extension_name = extension_name;
+  ctx.capability_config = list;
+  ctx.reason = LoadReason::kInstall;
+
+  std::string error_message;
+  return on_populate_sys_var(ctx, error_message);
+}
+
+void unregister_sys_vars_from_extension(const std::string &extension_name,
+                                        const vef_registration_t *reg,
+                                        THD *thd) {
+  (void)extension_name;
+  const vef_sys_var_descriptor_list_t *list = find_sys_var_descriptor_list(reg);
+  if (list == nullptr) return;
+
+  DepopulateContext ctx;
+  ctx.capability_config = list;
+  ctx.reason =
+      thd != nullptr ? UnloadReason::kUninstall : UnloadReason::kShutdown;
+  ctx.thd = thd;
+  on_depopulate_sys_var(ctx);
+}
+
+bool update_sys_vars_for_extension(const std::string &extension_name,
+                                   const vef_registration_t *old_reg,
+                                   const vef_registration_t *new_reg,
+                                   THD *thd) {
+  const vef_sys_var_descriptor_list_t *old_list =
+      find_sys_var_descriptor_list(old_reg);
+  const vef_sys_var_descriptor_list_t *new_list =
+      find_sys_var_descriptor_list(new_reg);
+
+  // Collect persisted values for vars that exist in both old and new
+  // registrations, before we unregister (and thus remove) them. Also record
+  // the old and new types so we can validate compatibility on re-persist when
+  // the type has changed.
+  struct RepersistEntry {
+    std::string name;
+    std::string value;
+    vef_var_type_t old_type;
+    vef_var_type_t new_type;
+    const vef_sys_var_desc_t *new_desc;  // for range validation
+  };
+  std::vector<RepersistEntry> to_repersist;
+
+  if (old_list != nullptr && new_list != nullptr) {
+    Persisted_variables_cache *pvc = Persisted_variables_cache::get_instance();
+    Persisted_variables_uset *plugin_vars =
+        pvc ? pvc->get_persisted_dynamic_plugin_variables() : nullptr;
+
+    for (uint32_t i = 0; i < old_list->var_count; i++) {
+      const vef_sys_var_desc_t *old_v = old_list->vars[i];
+      if (old_v == nullptr || old_v->name == nullptr) continue;
+
+      // Find the matching var in the new registration.
+      const vef_sys_var_desc_t *new_v = nullptr;
+      for (uint32_t j = 0; j < new_list->var_count; j++) {
+        const vef_sys_var_desc_t *candidate = new_list->vars[j];
+        if (candidate != nullptr && candidate->name != nullptr &&
+            strcmp(old_v->name, candidate->name) == 0) {
+          new_v = candidate;
+          break;
+        }
+      }
+      if (new_v == nullptr) continue;
+
+      // Check if it has a persisted value.
+      std::string full_name = extension_name + "." + old_v->name;
+      if (plugin_vars == nullptr) continue;
+      auto it = std::find_if(
+          plugin_vars->begin(), plugin_vars->end(),
+          [&full_name](const st_persist_var &v) { return v.key == full_name; });
+      if (it == plugin_vars->end()) continue;
+
+      to_repersist.push_back({std::string(old_v->name), it->value, old_v->type,
+                              new_v->type, new_v});
+    }
+  }
+
+  // Unregister old vars, clearing all their persisted values.
+  unregister_sys_vars_from_extension(extension_name, old_reg, thd);
+
+  // Register new vars.
+  if (register_sys_vars_from_extension(extension_name, new_reg)) {
+    // Registration failed — re-register old vars so the server is consistent.
+    register_sys_vars_from_extension(extension_name, old_reg);
+    return true;
+  }
+
+  // Re-persist values for vars that survived into the new registration.
+  // If the type changed, validate that the persisted value is compatible with
+  // the new type before applying it. Drop it with a warning if not.
+  for (const auto &entry : to_repersist) {
+    if (entry.old_type != entry.new_type) {
+      if (!is_persisted_value_compatible(entry.value, entry.new_type,
+                                         entry.new_desc)) {
+        LogVSQL(WARNING_LEVEL,
+                "Extension '%s': persisted value '%s' for system variable "
+                "'%s' is not compatible with its new type and will be reset "
+                "to the default",
+                extension_name.c_str(), entry.value.c_str(),
+                entry.name.c_str());
+        continue;
+      }
+    }
+    sys_var_set(extension_name.c_str(), entry.name.c_str(), "PERSIST",
+                entry.value.c_str());
+  }
+
+  return false;
+}
+
+bool on_check_update_sys_var(const UpdateCheckContext &ctx,
+                             std::string &error_message) {
+  (void)ctx;
+  (void)error_message;
+  return false;  // system variables are always safe to check in Phase 1
+}
+
+bool on_swap_update_sys_var(const UpdateSwapContext &ctx,
+                            std::string &error_message) {
+  (void)error_message;
+  std::string ext_name(ctx.extension_name);
+  return update_sys_vars_for_extension(ext_name, ctx.old_reg, ctx.new_reg,
+                                       ctx.thd);
 }
 
 }  // namespace villagesql::services

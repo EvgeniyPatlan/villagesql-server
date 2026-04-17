@@ -1,0 +1,46 @@
+# Test that UPDATE correctly reregisters type ref counts so that UNINSTALL
+# remains blocked while tables using the type exist, and succeeds once they
+# are dropped.
+#
+# The ref count that blocks UNINSTALL is the column-dependency check
+# (villagesql.custom_columns), not the shared_ptr use_count. This test
+# verifies that UPDATE rewrites those entries against the new registration so
+# that the dependency tracking is intact after the swap.
+
+--echo # Install update_test 1.0.0 (pre-built; v2 is also staged on disk)
+INSTALL EXTENSION update_test VERSION '1.0.0';
+
+CREATE TABLE t1 (id INT PRIMARY KEY, val update_test.COUNTER);
+CREATE TABLE t2 (id INT PRIMARY KEY, val update_test.COUNTER);
+INSERT INTO t1 VALUES (1, '10');
+INSERT INTO t2 VALUES (1, '20');
+
+--echo # Close any open table cache references
+FLUSH TABLES;
+
+--echo # UNINSTALL must be blocked: two tables depend on COUNTER
+--error ER_VILLAGESQL_GENERIC_ERROR
+UNINSTALL EXTENSION update_test;
+
+SET GLOBAL offline_mode = ON;
+--let $extension_name = update_test
+--let $extension_version = 2.0.0
+--source include/villagesql/update_extension.inc
+SET GLOBAL offline_mode = OFF;
+
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # After UPDATE: UNINSTALL must still be blocked — tables still exist
+--error ER_VILLAGESQL_GENERIC_ERROR
+UNINSTALL EXTENSION update_test;
+
+--echo # Drop one table — still blocked (t2 remains)
+DROP TABLE t1;
+--error ER_VILLAGESQL_GENERIC_ERROR
+UNINSTALL EXTENSION update_test;
+
+--echo # Drop the last table — UNINSTALL must now succeed
+DROP TABLE t2;
+UNINSTALL EXTENSION update_test;
+
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;

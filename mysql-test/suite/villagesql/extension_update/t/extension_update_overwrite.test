@@ -1,0 +1,61 @@
+# Test that UPDATE picks up a replacement .veb that has the same version string
+# but different content (i.e. the .veb file on disk was overwritten in-place).
+#
+# Scenario:
+#   1. Build and install update_test-1.0.0.veb (original v1: "v1:N", N*2)
+#   2. Build a patched 1.0.0 .veb (same version, different logic: "v1patched:N", N*4)
+#   3. Overwrite the 1.0.0 .veb on disk with the patched build
+#   4. Run UPDATE — must pick up the new .so and apply the patched behavior
+
+--let $veb_dir = $MYSQLTEST_VARDIR/veb
+--exec mkdir -p $veb_dir
+
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+--let $restart_parameters = restart: --veb-dir=$veb_dir
+--source include/restart_mysqld.inc
+
+--echo # Build and install original update_test 1.0.0
+--let $extension_name = update_test
+--let $extension_version = 1.0.0
+--let $extension_source = $MYSQL_TEST_DIR/../villagesql/test-extensions/update-test-v1/src/extension.cc
+--let $extension_versioned = 1
+--source include/villagesql/create_extension_sdk.inc
+
+--disable_query_log
+INSTALL EXTENSION update_test VERSION '1.0.0';
+--enable_query_log
+--echo Installed update_test 1.0.0
+
+CREATE TABLE t (id INT PRIMARY KEY, val update_test.COUNTER);
+INSERT INTO t VALUES (1, '10'), (2, '20'), (3, '5');
+
+--echo # v1 behavior: to_string = "v1:N", counter_double = N*2
+SELECT id, update_test.counter_to_string(val) AS str,
+       update_test.counter_double(val) AS doubled
+FROM t ORDER BY id;
+
+--echo # Build patched 1.0.0 .veb (same version, "v1patched:N", N*4)
+--let $extension_name = update_test
+--let $extension_version = 1.0.0
+--let $extension_source = $MYSQL_TEST_DIR/suite/villagesql/std_data/update_v1_patched.cc
+--let $extension_versioned = 1
+--source include/villagesql/create_extension_sdk.inc
+
+--echo # Overwrite original 1.0.0 .veb with patched build (already done by create_extension_sdk.inc)
+
+--echo # UPDATE to same version — loads the replacement .veb
+SET GLOBAL offline_mode = ON;
+--let $extension_name = update_test
+--let $extension_version = 1.0.0
+--source include/villagesql/update_extension.inc
+SET GLOBAL offline_mode = OFF;
+
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # Patched behavior: to_string = "v1patched:N", counter_double = N*4
+SELECT id, update_test.counter_to_string(val) AS str,
+       update_test.counter_double(val) AS doubled
+FROM t ORDER BY id;
+
+DROP TABLE t;
+UNINSTALL EXTENSION update_test;

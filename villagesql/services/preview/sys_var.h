@@ -24,6 +24,8 @@
 #include "villagesql/sdk/include/villagesql/abi/types.h"
 #include "villagesql/services/capability_registry.h"
 
+class THD;
+
 namespace villagesql::services {
 
 // Returns the server-side vtable for the "vsql::sys_var" preview capability.
@@ -39,6 +41,27 @@ bool on_populate_sys_var(const PopulateContext &ctx,
 // persisted values from mysqld-auto.cnf using ctx.thd. On kShutdown, persisted
 // values are intentionally left intact to survive a shutdown/restart cycle.
 void on_depopulate_sys_var(const DepopulateContext &ctx);
+
+// Registers system variables declared through the preview sys_var capability.
+// Returns false on success, true on error.
+bool register_sys_vars_from_extension(const std::string &extension_name,
+                                      const vef_registration_t *reg);
+
+// Unregisters system variables declared through the preview sys_var capability.
+// When thd is non-null, persisted values are removed from mysqld-auto.cnf.
+void unregister_sys_vars_from_extension(const std::string &extension_name,
+                                        const vef_registration_t *reg,
+                                        THD *thd);
+
+// Phase 1 check callback for the sys_var capability.
+bool on_check_update_sys_var(const UpdateCheckContext &ctx,
+                             std::string &error_message);
+
+// Phase 2 swap callback for the sys_var capability. Unregisters the old vars
+// (preserving persisted values for surviving vars), registers the new ones,
+// and re-persists compatible values. On failure re-registers the old vars.
+bool on_swap_update_sys_var(const UpdateSwapContext &ctx,
+                            std::string &error_message);
 
 }  // namespace villagesql::services
 

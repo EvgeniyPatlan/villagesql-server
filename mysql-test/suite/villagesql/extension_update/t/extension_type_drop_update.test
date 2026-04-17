@@ -1,0 +1,120 @@
+# Test that UPDATE allows dropping a type when no columns/SP params depend on it,
+# and blocks it when they do.
+#
+# v1: two types — COUNTER and GAUGE
+# v2: drops GAUGE, keeps COUNTER, adds SCORE
+#
+# Scenarios:
+#   1. Drop GAUGE with no dependents — allowed
+#   2. Drop GAUGE when a column depends on it — blocked
+#   3. Drop GAUGE when an SP param depends on it — blocked
+
+--let $veb_dir = $MYSQLTEST_VARDIR/veb
+--exec mkdir -p $veb_dir
+
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+--let $restart_parameters = restart: --veb-dir=$veb_dir
+--source include/restart_mysqld.inc
+
+--let $extension_name = type_drop_update
+--let $extension_version = 1.0.0
+--let $extension_source = $MYSQL_TEST_DIR/suite/villagesql/std_data/type_drop_update_v1.cc
+--let $extension_versioned = 1
+--source include/villagesql/create_extension_sdk.inc
+
+--let $extension_name = type_drop_update
+--let $extension_version = 2.0.0
+--let $extension_source = $MYSQL_TEST_DIR/suite/villagesql/std_data/type_drop_update_v2.cc
+--let $extension_versioned = 1
+--source include/villagesql/create_extension_sdk.inc
+
+#
+# Scenario 1: drop GAUGE with no dependents — must succeed
+#
+
+--disable_query_log
+INSTALL EXTENSION type_drop_update VERSION '1.0.0';
+--enable_query_log
+--echo Installed type_drop_update 1.0.0
+
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # Update to v2 (drops GAUGE, adds SCORE) with no GAUGE columns — must succeed
+SET GLOBAL offline_mode = ON;
+--let $extension_name = type_drop_update
+--let $extension_version = 2.0.0
+--source include/villagesql/update_extension.inc
+SET GLOBAL offline_mode = OFF;
+
+--echo # v2 installed: COUNTER retained, SCORE added, GAUGE gone
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # GAUGE type is no longer available
+--error ER_PARSE_ERROR
+CREATE TABLE t_gauge (id INT PRIMARY KEY, val type_drop_update.GAUGE);
+
+--echo # COUNTER and SCORE are available
+CREATE TABLE t (id INT PRIMARY KEY,
+                cnt type_drop_update.COUNTER,
+                scr type_drop_update.SCORE);
+INSERT INTO t VALUES (1, '10', '99');
+SELECT id, type_drop_update.counter_val(cnt), type_drop_update.score_val(scr)
+FROM t ORDER BY id;
+DROP TABLE t;
+
+UNINSTALL EXTENSION type_drop_update;
+
+#
+# Scenario 2: drop GAUGE when a column depends on it — must be blocked
+#
+
+--disable_query_log
+INSTALL EXTENSION type_drop_update VERSION '1.0.0';
+--enable_query_log
+--echo Installed type_drop_update 1.0.0
+
+CREATE TABLE t_with_gauge (id INT PRIMARY KEY, g type_drop_update.GAUGE);
+INSERT INTO t_with_gauge VALUES (1, '42');
+
+--echo # Update to v2 while a GAUGE column exists — must fail
+SET GLOBAL offline_mode = ON;
+--let $extension_name = type_drop_update
+--let $extension_version = 2.0.0
+--let $update_expect_error = ER_VILLAGESQL_GENERIC_ERROR
+--source include/villagesql/update_extension.inc
+SET GLOBAL offline_mode = OFF;
+
+--echo # v1 is still installed after failed update
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # GAUGE column is still accessible
+SELECT id, type_drop_update.gauge_val(g) FROM t_with_gauge ORDER BY id;
+
+DROP TABLE t_with_gauge;
+UNINSTALL EXTENSION type_drop_update;
+
+#
+# Scenario 3: drop GAUGE when an SP param depends on it — must be blocked
+#
+
+--disable_query_log
+INSTALL EXTENSION type_drop_update VERSION '1.0.0';
+--enable_query_log
+--echo Installed type_drop_update 1.0.0
+
+CREATE PROCEDURE p_gauge(IN g type_drop_update.GAUGE)
+  SELECT type_drop_update.gauge_val(g);
+
+--echo # Update to v2 while a stored procedure uses GAUGE — must fail
+SET GLOBAL offline_mode = ON;
+--let $extension_name = type_drop_update
+--let $extension_version = 2.0.0
+--let $update_expect_error = ER_VILLAGESQL_GENERIC_ERROR
+--source include/villagesql/update_extension.inc
+SET GLOBAL offline_mode = OFF;
+
+--echo # v1 is still installed after failed update
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+DROP PROCEDURE p_gauge;
+UNINSTALL EXTENSION type_drop_update;

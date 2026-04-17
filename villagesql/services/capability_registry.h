@@ -52,6 +52,30 @@ struct DepopulateContext {
   THD *thd = nullptr;
 };
 
+// Context passed to on_check_update.
+struct UpdateCheckContext {
+  std::string_view extension_name;
+  std::string_view old_version;
+  std::string_view new_version;
+  const void *old_capability_config = nullptr;
+  const void *new_capability_config = nullptr;
+  const vef_registration_t *old_reg = nullptr;
+  const vef_registration_t *new_reg = nullptr;
+  THD *thd = nullptr;
+};
+
+// Context passed to on_swap_update.
+struct UpdateSwapContext {
+  std::string_view extension_name;
+  std::string_view old_version;
+  std::string_view new_version;
+  const void *old_capability_config = nullptr;
+  const void *new_capability_config = nullptr;
+  const vef_registration_t *old_reg = nullptr;
+  const vef_registration_t *new_reg = nullptr;
+  THD *thd = nullptr;
+};
+
 // Parameters for register_capability(). Zero/null fields use defaults.
 struct CapabilityRegistration {
   // Required: server-side vtable pointer.
@@ -73,6 +97,14 @@ struct CapabilityRegistration {
                       std::string &error_message) = nullptr;
   // Called before unloading an extension. Null if no cleanup is needed.
   void (*on_depopulate)(const DepopulateContext &ctx) = nullptr;
+  // Called to validate compatibility between old and new configurations during
+  // upgrade. Returns true on error (sets error_message), false on success.
+  bool (*on_check_update)(const UpdateCheckContext &ctx,
+                          std::string &error_message) = nullptr;
+  // Called atomically within a transaction to swap the old configuration with
+  // the new one. Returns true on error (sets error_message), false on success.
+  bool (*on_swap_update)(const UpdateSwapContext &ctx,
+                         std::string &error_message) = nullptr;
 };
 
 // Register a capability by name.
@@ -104,6 +136,30 @@ bool populate_capabilities(const PopulateContext &ctx,
 // capabilities to stop threads or clean up server-side resources.
 void depopulate_capabilities(const DepopulateContext &ctx,
                              const vef_registration_t *reg);
+
+// Phase 1 of UPDATE EXTENSION: invoke the on_check_update hook of every
+// capability the new registration requires. Aborts at the first hook that
+// returns true; subsequent hooks are not called.
+//
+// Hooks may either set the THD error directly (and leave error_message empty
+// for rich diagnostics) or populate error_message. The caller is expected to
+// forward error_message to villagesql_error when it carries text.
+bool check_upgrade_compatibility(std::string_view extension_name,
+                                 std::string_view old_version,
+                                 std::string_view new_version,
+                                 const vef_registration_t *old_reg,
+                                 const vef_registration_t *new_reg, THD *thd,
+                                 std::string &error_message);
+
+// Phase 2 of UPDATE EXTENSION: invoke the on_swap_update hook of every
+// capability the new registration requires. Same iteration and
+// error-reporting contract as check_upgrade_compatibility.
+bool execute_upgrade_swap(std::string_view extension_name,
+                          std::string_view old_version,
+                          std::string_view new_version,
+                          const vef_registration_t *old_reg,
+                          const vef_registration_t *new_reg, THD *thd,
+                          std::string &error_message);
 
 }  // namespace villagesql::services
 

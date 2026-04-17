@@ -1,0 +1,25 @@
+# Install vsql_complex extension
+INSTALL EXTENSION vsql_complex;
+# Verify extension is installed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+vsql_complex	0.0.1
+# Enter offline mode
+SET GLOBAL offline_mode = ON;
+# Uninstall while in offline mode
+UNINSTALL EXTENSION vsql_complex;
+# Verify extension was removed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+# Reinstall while still in offline mode
+INSTALL EXTENSION vsql_complex;
+# Verify extension is installed again
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+vsql_complex	0.0.1
+# Leave offline mode
+SET GLOBAL offline_mode = OFF;
+# Cleanup
+UNINSTALL EXTENSION vsql_complex;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION

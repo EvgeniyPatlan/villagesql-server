@@ -1,0 +1,36 @@
+# restart: --veb-dir=MYSQLTEST_VARDIR/veb
+# Build and install original update_test 1.0.0
+Creating extension update_test using SDK...
+Created update_test-1.0.0.veb
+Installed update_test 1.0.0
+CREATE TABLE t (id INT PRIMARY KEY, val update_test.COUNTER);
+INSERT INTO t VALUES (1, '10'), (2, '20'), (3, '5');
+# v1 behavior: to_string = "v1:N", counter_double = N*2
+SELECT id, update_test.counter_to_string(val) AS str,
+update_test.counter_double(val) AS doubled
+FROM t ORDER BY id;
+id	str	doubled
+1	v1:10	20
+2	v1:20	40
+3	v1:5	10
+# Build patched 1.0.0 .veb (same version, "v1patched:N", N*4)
+Creating extension update_test using SDK...
+Created update_test-1.0.0.veb
+# Overwrite original 1.0.0 .veb with patched build (already done by create_extension_sdk.inc)
+# UPDATE to same version — loads the replacement .veb
+SET GLOBAL offline_mode = ON;
+Updated update_test to 1.0.0
+SET GLOBAL offline_mode = OFF;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+update_test	1.0.0
+# Patched behavior: to_string = "v1patched:N", counter_double = N*4
+SELECT id, update_test.counter_to_string(val) AS str,
+update_test.counter_double(val) AS doubled
+FROM t ORDER BY id;
+id	str	doubled
+1	v1patched:10	40
+2	v1patched:20	80
+3	v1patched:5	20
+DROP TABLE t;
+UNINSTALL EXTENSION update_test;

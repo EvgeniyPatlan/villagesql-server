@@ -1,0 +1,63 @@
+# restart: --veb-dir=MYSQLTEST_VARDIR/veb
+Creating extension type_drop_update using SDK...
+Created type_drop_update-1.0.0.veb
+Creating extension type_drop_update using SDK...
+Created type_drop_update-2.0.0.veb
+Installed type_drop_update 1.0.0
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+type_drop_update	1.0.0
+# Update to v2 (drops GAUGE, adds SCORE) with no GAUGE columns — must succeed
+SET GLOBAL offline_mode = ON;
+Updated type_drop_update to 2.0.0
+SET GLOBAL offline_mode = OFF;
+# v2 installed: COUNTER retained, SCORE added, GAUGE gone
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+type_drop_update	2.0.0
+# GAUGE type is no longer available
+CREATE TABLE t_gauge (id INT PRIMARY KEY, val type_drop_update.GAUGE);
+ERROR 42000: Expected a type or a custom type instead of "GAUGE" near 'type_drop_update.GAUGE)' at line 1
+# COUNTER and SCORE are available
+CREATE TABLE t (id INT PRIMARY KEY,
+cnt type_drop_update.COUNTER,
+scr type_drop_update.SCORE);
+INSERT INTO t VALUES (1, '10', '99');
+SELECT id, type_drop_update.counter_val(cnt), type_drop_update.score_val(scr)
+FROM t ORDER BY id;
+id	type_drop_update.counter_val(cnt)	type_drop_update.score_val(scr)
+1	counter:10	score:99
+DROP TABLE t;
+UNINSTALL EXTENSION type_drop_update;
+Installed type_drop_update 1.0.0
+CREATE TABLE t_with_gauge (id INT PRIMARY KEY, g type_drop_update.GAUGE);
+INSERT INTO t_with_gauge VALUES (1, '42');
+# Update to v2 while a GAUGE column exists — must fail
+SET GLOBAL offline_mode = ON;
+Attempting to update type_drop_update to 2.0.0 (expecting error)
+ERROR HY000: Cannot update extension 'type_drop_update': type 'GAUGE' is being dropped but 1 column(s) depend on it, e.g. test.t_with_gauge.g
+SET GLOBAL offline_mode = OFF;
+# v1 is still installed after failed update
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+type_drop_update	1.0.0
+# GAUGE column is still accessible
+SELECT id, type_drop_update.gauge_val(g) FROM t_with_gauge ORDER BY id;
+id	type_drop_update.gauge_val(g)
+1	gauge:42
+DROP TABLE t_with_gauge;
+UNINSTALL EXTENSION type_drop_update;
+Installed type_drop_update 1.0.0
+CREATE PROCEDURE p_gauge(IN g type_drop_update.GAUGE)
+SELECT type_drop_update.gauge_val(g);
+# Update to v2 while a stored procedure uses GAUGE — must fail
+SET GLOBAL offline_mode = ON;
+Attempting to update type_drop_update to 2.0.0 (expecting error)
+ERROR HY000: Cannot update extension 'type_drop_update': type 'GAUGE' is being dropped but stored procedure test.p_gauge depends on it
+SET GLOBAL offline_mode = OFF;
+# v1 is still installed after failed update
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+type_drop_update	1.0.0
+DROP PROCEDURE p_gauge;
+UNINSTALL EXTENSION type_drop_update;

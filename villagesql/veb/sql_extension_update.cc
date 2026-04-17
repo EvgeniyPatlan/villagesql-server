@@ -15,8 +15,8 @@
  */
 
 // ALTER EXTENSION ... UPDATE TO 'x.y.z' phase 2: type/VDF compatibility
-// checks and the victionary swap. The prologue (DDL guards, locks,
-// preconditions, VEB load) is in sql_extension.cc.
+// checks, capability hooks, and the victionary swap. The prologue (DDL
+// guards, locks, preconditions, VEB load) is in sql_extension.cc.
 
 #include "villagesql/veb/sql_extension.h"
 
@@ -262,10 +262,12 @@ bool execute_upgrade(THD *thd, const std::string &extension_name,
   auto &victionary = VictionaryClient::instance();
 
   // Phase 1: pre-commit safety checks. Type-system checks run inline against
-  // the victionary under a read lock. NOTE: read lock must be released before
-  // end_transaction — end_transaction -> rollback_all_tables takes the write
-  // lock and rwlocks are not reentrant.
+  // the victionary under a read lock; capability hooks run afterwards via the
+  // generic registry. NOTE: read lock must be released before end_transaction
+  // — end_transaction -> rollback_all_tables takes the write lock and
+  // rwlocks are not reentrant.
   std::string old_version;
+  const vef_registration_t *old_reg = nullptr;
   std::vector<villagesql::QualifiedTableName> affected_tables;
   {
     bool pre_check_error = false;
@@ -282,6 +284,11 @@ bool execute_upgrade(THD *thd, const std::string &extension_name,
         pre_check_error = true;
       } else {
         old_version = old_entry->extension_version;
+        const auto *ext_desc = victionary.extension_descriptors().get_committed(
+            ExtensionDescriptorKey(extension_name, old_version));
+        if (ext_desc != nullptr) {
+          old_reg = ext_desc->registration().registration;
+        }
         // Check storage-layout compatibility for retained types.
         pre_check_error = check_update_compatibility(*old_entry, victionary,
                                                      new_registration);
@@ -319,6 +326,23 @@ bool execute_upgrade(THD *thd, const std::string &extension_name,
       }
     }
     if (pre_check_error) {
+      veb::unload_vef_extension(
+          {.reason = services::UnloadReason::kUninstall, .thd = thd},
+          new_registration);
+      return end_transaction(thd, true);
+    }
+  }
+
+  // Capability-driven Phase 1 hooks. Hooks set THD errors via villagesql_error
+  // for rich diagnostics, in which case error_message is left empty; we only
+  // forward error_message ourselves if it carries text.
+  {
+    std::string error_message;
+    if (services::check_upgrade_compatibility(
+            extension_name, old_version, new_version, old_reg,
+            new_registration.registration, thd, error_message)) {
+      if (!error_message.empty())
+        villagesql_error("%s", MYF(0), error_message.c_str());
       veb::unload_vef_extension(
           {.reason = services::UnloadReason::kUninstall, .thd = thd},
           new_registration);
@@ -424,6 +448,34 @@ bool execute_upgrade(THD *thd, const std::string &extension_name,
     mark_extension_for_deletion(thd, victionary, *old_entry, old_registration);
   }
 
+  // Phase 2: capability-driven atomic swap. Hooks may set THD errors via
+  // villagesql_error; we only forward error_message ourselves when non-empty.
+  //
+  // TODO(villagesql-beta): the swap is NOT atomic across capabilities. If
+  // execute_upgrade_swap iterates capabilities and a later capability's
+  // on_swap_update fails, earlier capabilities have already swapped their
+  // in-memory state and we have no rollback hook to undo them. From this
+  // point on, on any failure path the in-memory capability state is
+  // inconsistent with the catalog. Plan: set a global "extension upgrade
+  // failed, restart required" flag and reject `SET GLOBAL offline_mode = OFF`
+  // until the server has restarted (so capabilities reload from the catalog).
+  // Same concern applies to all error paths below
+  // (mark_extension_for_insertion, write_all_uncommitted_entries, post-commit
+  // failure).
+  {
+    std::string error_message;
+    if (services::execute_upgrade_swap(extension_name, old_version, new_version,
+                                       old_reg, new_registration.registration,
+                                       thd, error_message)) {
+      if (!error_message.empty())
+        villagesql_error("%s", MYF(0), error_message.c_str());
+      veb::unload_vef_extension(
+          {.reason = services::UnloadReason::kUninstall, .thd = thd},
+          new_registration);
+      return end_transaction(thd, true);
+    }
+  }
+
   bool mark_success = false;
   {
     auto write_lock = victionary.get_write_lock();
@@ -432,14 +484,22 @@ bool execute_upgrade(THD *thd, const std::string &extension_name,
     mark_success =
         !rewrite_column_and_sp_param_versions(thd, victionary, extension_name,
                                               old_version, new_version) &&
+        !DBUG_EVALUATE_IF("villagesql_inject_update_mark_insert_fail", true,
+                          false) &&
         !mark_extension_for_insertion(thd, victionary, extension_name,
                                       new_version, std::move(new_sha256_hash),
                                       std::move(new_registration));
   }
 
-  if (!mark_success) return end_transaction(thd, true);
+  if (!mark_success) {
+    if (!thd->is_error())
+      villagesql_error("Injected mark_extension_for_insertion failure for '%s'",
+                       MYF(0), extension_name.c_str());
+    return end_transaction(thd, true);
+  }
 
-  if (victionary.write_all_uncommitted_entries(thd)) {
+  if (victionary.write_all_uncommitted_entries(thd) ||
+      DBUG_EVALUATE_IF("villagesql_inject_update_write_fail", true, false)) {
     villagesql_error("Failed to write extension '%s' to table", MYF(0),
                      extension_name.c_str());
     return end_transaction(thd, true);

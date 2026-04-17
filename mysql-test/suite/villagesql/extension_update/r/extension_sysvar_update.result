@@ -1,0 +1,68 @@
+# restart: --veb-dir=MYSQLTEST_VARDIR/veb
+# Build and install v1 (3 sys vars: batch_size, mode, debug_level)
+Creating extension sysvar_update_test using SDK...
+Created sysvar_update_test-1.0.0.veb
+Installed sysvar_update_test 1.0.0
+# Verify v1 sys vars and their defaults
+SHOW GLOBAL VARIABLES LIKE 'sysvar\_update\_test.%';
+Variable_name	Value
+sysvar_update_test.batch_size	100
+sysvar_update_test.debug_level	0
+sysvar_update_test.mode	fast
+# Persist batch_size (should survive update)
+SET PERSIST sysvar_update_test.batch_size = 500;
+# Set mode without persisting (should reset to new default after update)
+SET GLOBAL sysvar_update_test.mode = 'slow';
+# Set debug_level (dropped in v2 - persisted value should be cleaned up on uninstall)
+SET PERSIST sysvar_update_test.debug_level = 3;
+# Verify values before update
+SHOW GLOBAL VARIABLES LIKE 'sysvar\_update\_test.%';
+Variable_name	Value
+sysvar_update_test.batch_size	500
+sysvar_update_test.debug_level	3
+sysvar_update_test.mode	slow
+# Verify v1 batch_size range: values above 1000 are clamped with a warning
+SET GLOBAL sysvar_update_test.batch_size = 2000;
+Warnings:
+Warning	1292	Truncated incorrect sysvar_update_test.batch_size value: '2000'
+SELECT @@global.sysvar_update_test.batch_size;
+@@global.sysvar_update_test.batch_size
+1000
+SET PERSIST sysvar_update_test.batch_size = 500;
+# Build v2 (drops debug_level, adds timeout_ms, batch_size range/default changed)
+Creating extension sysvar_update_test using SDK...
+Created sysvar_update_test-2.0.0.veb
+SET GLOBAL offline_mode = ON;
+Updated sysvar_update_test to 2.0.0
+SET GLOBAL offline_mode = OFF;
+# Verify v2 sys vars:
+#   batch_size: persisted value 500 survives (within new range)
+#   mode: non-persisted, resets to new default 'fast'
+#   debug_level: dropped
+#   timeout_ms: new var, starts at default 5000
+SHOW GLOBAL VARIABLES LIKE 'sysvar\_update\_test.%';
+Variable_name	Value
+sysvar_update_test.batch_size	500
+sysvar_update_test.mode	fast
+sysvar_update_test.timeout_ms	5000
+# Verify debug_level no longer exists
+SET GLOBAL sysvar_update_test.debug_level = 0;
+ERROR HY000: Unknown system variable 'sysvar_update_test.debug_level'
+# Verify batch_size now accepts values up to 10000 (expanded range in v2)
+SET GLOBAL sysvar_update_test.batch_size = 2000;
+SELECT @@global.sysvar_update_test.batch_size;
+@@global.sysvar_update_test.batch_size
+2000
+# Verify persisted values: batch_size persisted, debug_level removed
+SELECT variable_name, variable_value
+FROM performance_schema.persisted_variables
+WHERE variable_name LIKE 'sysvar\_update\_test.%'
+  ORDER BY variable_name;
+variable_name	variable_value
+sysvar_update_test.batch_size	500
+# Clean up persisted values and uninstall
+RESET PERSIST sysvar_update_test.batch_size;
+UNINSTALL EXTENSION sysvar_update_test;
+# All sys vars must be gone after uninstall
+SET GLOBAL sysvar_update_test.batch_size = 1;
+ERROR HY000: Unknown system variable 'sysvar_update_test.batch_size'

@@ -1,0 +1,29 @@
+# Install update_test 1.0.0 (pre-built; v2 is also staged on disk)
+INSTALL EXTENSION update_test VERSION '1.0.0';
+CREATE TABLE t1 (id INT PRIMARY KEY, val update_test.COUNTER);
+CREATE TABLE t2 (id INT PRIMARY KEY, val update_test.COUNTER);
+INSERT INTO t1 VALUES (1, '10');
+INSERT INTO t2 VALUES (1, '20');
+# Close any open table cache references
+FLUSH TABLES;
+# UNINSTALL must be blocked: two tables depend on COUNTER
+UNINSTALL EXTENSION update_test;
+ERROR HY000: Cannot drop extension `update_test` as 2 column(s) depend on it, e.g. test.t1.val has type COUNTER
+SET GLOBAL offline_mode = ON;
+Updated update_test to 2.0.0
+SET GLOBAL offline_mode = OFF;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+update_test	2.0.0
+# After UPDATE: UNINSTALL must still be blocked — tables still exist
+UNINSTALL EXTENSION update_test;
+ERROR HY000: Cannot drop extension `update_test` as 2 column(s) depend on it, e.g. test.t1.val has type COUNTER
+# Drop one table — still blocked (t2 remains)
+DROP TABLE t1;
+UNINSTALL EXTENSION update_test;
+ERROR HY000: Cannot drop extension `update_test` as 1 column(s) depend on it, e.g. test.t2.val has type COUNTER
+# Drop the last table — UNINSTALL must now succeed
+DROP TABLE t2;
+UNINSTALL EXTENSION update_test;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION

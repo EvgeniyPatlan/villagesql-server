@@ -1,0 +1,89 @@
+# Test extension system variable behavior across UPDATE
+# Verifies that:
+#   - sys vars are registered/unregistered correctly on install/update/uninstall
+#   - dropped vars are gone after update
+#   - new vars appear with correct defaults after update
+#   - persisted values survive update (restart semantics)
+#   - non-persisted values reset to new defaults after update
+
+--let $veb_dir = $MYSQLTEST_VARDIR/veb
+--exec mkdir -p $veb_dir
+
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+--let $restart_parameters = restart: --veb-dir=$veb_dir
+--source include/restart_mysqld.inc
+
+--echo # Build and install v1 (3 sys vars: batch_size, mode, debug_level)
+--let $extension_name = sysvar_update_test
+--let $extension_version = 1.0.0
+--let $extension_source = $MYSQL_TEST_DIR/suite/villagesql/std_data/sysvar_update_v1.cc
+--let $extension_versioned = 1
+--source include/villagesql/create_extension_sdk.inc
+
+--disable_query_log
+INSTALL EXTENSION sysvar_update_test;
+--enable_query_log
+--echo Installed sysvar_update_test 1.0.0
+
+--echo # Verify v1 sys vars and their defaults
+SHOW GLOBAL VARIABLES LIKE 'sysvar\_update\_test.%';
+
+--echo # Persist batch_size (should survive update)
+SET PERSIST sysvar_update_test.batch_size = 500;
+
+--echo # Set mode without persisting (should reset to new default after update)
+SET GLOBAL sysvar_update_test.mode = 'slow';
+
+--echo # Set debug_level (dropped in v2 - persisted value should be cleaned up on uninstall)
+SET PERSIST sysvar_update_test.debug_level = 3;
+
+--echo # Verify values before update
+SHOW GLOBAL VARIABLES LIKE 'sysvar\_update\_test.%';
+
+--echo # Verify v1 batch_size range: values above 1000 are clamped with a warning
+SET GLOBAL sysvar_update_test.batch_size = 2000;
+SELECT @@global.sysvar_update_test.batch_size;
+# Restore to our test value
+SET PERSIST sysvar_update_test.batch_size = 500;
+
+--echo # Build v2 (drops debug_level, adds timeout_ms, batch_size range/default changed)
+--let $extension_name = sysvar_update_test
+--let $extension_version = 2.0.0
+--let $extension_source = $MYSQL_TEST_DIR/suite/villagesql/std_data/sysvar_update_v2.cc
+--let $extension_versioned = 1
+--source include/villagesql/create_extension_sdk.inc
+
+SET GLOBAL offline_mode = ON;
+--let $extension_name = sysvar_update_test
+--let $extension_version = 2.0.0
+--source include/villagesql/update_extension.inc
+SET GLOBAL offline_mode = OFF;
+
+--echo # Verify v2 sys vars:
+--echo #   batch_size: persisted value 500 survives (within new range)
+--echo #   mode: non-persisted, resets to new default 'fast'
+--echo #   debug_level: dropped
+--echo #   timeout_ms: new var, starts at default 5000
+SHOW GLOBAL VARIABLES LIKE 'sysvar\_update\_test.%';
+
+--echo # Verify debug_level no longer exists
+--error ER_UNKNOWN_SYSTEM_VARIABLE
+SET GLOBAL sysvar_update_test.debug_level = 0;
+
+--echo # Verify batch_size now accepts values up to 10000 (expanded range in v2)
+SET GLOBAL sysvar_update_test.batch_size = 2000;
+SELECT @@global.sysvar_update_test.batch_size;
+
+--echo # Verify persisted values: batch_size persisted, debug_level removed
+SELECT variable_name, variable_value
+  FROM performance_schema.persisted_variables
+  WHERE variable_name LIKE 'sysvar\_update\_test.%'
+  ORDER BY variable_name;
+
+--echo # Clean up persisted values and uninstall
+RESET PERSIST sysvar_update_test.batch_size;
+UNINSTALL EXTENSION sysvar_update_test;
+
+--echo # All sys vars must be gone after uninstall
+--error ER_UNKNOWN_SYSTEM_VARIABLE
+SET GLOBAL sysvar_update_test.batch_size = 1;

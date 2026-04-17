@@ -80,6 +80,14 @@ struct CapabilityVersion {
   // before the extension is removed. NULL for capabilities that need no
   // cleanup.
   void (*on_depopulate)(const DepopulateContext &ctx);
+  // Optional. Phase 1 of UPDATE EXTENSION: read-only safety check that runs
+  // before any catalog writes. Returns true on error (sets error_message).
+  bool (*on_check_update)(const UpdateCheckContext &ctx,
+                          std::string &error_message);
+  // Optional. Phase 2 of UPDATE EXTENSION: atomic state transition that runs
+  // inside the open-catalog transaction. Returns true on error.
+  bool (*on_swap_update)(const UpdateSwapContext &ctx,
+                         std::string &error_message);
 };
 
 // Invariant: g_registry is mutated only from register_builtin_capabilities()
@@ -122,9 +130,14 @@ const CapabilityVersion *find_capability_version(
 
 void register_capability(std::string name, CapabilityRegistration reg) {
   if (reg.on_server_startup != nullptr) reg.on_server_startup();
-  g_registry[std::move(name)].push_back({reg.vtable, reg.vtable_hash,
-                                         reg.capability_config_hash,
-                                         reg.on_populate, reg.on_depopulate});
+  g_registry[std::move(name)].push_back(
+      {.vtable = reg.vtable,
+       .vtable_hash = reg.vtable_hash,
+       .capability_config_hash = reg.capability_config_hash,
+       .on_populate = reg.on_populate,
+       .on_depopulate = reg.on_depopulate,
+       .on_check_update = reg.on_check_update,
+       .on_swap_update = reg.on_swap_update});
 }
 
 void unregister_capability(const std::string &name) { g_registry.erase(name); }
@@ -182,7 +195,9 @@ void register_builtin_capabilities() {
                        .vtable_hash = "ver-1",
                        .capability_config_hash = "ver-1",
                        .on_populate = on_populate_sys_var,
-                       .on_depopulate = on_depopulate_sys_var});
+                       .on_depopulate = on_depopulate_sys_var,
+                       .on_check_update = on_check_update_sys_var,
+                       .on_swap_update = on_swap_update_sys_var});
 }
 
 // TODO(villagesql-preview): Verify that the capabilities declared in
@@ -238,6 +253,10 @@ bool populate_capabilities(const PopulateContext &ctx,
     }
     *req.vtable_dest = entry->vtable;
     if (entry->on_populate != nullptr) {
+      if (ctx.reason == LoadReason::kUpdate &&
+          strcmp(req.name, VEF_PREVIEW_SYS_VAR_NAME) == 0)
+        continue;
+
       // ctx carries shared fields (reason, thd, extension_name);
       // capability_config is capability-specific and comes from the
       // per-capability req entry.
@@ -270,6 +289,84 @@ void depopulate_capabilities(const DepopulateContext &ctx,
     cap_ctx.capability_config = req.capability_config;
     entry->on_depopulate(cap_ctx);
   }
+}
+
+namespace {
+
+// Find the capability_config the old extension declared for `name`, or nullptr.
+const void *find_old_capability_config(const vef_registration_t *old_reg,
+                                       const char *name) {
+  if (old_reg == nullptr || name == nullptr) return nullptr;
+  for (uint32_t j = 0; j < old_reg->required_capability_count; ++j) {
+    const vef_required_capability_t &old_req =
+        old_reg->required_capabilities[j];
+    if (old_req.name != nullptr && std::strcmp(old_req.name, name) == 0) {
+      return old_req.capability_config;
+    }
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+bool check_upgrade_compatibility(std::string_view extension_name,
+                                 std::string_view old_version,
+                                 std::string_view new_version,
+                                 const vef_registration_t *old_reg,
+                                 const vef_registration_t *new_reg, THD *thd,
+                                 std::string &error_message) {
+  if (new_reg == nullptr) return false;
+
+  for (uint32_t i = 0; i < new_reg->required_capability_count; ++i) {
+    const vef_required_capability_t &req = new_reg->required_capabilities[i];
+    if (req.name == nullptr || req.vtable_hash == nullptr) continue;
+
+    const CapabilityVersion *entry = find_capability_version(
+        req.name, req.vtable_hash, req.capability_config_hash);
+    if (entry == nullptr || entry->on_check_update == nullptr) continue;
+
+    UpdateCheckContext ctx;
+    ctx.extension_name = extension_name;
+    ctx.old_version = old_version;
+    ctx.new_version = new_version;
+    ctx.old_capability_config = find_old_capability_config(old_reg, req.name);
+    ctx.new_capability_config = req.capability_config;
+    ctx.old_reg = old_reg;
+    ctx.new_reg = new_reg;
+    ctx.thd = thd;
+    if (entry->on_check_update(ctx, error_message)) return true;
+  }
+  return false;
+}
+
+bool execute_upgrade_swap(std::string_view extension_name,
+                          std::string_view old_version,
+                          std::string_view new_version,
+                          const vef_registration_t *old_reg,
+                          const vef_registration_t *new_reg, THD *thd,
+                          std::string &error_message) {
+  if (new_reg == nullptr) return false;
+
+  for (uint32_t i = 0; i < new_reg->required_capability_count; ++i) {
+    const vef_required_capability_t &req = new_reg->required_capabilities[i];
+    if (req.name == nullptr || req.vtable_hash == nullptr) continue;
+
+    const CapabilityVersion *entry = find_capability_version(
+        req.name, req.vtable_hash, req.capability_config_hash);
+    if (entry == nullptr || entry->on_swap_update == nullptr) continue;
+
+    UpdateSwapContext ctx;
+    ctx.extension_name = extension_name;
+    ctx.old_version = old_version;
+    ctx.new_version = new_version;
+    ctx.old_capability_config = find_old_capability_config(old_reg, req.name);
+    ctx.new_capability_config = req.capability_config;
+    ctx.old_reg = old_reg;
+    ctx.new_reg = new_reg;
+    ctx.thd = thd;
+    if (entry->on_swap_update(ctx, error_message)) return true;
+  }
+  return false;
 }
 
 }  // namespace villagesql::services
