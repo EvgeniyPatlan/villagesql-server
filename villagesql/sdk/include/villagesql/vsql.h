@@ -80,6 +80,9 @@
 #include <villagesql/experimental/storage_api.h>
 #include <villagesql/experimental/storage_builder.h>
 
+// Status variable builder: make_status_var_int(), make_status_var_double()
+#include <villagesql/vsql/status_var_builder.h>
+
 // System variable builder: make_sys_var_int(), make_sys_var_str(), etc.
 #include <villagesql/vsql/sys_var_builder.h>
 
@@ -88,6 +91,10 @@
 
 // SQL query execution from background threads: villagesql::run_query()
 #include <villagesql/vsql/run_query.h>
+
+// Background thread registration:
+// villagesql::background_thread::register/unregister
+#include <villagesql/vsql/background_thread.h>
 
 // Extension builder and VEF_GENERATE_ENTRY_POINTS macro
 #include <villagesql/extension_builder.h>
@@ -107,10 +114,13 @@ using villagesql::func_builder::make_type_decode;
 using villagesql::func_builder::make_type_encode;
 using villagesql::func_builder::make_type_hash;
 
-// Re-export sys_var, keyring, and run_query
+// Re-export sys_var, keyring, run_query, and background_thread
 namespace sys_var = villagesql::sys_var;
 namespace keyring = villagesql::keyring;
+namespace background_thread = villagesql::background_thread;
 using villagesql::run_query;
+using villagesql::status_var_builder::make_status_var_double;
+using villagesql::status_var_builder::make_status_var_int;
 using villagesql::sys_var_builder::make_sys_var_bool;
 using villagesql::sys_var_builder::make_sys_var_double;
 using villagesql::sys_var_builder::make_sys_var_int;
@@ -121,6 +131,7 @@ using villagesql::CustomArg;
 using villagesql::CustomArgWith;
 using villagesql::CustomResult;
 using villagesql::CustomResultWith;
+using villagesql::InstallResult;
 using villagesql::IntArg;
 using villagesql::IntResult;
 using villagesql::RealArg;

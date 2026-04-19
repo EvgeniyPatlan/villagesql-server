@@ -46,8 +46,10 @@
 #include "villagesql/schema/descriptor/func_descriptor.h"
 #include "villagesql/schema/descriptor/type_descriptor.h"
 #include "villagesql/schema/victionary_client.h"
+#include "villagesql/services/background_thread.h"
 #include "villagesql/services/keyring.h"
 #include "villagesql/services/run_query.h"
+#include "villagesql/services/status_vars.h"
 #include "villagesql/services/sys_vars.h"
 #include "villagesql/veb/sql_extension.h"
 #include "villagesql/veb/veb_register_type.h"
@@ -695,6 +697,21 @@ bool load_installed_extensions(THD *thd) {
         return true;
       }
 
+      if (villagesql::services::register_status_vars_from_extension(
+              extension_name, registration)) {
+        LogVSQL(ERROR_LEVEL,
+                "Failed to register status vars for extension '%s'",
+                extension_name.c_str());
+        return true;
+      }
+
+      // Capture on_install before moving registration into the victionary.
+      vef_on_install_func_t on_install_fn = nullptr;
+      if (registration.registration != nullptr &&
+          registration.negotiated_protocol >= VEF_PROTOCOL_2) {
+        on_install_fn = registration.registration->on_install;
+      }
+
       if (victionary.extension_descriptors().MarkForInsertion(
               *thd, ExtensionDescriptor(ExtensionDescriptorKey(
                                             extension_name, expected_version),
@@ -703,6 +720,18 @@ bool load_installed_extensions(THD *thd) {
                 extension_name.c_str());
         return true;
       }
+
+      if (on_install_fn != nullptr) {
+        char error_msg[VEF_MAX_ERROR_LEN] = {};
+        if (on_install_fn(error_msg)) {
+          LogVSQL(ERROR_LEVEL,
+                  "Extension '%s' on_install failed during startup: %s",
+                  extension_name.c_str(),
+                  error_msg[0] ? error_msg : "(no message)");
+          return true;
+        }
+      }
+
       success_count++;
 
       LogVSQL(INFORMATION_LEVEL,
@@ -1040,7 +1069,9 @@ bool load_vef_extension(const std::string &so_path,
       villagesql::services::set_variable,
       villagesql::services::read_keyring,
       villagesql::services::write_keyring,
-      villagesql::services::run_query};
+      villagesql::services::run_query,
+      villagesql::services::register_vef_background_thread,
+      villagesql::services::unregister_vef_background_thread};
 
   vef_registration_t *reg = vef_register(&register_arg);
   if (reg == nullptr) {
@@ -1088,6 +1119,11 @@ void unload_vef_extension(const ExtensionRegistration &registration) {
   }
 
   if (registration.registration != nullptr) {
+    const vef_registration_t *reg = registration.registration;
+    if (reg->on_uninstall != nullptr &&
+        registration.negotiated_protocol >= VEF_PROTOCOL_2) {
+      reg->on_uninstall();
+    }
     vef_unregister_arg_t unregister_arg = {registration.negotiated_protocol};
     LogVSQL(INFORMATION_LEVEL, "Calling vef_unregister for extension '%s'",
             registration.so_path.c_str());

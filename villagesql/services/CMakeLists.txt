@@ -14,8 +14,10 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 SET(VILLAGESQL_SERVICES_SOURCES
+  background_thread.cc
   keyring.cc
   run_query.cc
+  status_vars.cc
   sys_vars.cc
 )
 

@@ -51,6 +51,7 @@
 #include "villagesql/schema/schema_manager.h"
 #include "villagesql/schema/systable/extensions.h"
 #include "villagesql/schema/victionary_client.h"
+#include "villagesql/services/status_vars.h"
 #include "villagesql/services/sys_vars.h"
 #include "villagesql/sql/metadata_modifier.h"
 #include "villagesql/veb/veb_file.h"
@@ -206,6 +207,15 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
     return end_transaction(thd, true);
   }
 
+  // Capture on_install before moving registration into the victionary.
+  // get_committed() returns null until the MySQL transaction commits, so we
+  // cannot look it up via victionary after the move.
+  vef_on_install_func_t on_install_fn = nullptr;
+  if (registration.registration != nullptr &&
+      registration.negotiated_protocol >= VEF_PROTOCOL_2) {
+    on_install_fn = registration.registration->on_install;
+  }
+
   bool mark_success = true;
   {
     auto write_lock = victionary.get_write_lock();
@@ -227,6 +237,12 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
                    extension_name, registration)) {
       villagesql_error("Failed to register system variables for extension '%s'", MYF(0),
                        extension_name.c_str());
+      mark_success = false;
+
+    } else if (villagesql::services::register_status_vars_from_extension(
+                   extension_name, registration)) {
+      villagesql_error("Failed to register status variables for extension '%s'",
+                       MYF(0), extension_name.c_str());
       mark_success = false;
 
     } else if (victionary.extension_descriptors().MarkForInsertion(
@@ -287,6 +303,20 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
     villagesql_error("Failed to write extension '%s' to table", MYF(0),
                      extension_name.c_str());
     return end_transaction(thd, true);
+  }
+
+  // Call on_install after everything is written.
+  if (on_install_fn != nullptr) {
+    char error_msg[VEF_MAX_ERROR_LEN] = {};
+    if (on_install_fn(error_msg)) {
+      LogVSQL(ERROR_LEVEL, "Extension '%s' on_install failed: %s",
+              extension_name.c_str(),
+              error_msg[0] ? error_msg : "(no message)");
+      villagesql_error("Extension '%s' on_install failed: %s", MYF(0),
+                       extension_name.c_str(),
+                       error_msg[0] ? error_msg : "(no message)");
+      return end_transaction(thd, true);
+    }
   }
 
   LogVSQL(INFORMATION_LEVEL,
@@ -543,7 +573,10 @@ bool Sql_cmd_uninstall_extension::execute(THD *thd) {
   }
 
   if (to_unregister.has_value()) {
+    // on_uninstall is called by unload_vef_extension before vef_unregister,
+    // so sys vars and status vars are still live when the callback fires.
     villagesql::services::unregister_sys_vars_from_extension(extension_name);
+    villagesql::services::unregister_status_vars_from_extension(extension_name);
     villagesql::veb::unload_vef_extension(*to_unregister);
   }
 

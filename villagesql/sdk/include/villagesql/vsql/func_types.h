@@ -348,6 +348,27 @@ class CustomResultWith {
   vef_vdf_result_t *r_;
 };
 
+// Passed to on_install callbacks. Call fail(msg) to abort installation with
+// an error message; do nothing (or return normally) to indicate success.
+class InstallResult {
+ public:
+  explicit InstallResult(char *error_msg) : error_msg_(error_msg) {}
+
+  void fail(std::string_view msg) {
+    failed_ = true;
+    size_t n =
+        msg.size() < VEF_MAX_ERROR_LEN - 1 ? msg.size() : VEF_MAX_ERROR_LEN - 1;
+    memcpy(error_msg_, msg.data(), n);
+    error_msg_[n] = '\0';
+  }
+
+  bool failed() const { return failed_; }
+
+ private:
+  char *error_msg_;
+  bool failed_{false};
+};
+
 }  // namespace villagesql
 
 #endif  // VILLAGESQL_VSQL_FUNC_TYPES_H

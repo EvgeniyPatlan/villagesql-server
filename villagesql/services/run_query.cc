@@ -287,11 +287,11 @@ vef_run_query_result_t run_query(const char *sql, size_t sql_len,
       COM_DATA init_cmd;
       memset(&init_cmd, 0, sizeof(init_cmd));
       init_cmd.com_init_db.db_name = caller_db.str;
-      init_cmd.com_init_db.length = static_cast<unsigned long>(caller_db.length);
-      command_service_run_command(session, COM_INIT_DB, &init_cmd,
-                                  &my_charset_utf8mb4_general_ci,
-                                  &kRunQueryCallbacks, CS_TEXT_REPRESENTATION,
-                                  &init_ctx);
+      init_cmd.com_init_db.length =
+          static_cast<unsigned long>(caller_db.length);
+      command_service_run_command(
+          session, COM_INIT_DB, &init_cmd, &my_charset_utf8mb4_general_ci,
+          &kRunQueryCallbacks, CS_TEXT_REPRESENTATION, &init_ctx);
     }
   }
 

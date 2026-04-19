@@ -176,6 +176,10 @@ typedef enum : unsigned int {
                    // + run_query function pointer in vef_register_arg_t:
                    //   execute a SQL query from a background thread and
                    //   receive results row by row via callbacks.
+                   // + Extension lifecycle callbacks: on_install, on_uninstall.
+                   // + Background thread registration service:
+                   //   register_background_thread,
+                   //   unregister_background_thread.
 } vef_protocol_t;
 
 // Max length of error messages in caller-provided buffers.
@@ -255,6 +259,49 @@ typedef vef_keyring_result_t (*vef_write_keyring_fn)(const char *data_id,
                                                      const char *auth_id,
                                                      const unsigned char *data,
                                                      size_t data_len);
+
+// =============================================================================
+// Background thread registration service (protocol >= VEF_PROTOCOL_2)
+// =============================================================================
+//
+// Extensions may start background threads (e.g. HTTP listeners, periodic
+// tasks). To make such threads visible in INFORMATION_SCHEMA.PROCESSLIST and
+// Performance Schema, call register_background_thread from inside the new
+// thread after it starts, and unregister_background_thread before it exits.
+//
+// The opaque handle type is forward-declared here; the server owns the
+// complete definition. Extensions must not free or dereference the handle.
+
+typedef struct vef_thread_handle_t vef_thread_handle_t;
+
+// Register the calling thread with MySQL's process list and Performance Schema.
+// thread_name is shown as the thread state (e.g. "myext/http-listener").
+// Returns an opaque handle, or NULL on failure.
+// Available when protocol >= VEF_PROTOCOL_2.
+typedef vef_thread_handle_t *(*vef_register_background_thread_func_t)(
+    const char *thread_name);
+
+// Unregister the background thread. Must be called from inside the thread
+// before it exits, after register_background_thread succeeded.
+// Available when protocol >= VEF_PROTOCOL_2.
+typedef void (*vef_unregister_background_thread_func_t)(
+    vef_thread_handle_t *handle);
+
+// =============================================================================
+// Extension lifecycle callbacks (protocol >= VEF_PROTOCOL_2)
+// =============================================================================
+//
+// on_install is called by the server after an extension is fully registered
+// (all VDFs, types, and sys vars are live). Return false on success; return
+// true and write an error message to error_msg to abort installation.
+//
+// on_uninstall is called by the server before the extension is unregistered
+// (before VDFs/types/sys vars are removed and before dlclose). The extension
+// must stop any background threads before returning.
+
+// error_msg points to a buffer of VEF_MAX_ERROR_LEN bytes.
+typedef bool (*vef_on_install_func_t)(char *error_msg);
+typedef void (*vef_on_uninstall_func_t)();
 
 // =============================================================================
 // Query execution service (protocol >= VEF_PROTOCOL_2)
@@ -343,6 +390,8 @@ typedef struct {
   vef_read_keyring_fn read_keyring;
   vef_write_keyring_fn write_keyring;
   vef_run_query_fn run_query;
+  vef_register_background_thread_func_t register_background_thread;
+  vef_unregister_background_thread_func_t unregister_background_thread;
 } vef_register_arg_t;
 
 typedef struct {
@@ -852,6 +901,12 @@ typedef enum : int {
   VEF_VAR_STR = 3,
 } vef_var_type_t;
 
+// Called after the server writes a new value to the variable's storage
+// pointer. The new value is already visible via the storage pointer at the
+// time this function is called. The variable name (without extension prefix)
+// is passed so a single callback can handle multiple variables.
+typedef void (*vef_sys_var_on_change_func_t)(const char *var_name);
+
 typedef struct {
   vef_protocol_t protocol;
 
@@ -862,6 +917,10 @@ typedef struct {
   const char *comment;
 
   vef_var_type_t type;
+
+  // Optional. Called after the server writes a new value to the variable.
+  // nullptr means no notification.
+  vef_sys_var_on_change_func_t on_change;
 
   // Pointer to storage in the extension .so. Must remain valid for the
   // lifetime of the extension. MySQL writes directly to this storage when
@@ -891,6 +950,30 @@ typedef struct {
   };
 } vef_sys_var_desc_t;
 
+// Status variable type. Unlike system variables (which are configurable),
+// status variables are read-only counters and gauges exposed via SHOW STATUS.
+typedef enum {
+  VEF_STATUS_VAR_INT = 0,     // long long counter/gauge (shown as unsigned)
+  VEF_STATUS_VAR_DOUBLE = 1,  // double gauge
+} vef_status_var_type_t;
+
+typedef struct {
+  vef_protocol_t protocol;
+
+  // Variable name (without extension prefix). Encoded using UTF-8.
+  const char *name;
+
+  vef_status_var_type_t type;
+
+  // Pointer to storage in the extension .so. Must remain valid for the
+  // lifetime of the extension. The extension writes to this; the server reads
+  // it at SHOW STATUS time.
+  union {
+    long long *integer_ptr;
+    double *double_ptr;
+  };
+} vef_status_var_desc_t;
+
 typedef struct {
   // protocol >= VEF_PROTOCOL_1
   vef_protocol_t protocol;
@@ -914,6 +997,17 @@ typedef struct {
   // protocol >= VEF_PROTOCOL_2
   unsigned int sys_var_count;
   vef_sys_var_desc_t **sys_vars;
+
+  // protocol >= VEF_PROTOCOL_2
+  // Optional lifecycle callbacks. The server calls on_install after all VDFs,
+  // types, and sys vars are live. on_uninstall is called before any of them
+  // are removed. Either may be NULL if not needed.
+  vef_on_install_func_t on_install;
+  vef_on_uninstall_func_t on_uninstall;
+
+  // protocol >= VEF_PROTOCOL_2
+  unsigned int status_var_count;
+  vef_status_var_desc_t **status_vars;
 } vef_registration_t;
 
 // The returned objects can be freed when the registration is passed to the
