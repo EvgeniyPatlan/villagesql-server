@@ -1,0 +1,156 @@
+name: Nightly Extension Tests
+
+# Runs nightly against main: builds the server, runs server tests, then builds
+# and tests all bundled extensions across all three platforms.
+#
+# Runner requirements:
+#   - [self-hosted, linux, x86_64]    - existing CI runner
+#   - ubuntu-24.04-arm (GitHub-hosted) - ARM64
+#   - macos-latest (GitHub-hosted)    - Apple Silicon
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # 04:00 UTC nightly
+  workflow_dispatch:
+
+jobs:
+
+  # ── Build & test ──────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build & Test (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: [self-hosted, linux, x86_64]
+            platform: linux-x86_64
+            os: linux
+          - runner: ubuntu-24.04-arm
+            platform: linux-aarch64
+            os: linux
+          - runner: macos-latest
+            platform: macos-arm64
+            os: macos
+
+    env:
+      BUILD_DIR: ${{ github.workspace }}/build
+      SOURCE_DIR: ${{ github.workspace }}/source
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          path: source
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'linux'
+        run: sudo source/scripts/setup_linux_build_env.sh
+
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos'
+        run: brew install bison cmake openssl
+
+      - name: Cache Boost
+        uses: actions/cache@v4
+        with:
+          path: /tmp/boost
+          key: boost-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build server
+        run: |
+          mkdir -p "$BUILD_DIR"
+
+          EXTRA_FLAGS="-DDOWNLOAD_BOOST=1 -DWITH_BOOST=/tmp/boost -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          if [ "${{ matrix.os }}" = "macos" ]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS -DWITH_SSL=$(brew --prefix openssl)"
+          fi
+
+          BUILD_DIR="$BUILD_DIR" \
+          SOURCE_DIR="$SOURCE_DIR" \
+          CMAKE_EXTRA_FLAGS="$EXTRA_FLAGS" \
+            source/scripts/build-ci.sh
+
+      - name: Run server tests
+        run: source/scripts/run_server_tests.sh "$BUILD_DIR"
+
+      - name: Pack raw build artifact
+        run: |
+          mkdir -p raw_build
+          cp -r "$BUILD_DIR/runtime_output_directory" raw_build/
+          cp -r "$BUILD_DIR/library_output_directory" raw_build/
+          cp -r "$BUILD_DIR/plugin_output_directory"  raw_build/
+          cp -r "$BUILD_DIR/villagesql-extension-sdk-"* raw_build/ 2>/dev/null || true
+          tar czf raw-build-${{ matrix.platform }}.tar.gz raw_build
+
+      - name: Upload raw build
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-build-${{ matrix.platform }}
+          path: raw-build-${{ matrix.platform }}.tar.gz
+          retention-days: 1
+
+  # ── Build & test bundled extensions ──────────────────────────────────────
+  build-and-test-extensions:
+    name: Extensions (${{ matrix.platform }})
+    needs: build-and-test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: [self-hosted, linux, x86_64]
+            platform: linux-x86_64
+            os: linux
+          - runner: ubuntu-24.04-arm
+            platform: linux-aarch64
+            os: linux
+          - runner: macos-latest
+            platform: macos-arm64
+            os: macos
+
+    env:
+      BUILD_DIR: ${{ github.workspace }}/build
+      SOURCE_DIR: ${{ github.workspace }}/source
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          path: source
+
+      - name: Download raw build
+        uses: actions/download-artifact@v4
+        with:
+          name: raw-build-${{ matrix.platform }}
+
+      - name: Unpack raw build
+        run: |
+          mkdir -p "$BUILD_DIR"
+          tar xzf raw-build-${{ matrix.platform }}.tar.gz
+          cp -r raw_build/runtime_output_directory "$BUILD_DIR/"
+          cp -r raw_build/library_output_directory "$BUILD_DIR/"
+          cp -r raw_build/plugin_output_directory  "$BUILD_DIR/"
+          # Restore SDK staging directories
+          for d in raw_build/villagesql-extension-sdk-*/; do
+            [[ -d "$d" ]] && cp -r "$d" "$BUILD_DIR/"
+          done
+
+      - name: Build and test bundled extensions
+        run: |
+          SDK_DIR=$(ls -d "$BUILD_DIR"/villagesql-extension-sdk-*/ 2>/dev/null | head -1)
+          [[ -n "$SDK_DIR" ]] || { echo "SDK dir not found"; exit 1; }
+
+          EXT_CLONES_DIR="$(mktemp -d)"
+          trap 'rm -rf "$EXT_CLONES_DIR"' EXIT
+
+          EXTENSION_CLONES_DIR="$EXT_CLONES_DIR" \
+            source/scripts/build_bundled_extensions.sh \
+              "$SDK_DIR" \
+              "$BUILD_DIR/veb_output_directory"
+
+          source/scripts/test_extension_vebs.sh \
+            "$BUILD_DIR" \
+            "$EXT_CLONES_DIR"
