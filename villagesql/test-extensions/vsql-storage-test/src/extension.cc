@@ -1,0 +1,321 @@
+// Copyright (c) 2026 VillageSQL Contributors
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License, version 2.0,
+// as published by the Free Software Foundation.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License, version 2.0, for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
+
+// vsql_storage_test extension: exercises the experimental column storage API
+// (vsql::experimental::storage) through a simple STORED_INT custom type.
+//
+// NOTE: This is an internal testing tool, not an example of how to write a
+// VillageSQL extension. For guidance on writing extensions, see the examples
+// under villagesql/examples/ and the SDK documentation.
+//
+// Types provided:
+//
+//   STORED_INT  - A signed 64-bit integer whose value is stored in a dedicated
+//                 InnoDB segment (one page per row) rather than inline in the
+//                 clustered index. Exercises the full create/drop/load/insert/
+//                 select/mark_delete/purge storage lifecycle.
+//
+//                 String representation is the decimal integer, e.g. '42',
+//                 '-7', '0'.
+//
+// Page data layout (absolute page offsets, within the DATA area):
+//   HEADER_SIZE + 0  [8 bytes] — encoded integer value (as written by
+//                                 from_string)
+//   HEADER_SIZE + 8  [8 bytes] — rowid_prefix (zero-padded to 8 bytes)
+//   HEADER_SIZE + 16 [8 bytes] — last-writer trx_ref
+//   HEADER_SIZE + 24 [1 byte]  — delete-mark flag (0 = live, 1 = deleted)
+
+#include <villagesql/experimental/storage_api.h>
+#include <villagesql/experimental/storage_builder.h>
+#include <villagesql/vsql.h>
+
+#include <cassert>
+#include <charconv>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <string_view>
+
+namespace se = vsql::experimental::storage;
+
+// Per-column user context. Populated during create/load and used by every
+// subsequent storage call for that column.
+struct StoredIntCtx {
+  se::Space::Ref space = 0;
+  se::Segment::PageRef root_page = se::Page::INVALID_REF;
+};
+
+using Ctx = se::Column::StorageCtx<StoredIntCtx>;
+
+// Absolute page offsets for each field within the DATA area of a data page.
+constexpr se::Page::Offset kValueOff = se::Page::HEADER_SIZE;
+constexpr se::Page::Offset kRowidOff = se::Page::HEADER_SIZE + 8;
+constexpr se::Page::Offset kTrxOff = se::Page::HEADER_SIZE + 16;
+constexpr se::Page::Offset kFlagOff = se::Page::HEADER_SIZE + 24;
+
+// StorageRef packs (space_ref, root_page_num) into a uint64:
+//   high 32 bits — space_ref
+//   low  32 bits — root_page_num
+static se::Column::StorageRef encode_storage_ref(se::Space::Ref space,
+                                                 se::Segment::PageRef root) {
+  return (static_cast<se::Column::StorageRef>(space) << 32) |
+         static_cast<se::Column::StorageRef>(root);
+}
+
+// ============================================================================
+// Type codec (from_string / to_string / compare)
+// ============================================================================
+
+// The persisted field layout is 16 bytes:
+//   [0..7]  — Column::Ref placeholder (zero; filled in by the server after
+//              insert returns *col_ref)
+//   [8..15] — big-endian int64 value (passed as col_data to insert/select)
+//
+// from_string must produce exactly persisted_length (16) bytes. compare
+// receives the full 16-byte field and must look at the value portion [8..15].
+// to_string receives only the 8-byte col_data returned by select, so it reads
+// from offset 0.
+
+static constexpr size_t kRefSize = 8;  // sizeof(Column::Ref)
+static constexpr size_t kValSize = 8;  // sizeof(big-endian int64)
+static constexpr size_t kFieldSize = kRefSize + kValSize;  // = persisted_length
+
+static void write_be64(unsigned char *dst, int64_t val) {
+  uint64_t u = static_cast<uint64_t>(val);
+  dst[0] = static_cast<unsigned char>(u >> 56);
+  dst[1] = static_cast<unsigned char>(u >> 48);
+  dst[2] = static_cast<unsigned char>(u >> 40);
+  dst[3] = static_cast<unsigned char>(u >> 32);
+  dst[4] = static_cast<unsigned char>(u >> 24);
+  dst[5] = static_cast<unsigned char>(u >> 16);
+  dst[6] = static_cast<unsigned char>(u >> 8);
+  dst[7] = static_cast<unsigned char>(u);
+}
+
+static int64_t read_be64(const unsigned char *src) {
+  return static_cast<int64_t>((static_cast<uint64_t>(src[0]) << 56) |
+                              (static_cast<uint64_t>(src[1]) << 48) |
+                              (static_cast<uint64_t>(src[2]) << 40) |
+                              (static_cast<uint64_t>(src[3]) << 32) |
+                              (static_cast<uint64_t>(src[4]) << 24) |
+                              (static_cast<uint64_t>(src[5]) << 16) |
+                              (static_cast<uint64_t>(src[6]) << 8) |
+                              static_cast<uint64_t>(src[7]));
+}
+
+bool stored_int_from_string(std::string_view s,
+                            villagesql::Span<unsigned char> buf, size_t *len) {
+  if (buf.size() < kFieldSize) return true;
+  int64_t val = 0;
+  auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), val);
+  if (ec != std::errc{} || ptr != s.data() + s.size()) return true;
+  // [0..7]: zero placeholder for Column::Ref (server fills this after insert).
+  memset(buf.data(), 0, kRefSize);
+  // [8..15]: big-endian encoded integer value (becomes col_data for insert).
+  write_be64(buf.data() + kRefSize, val);
+  *len = kFieldSize;
+  return false;
+}
+
+bool stored_int_to_string(villagesql::Span<const unsigned char> data,
+                          villagesql::Span<char> out, size_t *out_len) {
+  // Receives the full persisted field (16 bytes: ref + value). Read the value
+  // from the second half, skipping the Column::Ref prefix.
+  if (data.size() < kFieldSize) return true;
+  int64_t val = read_be64(data.data() + kRefSize);
+  auto [ptr, ec] = std::to_chars(out.data(), out.data() + out.size(), val);
+  if (ec != std::errc{}) return true;
+  *out_len = static_cast<size_t>(ptr - out.data());
+  return false;
+}
+
+int stored_int_compare(villagesql::Span<const unsigned char> a,
+                       villagesql::Span<const unsigned char> b) {
+  // Receives the full persisted field (16 bytes: ref + value). The value is
+  // in the last 8 bytes regardless of whether the ref has been written yet.
+  if (a.size() < kFieldSize || b.size() < kFieldSize) return 0;
+  int64_t va = read_be64(a.data() + kRefSize);
+  int64_t vb = read_be64(b.data() + kRefSize);
+  if (va < vb) return -1;
+  if (va > vb) return 1;
+  return 0;
+}
+
+// ============================================================================
+// Storage interface functions
+// ============================================================================
+
+bool stored_int_create(Ctx *ctx, se::Space::Ref space, se::Segment::TrxRef trx,
+                       uint32_t /*col_len*/, char *err, uint32_t err_len) {
+  se::Segment::PageRef root_page;
+  if (se::Segment::create(space, 1, trx, root_page) != se::Error::SUCCESS) {
+    snprintf(err, err_len, "stored_int create: %s", se::last_error().data());
+    return true;
+  }
+  ctx->user()->space = space;
+  ctx->user()->root_page = root_page;
+  ctx->set_ref(encode_storage_ref(space, root_page));
+  return false;
+}
+
+bool stored_int_drop(Ctx *ctx, se::Segment::TrxRef trx, char *err,
+                     uint32_t err_len) {
+  if (se::Segment::drop(ctx->user()->space, trx, ctx->user()->root_page) !=
+      se::Error::SUCCESS) {
+    snprintf(err, err_len, "stored_int drop: %s", se::last_error().data());
+    return true;
+  }
+  return false;
+}
+
+bool stored_int_load(Ctx *ctx, se::Column::StorageRef storage_ref,
+                     char * /*err*/, uint32_t /*err_len*/) {
+  ctx->user()->space = static_cast<se::Space::Ref>(storage_ref >> 32);
+  ctx->user()->root_page =
+      static_cast<se::Segment::PageRef>(storage_ref & 0xFFFFFFFF);
+  ctx->set_ref(storage_ref);
+  return false;
+}
+
+bool stored_int_insert(Ctx *ctx, se::MtrCtx::Ref mctx, se::Segment::TrxRef trx,
+                       se::Column::Data col_data, se::Column::Data rowid_prefix,
+                       se::Column::Ref *col_ref, char *err, uint32_t err_len) {
+  if (col_data.length != 8) {
+    snprintf(err, err_len, "stored_int insert: expected 8-byte value, got %u",
+             col_data.length);
+    return true;
+  }
+
+  se::Page root;
+  if (root.load(ctx->user()->space, ctx->user()->root_page,
+                se::Page::Latch::EXCLUSIVE, mctx) != se::Error::SUCCESS) {
+    snprintf(err, err_len, "stored_int insert: root page load failed: %s",
+             se::last_error().data());
+    return true;
+  }
+
+  se::Segment::Ref seg = se::Segment::get_header(root, 0);
+  if (seg == nullptr) {
+    snprintf(err, err_len, "stored_int insert: segment header not found");
+    return true;
+  }
+
+  se::Page data_page;
+  if (data_page.load_new(seg, mctx) != se::Error::SUCCESS) {
+    snprintf(err, err_len, "stored_int insert: page allocation failed: %s",
+             se::last_error().data());
+    return true;
+  }
+
+  data_page.write_string(kValueOff, col_data.data, col_data.length, mctx);
+
+  // Store up to 8 bytes of rowid_prefix, zero-padded.
+  unsigned char rowid_buf[8] = {};
+  uint32_t rowid_copy = rowid_prefix.length < 8 ? rowid_prefix.length : 8;
+  if (rowid_copy > 0) memcpy(rowid_buf, rowid_prefix.data, rowid_copy);
+  data_page.write_string(kRowidOff, rowid_buf, 8, mctx);
+
+  data_page.write_integer_8(kTrxOff, static_cast<uint64_t>(trx), mctx);
+  data_page.write_integer_1(kFlagOff, 0, mctx);
+
+  *col_ref = static_cast<se::Column::Ref>(data_page.get_ref());
+  return false;
+}
+
+bool stored_int_select(Ctx *ctx, se::MtrCtx::Ref mctx, se::Column::Ref col_ref,
+                       se::Column::Data *col_data,
+                       se::Column::Data *rowid_prefix,
+                       se::Segment::TrxRef *trx_ref, bool *delete_marked,
+                       char *err, uint32_t err_len) {
+  auto page_num = static_cast<se::Segment::PageRef>(col_ref);
+  se::Page page;
+  if (page.load(ctx->user()->space, page_num, se::Page::Latch::SHARED, mctx) !=
+      se::Error::SUCCESS) {
+    snprintf(err, err_len, "stored_int select: page load failed: %s",
+             se::last_error().data());
+    return true;
+  }
+
+  // Return pointers directly into the latched page frame. These remain valid
+  // until the server commits the mini-transaction. Note: to_string reads from
+  // the persisted field in the main row, not from this col_data.
+  const unsigned char *base = page.get_data();
+  col_data->data = base + kValueOff;
+  col_data->length = 8;
+  rowid_prefix->data = base + kRowidOff;
+  rowid_prefix->length = 8;
+  *trx_ref = static_cast<se::Segment::TrxRef>(page.read_integer_8(kTrxOff));
+  *delete_marked = page.read_integer_1(kFlagOff) != 0;
+  return false;
+}
+
+bool stored_int_mark_delete(Ctx *ctx, se::MtrCtx::Ref mctx,
+                            se::Segment::TrxRef trx, se::Column::Ref col_ref,
+                            bool delete_mark, char *err, uint32_t err_len) {
+  auto page_num = static_cast<se::Segment::PageRef>(col_ref);
+  se::Page page;
+  if (page.load(ctx->user()->space, page_num, se::Page::Latch::EXCLUSIVE,
+                mctx) != se::Error::SUCCESS) {
+    snprintf(err, err_len, "stored_int mark_delete: page load failed: %s",
+             se::last_error().data());
+    return true;
+  }
+  page.write_integer_1(kFlagOff, delete_mark ? 1 : 0, mctx);
+  page.write_integer_8(kTrxOff, static_cast<uint64_t>(trx), mctx);
+  return false;
+}
+
+bool stored_int_purge(Ctx * /*ctx*/, se::MtrCtx::Ref /*mctx*/,
+                      se::Segment::TrxRef /*trx*/, se::Column::Ref /*col_ref*/,
+                      char * /*err*/, uint32_t /*err_len*/) {
+  // TODO(villagesql-beta): Free the individual data page once a per-page
+  // release API is available. Until then, pages are reclaimed only when the
+  // segment is dropped (on column drop).
+  return false;
+}
+
+// ============================================================================
+// Type and extension registration
+// ============================================================================
+
+static constexpr vef_type_storage_intf_t kStoredIntStorageIntf =
+    se::make_storage<StoredIntCtx>()
+        .create<&stored_int_create>()
+        .drop<&stored_int_drop>()
+        .load<&stored_int_load>()
+        .insert<&stored_int_insert>()
+        .select<&stored_int_select>()
+        .mark_delete<&stored_int_mark_delete>()
+        .purge<&stored_int_purge>()
+        .build();
+
+static constexpr const char kStoredIntTypeName[] = "STORED_INT";
+
+constexpr auto STORED_INT =
+    vsql::make_type<kStoredIntTypeName>()
+        .persisted_length(
+            kFieldSize)  // 8 bytes Column::Ref + 8 bytes encoded value
+        .max_decode_buffer_length(22)  // INT64_MIN is 20 digits + sign + NUL
+        .from_string<&stored_int_from_string>()
+        .to_string<&stored_int_to_string>()
+        .compare<&stored_int_compare>()
+        .column_storage<&kStoredIntStorageIntf>()
+        .intrinsic_default_str("0")
+        .build();
+
+using namespace vsql;
+
+VEF_GENERATE_ENTRY_POINTS(
+    make_extension("vsql_storage_test", "0.0.1").type(STORED_INT))

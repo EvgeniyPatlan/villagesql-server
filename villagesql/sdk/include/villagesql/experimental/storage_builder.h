@@ -27,8 +27,9 @@
 #include <villagesql/abi/storage.h>
 #include <villagesql/experimental/storage_api.h>
 
-namespace villagesql {
-namespace storage_builder {
+namespace vsql {
+namespace experimental {
+namespace storage {
 
 // =============================================================================
 // StorageBuilder<UserCtx>
@@ -91,9 +92,7 @@ namespace storage_builder {
 namespace detail {
 
 template <typename UserCtx>
-using StorageCtx = villagesql::storage::Column::StorageCtx<UserCtx>;
-
-using Arena = villagesql::storage::Arena;
+using StorageCtx = Column::StorageCtx<UserCtx>;
 
 template <auto F, typename UserCtx>
 struct CreateWrapper {
@@ -316,6 +315,15 @@ constexpr StorageBuilder<UserCtx> make_storage() {
   return StorageBuilder<UserCtx>{};
 }
 
+}  // namespace storage
+}  // namespace experimental
+}  // namespace vsql
+
+// TODO(villagesql-beta): Remove this compatibility alias once all callers have
+// migrated to vsql::experimental::storage::make_storage.
+namespace villagesql {
+namespace storage_builder {
+using vsql::experimental::storage::make_storage;
 }  // namespace storage_builder
 }  // namespace villagesql
 
