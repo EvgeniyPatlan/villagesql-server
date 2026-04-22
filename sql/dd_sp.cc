@@ -1,4 +1,5 @@
 /* Copyright (c) 2016, 2025, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License, version 2.0,
@@ -57,6 +58,8 @@
 #include "sql_string.h"
 #include "string_with_len.h"
 #include "typelib.h"
+
+#include "villagesql/schema/systable/helpers.h"
 
 void prepare_sp_chistics_from_dd_routine(const dd::Routine *routine,
                                          st_sp_chistics *sp_chistics) {
@@ -137,6 +140,24 @@ static void prepare_type_string_from_dd_param(THD *thd,
                                               const dd::Parameter *param,
                                               String *type_str) {
   DBUG_TRACE;
+
+  // VillageSQL: at CREATE PROCEDURE/FUNCTION time, get_param_type_utf8() stores
+  // the fully qualified custom type name in data_type_utf8. A qualified name
+  // is an unambiguous signal that this param uses a VillageSQL custom type.
+  // Note: sp_params serves a different purpose — it stores the extension/type
+  // mapping for runtime TypeContext injection at CALL time. Here we only need
+  // the type name string to feed back to the parser, which data_type_utf8
+  // already provides directly.
+  // TODO(villagesql-back-to-mysql): storing the qualified type name in the DD
+  // means a downgrade to stock MySQL would encounter an unrecognized type in
+  // the parameters table. Consider storing the wire type (e.g. varbinary) in
+  // the DD and cross-referencing sp_params at load time, as we do for table
+  // columns, to make downgrades safer.
+  if (villagesql::is_qualified_name(param->data_type_utf8().c_str())) {
+    type_str->copy(param->data_type_utf8().c_str(),
+                   param->data_type_utf8().length(), system_charset_info);
+    return;
+  }
 
   // ENUM/SET elements.
   TYPELIB *interval = nullptr;

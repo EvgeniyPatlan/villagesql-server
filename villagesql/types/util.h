@@ -24,6 +24,7 @@
 
 #include "lex_string.h"
 #include "my_inttypes.h"
+#include "sql/dd/string_type.h"
 #include "sql/field.h"
 #include "sql/sql_array.h"
 #include "sql_string.h"
