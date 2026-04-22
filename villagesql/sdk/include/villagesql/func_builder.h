@@ -81,7 +81,8 @@ struct FuncWithMetadata {
         prerun(nullptr),
         postrun(nullptr),
         clear(nullptr),
-        accumulate(nullptr),
+        accumulate_row(nullptr),
+        read_accumulator(nullptr),
         return_type{},
         param_types{},
         num_params(0),
@@ -93,7 +94,8 @@ struct FuncWithMetadata {
   vef_prerun_func_t prerun;
   vef_postrun_func_t postrun;
   vef_vdf_clear_func_t clear;
-  vef_vdf_accumulate_func_t accumulate;
+  vef_vdf_accumulate_func_t accumulate_row;
+  ExtFunc read_accumulator;
   vef_type_t return_type;
   std::array<vef_type_t, kMaxParams> param_types;
   size_t num_params;
@@ -227,7 +229,8 @@ struct StaticFuncDesc {
   vef_prerun_func_t prerun_;
   vef_postrun_func_t postrun_;
   vef_vdf_clear_func_t clear_;
-  vef_vdf_accumulate_func_t accumulate_;
+  vef_vdf_accumulate_func_t accumulate_row_;
+  ExtFunc read_accumulator_;
   size_t buffer_size_;
   bool deterministic_;
   bool (*check_params_cache_bound_)();
@@ -240,7 +243,8 @@ struct StaticFuncDesc {
         prerun_(meta.prerun),
         postrun_(meta.postrun),
         clear_(meta.clear),
-        accumulate_(meta.accumulate),
+        accumulate_row_(meta.accumulate_row),
+        read_accumulator_(meta.read_accumulator),
         buffer_size_(meta.buffer_size),
         deterministic_(meta.deterministic),
         check_params_cache_bound_(meta.check_params_cache_bound) {
@@ -257,7 +261,10 @@ struct StaticFuncDesc {
   constexpr vef_prerun_func_t prerun() const { return prerun_; }
   constexpr vef_postrun_func_t postrun() const { return postrun_; }
   constexpr vef_vdf_clear_func_t clear() const { return clear_; }
-  constexpr vef_vdf_accumulate_func_t accumulate() const { return accumulate_; }
+  constexpr vef_vdf_accumulate_func_t accumulate_row() const {
+    return accumulate_row_;
+  }
+  constexpr ExtFunc read_accumulator() const { return read_accumulator_; }
   constexpr size_t buffer_size() const { return buffer_size_; }
   constexpr bool deterministic() const { return deterministic_; }
   constexpr auto check_params_cache_bound() const -> bool (*)() {
@@ -286,7 +293,8 @@ __attribute__((visibility("hidden"))) vef_func_desc_t *materialize_func_desc(
   desc.buffer_size = func_data.buffer_size();
   desc.deterministic = func_data.deterministic();
   desc.clear = func_data.clear();
-  desc.accumulate = func_data.accumulate();
+  desc.accumulate_row = func_data.accumulate_row();
+  desc.read_accumulator = func_data.read_accumulator();
 
   return &desc;
 }

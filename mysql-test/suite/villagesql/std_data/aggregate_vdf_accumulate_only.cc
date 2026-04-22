@@ -44,7 +44,7 @@ VEF_GENERATE_REGISTRATION(make_extension(VEF_EXTENSION_NAME, "0.0.1-devtest")
 extern "C" vef_registration_t *vef_register(vef_register_arg_t *arg) {
   auto *reg = _vef_do_register(arg);
   if (reg->funcs != nullptr && reg->func_count > 0) {
-    reg->funcs[0]->accumulate = &dummy_accumulate;
+    reg->funcs[0]->accumulate_row = &dummy_accumulate;
   }
   return reg;
 }

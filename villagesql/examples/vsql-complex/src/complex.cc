@@ -475,5 +475,5 @@ VEF_GENERATE_ENTRY_POINTS(
                   .param(COMPLEX)
                   .state<ComplexSumState>()
                   .clear<&complex_sum_clear>()
-                  .accumulate<&complex_sum_accumulate>()
+                  .accumulate_row<&complex_sum_accumulate>()
                   .build()))

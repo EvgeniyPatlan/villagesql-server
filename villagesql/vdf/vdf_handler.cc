@@ -184,7 +184,7 @@ void vdf_handler::accumulate(bool *null_value) {
   result.type = VEF_RESULT_VALUE;
   m_error_msg[0] = '\0';
   result.error_msg = m_error_msg;
-  m_udf->vdf_func_desc->accumulate(&m_context, &m_vdf_args, &result);
+  m_udf->vdf_func_desc->accumulate_row(&m_context, &m_vdf_args, &result);
   switch (result.type) {
     case VEF_RESULT_VALUE:
       *null_value = false;
@@ -307,8 +307,11 @@ bool vdf_handler::invoke_numeric(T *out_value, bool *null_value) {
   m_error_msg[0] = '\0';
   result.error_msg = m_error_msg;
 
-  // Call the VDF function
-  m_udf->vdf_func_desc->vdf(&m_context, &m_vdf_args, &result);
+  // Call the eval function (scalar) or read_accumulator (aggregate)
+  auto *fd = m_udf->vdf_func_desc;
+  bool is_aggregate = (m_udf->vdf_protocol >= VEF_PROTOCOL_2 && fd->clear);
+  auto eval_fn = is_aggregate ? fd->read_accumulator : fd->vdf;
+  eval_fn(&m_context, &m_vdf_args, &result);
 
   // Handle result
   switch (result.type) {
@@ -405,8 +408,11 @@ String *vdf_handler::val_str(String *str, String *save_str,
     result.alt_str_buf = nullptr;
   }
 
-  // Call the VDF function
-  m_udf->vdf_func_desc->vdf(&m_context, &m_vdf_args, &result);
+  // Call the eval function (scalar) or read_accumulator (aggregate)
+  auto *fd = m_udf->vdf_func_desc;
+  bool is_aggregate = (m_udf->vdf_protocol >= VEF_PROTOCOL_2 && fd->clear);
+  auto eval_fn = is_aggregate ? fd->read_accumulator : fd->vdf;
+  eval_fn(&m_context, &m_vdf_args, &result);
 
   // Handle result
   switch (result.type) {

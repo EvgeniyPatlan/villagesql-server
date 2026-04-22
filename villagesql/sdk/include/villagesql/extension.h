@@ -152,17 +152,18 @@
 //       .param(INT)
 //       .state<SumState>()
 //       .clear<&my_clear>()
-//       .accumulate<&my_acc>()
+//       .accumulate_row<&my_acc>()
 //       .build()
 //
 // How it works:
 //   - .state<T>() generates prerun (allocates T via value-initialization) and
 //     postrun (deletes T) automatically. T is stored in user_data.
 //   - .clear<&fn>() wraps void(State&) -> vef_vdf_clear_func_t
-//   - .accumulate<&fn>() wraps void(State&, TypedArgs...) ->
+//   - .accumulate_row<&fn>() wraps void(State&, TypedArgs...) ->
 //     vef_vdf_accumulate_func_t. TypedArgs are deduced from the function
 //     signature (IntArg, StringArg, etc.).
-//   - The result function (make_func template parameter) can return T directly
+//   - The result function (make_func template parameter) becomes
+//     read_accumulator for aggregate VDFs. It can return T directly
 //     (never NULL) or std::optional<T> (nullopt -> SQL NULL).
 //
 // For results that are never NULL (e.g., COUNT), use a plain state type:
@@ -176,10 +177,10 @@
 //
 //   make_func<&raw_result>("my_agg")
 //       .returns(INT).param(INT)
-//       .prerun<&my_prerun>()      // void(ctx, prerun_args, prerun_result)
-//       .postrun<&my_postrun>()    // void(ctx, postrun_args, postrun_result)
-//       .clear<&my_clear>()        // void(ctx, vdf_args)
-//       .accumulate<&my_acc>()     // void(ctx, vdf_args, vdf_result)
+//       .prerun<&my_prerun>()
+//       .postrun<&my_postrun>()
+//       .clear<&my_clear>()
+//       .accumulate_row<&my_acc>()
 //       .build()
 //
 // See aggregate_vdf.cc in the test suite for complete examples of both styles.

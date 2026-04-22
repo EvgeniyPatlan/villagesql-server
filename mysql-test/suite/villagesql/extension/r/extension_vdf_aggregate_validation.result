@@ -1,6 +1,6 @@
 call mtr.add_suppression("Orphaned expansion directory found but not removed");
 call mtr.add_suppression("Failed to load VEF extension");
-call mtr.add_suppression("Aggregate VDF.*must provide both clear and accumulate");
+call mtr.add_suppression("Aggregate VDF.*must provide all three aggregate callbacks");
 # restart: --veb-dir=MYSQLTEST_VARDIR/veb
 Creating extension agg_accumulate_only using SDK...
 Created agg_accumulate_only.veb

@@ -571,11 +571,13 @@ typedef void (*vef_postrun_func_t)(vef_context_t *ctx, vef_postrun_args_t *args,
 // Aggregate Functions
 // =============================================================================
 //
-// When a VDF is registered as an aggregate (by setting both clear and
-// accumulate), the main `vdf` function pointer changes role: instead of being
-// called per row, it becomes the "result" function called once per group after
-// all rows have been accumulated. It should read the final state from
-// args->user_data and write the group's output value.
+// Aggregate VDFs use three callbacks instead of a single eval function:
+//   - clear:            resets accumulator state at the start of each group
+//   - accumulate_row:   called once per row to fold it into the accumulator
+//   - read_accumulator: called once per group to read the final state
+//
+// State is managed via user_data in vef_vdf_args_t, typically allocated in
+// prerun and freed in postrun.
 
 // Reset aggregate state for a new group.
 // Called once at the start of each group. The extension should reset any
@@ -592,8 +594,23 @@ typedef void (*vef_vdf_accumulate_func_t)(vef_context_t *ctx,
                                           vef_vdf_result_t *result);
 
 // =============================================================================
-// Function and Type Descriptors
+// Function Descriptor
 // =============================================================================
+//
+// Describes either a scalar VDF or an aggregate VDF. Both share:
+//   - name, signature, protocol, buffer_size, deterministic
+//   - prerun / postrun (optional lifecycle callbacks)
+//
+// Scalar VDF (clear is NULL):
+//   - vdf: eval function, called once per row
+//
+// Aggregate VDF (clear is non-NULL):
+//   - clear:            resets accumulator state at the start of each group
+//   - accumulate_row:   called once per row to fold it into the accumulator
+//   - read_accumulator: called once per group after all rows have been
+//                       accumulated; reads the final state and writes output
+//
+// Field order is load-bearing for ABI compatibility — do not rearrange.
 
 typedef struct {
   // protocol >= VEF_PROTOCOL_1
@@ -604,38 +621,29 @@ typedef struct {
 
   vef_signature_t *signature;
 
-  // Main function pointer. For scalar VDFs this is called once per row. For
-  // aggregates (clear and accumulate both set), this becomes the result
-  // function, called once per group to produce the final output value.
+  // Scalar VDF eval function: called once per row.
+  // Not used for aggregate VDFs (use read_accumulator instead).
   vef_vdf_func_t vdf;
 
-  // Optional functions (called once per statement execution)
+  // Optional lifecycle callbacks (called once per statement execution).
+  // Used by both scalar and aggregate VDFs.
   vef_prerun_func_t prerun;
   vef_postrun_func_t postrun;
 
   // Minimum buffer size requested for string results (0 = use default)
   size_t buffer_size;
 
-  // protocol >= VEF_PROTOCOL_2
+  // ---- protocol >= VEF_PROTOCOL_2 fields below ----
+
   // If true, the function always returns the same result for the same inputs
   // and has no side effects. The optimizer may use this to cache results.
   bool deterministic;
 
-  // OPTIONAL: Set both to non-NULL to make this function an aggregate.
-  //
-  // Aggregate VDFs use three callbacks:
-  //   1. clear       – resets accumulator state at the start of each group
-  //   2. accumulate  – called once per row to fold it into the accumulator
-  //   3. vdf (above) – becomes the "result" function, called once per group
-  //                    after all rows have been accumulated; it reads the
-  //                    final accumulator state and writes the output value
-  //
-  // State is managed via user_data in vef_vdf_args_t, typically allocated in
-  // prerun and freed in postrun.
-  //
-  // It is an error to set exactly one of these; both must be present or absent.
+  // Aggregate VDF callbacks. Set clear to non-NULL to make this an aggregate.
+  // All three (clear, accumulate_row, read_accumulator) must be set together.
   vef_vdf_clear_func_t clear;
-  vef_vdf_accumulate_func_t accumulate;
+  vef_vdf_accumulate_func_t accumulate_row;
+  vef_vdf_func_t read_accumulator;
 } vef_func_desc_t;
 
 // =============================================================================

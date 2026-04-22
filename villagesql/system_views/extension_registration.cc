@@ -110,7 +110,7 @@ static std::string registration_to_json(const vef_registration_t *r) {
       w.Key("deterministic");
       w.Bool(f->deterministic);
       w.Key("is_aggregate");
-      w.Bool(f->clear != nullptr && f->accumulate != nullptr);
+      w.Bool(f->clear != nullptr && f->accumulate_row != nullptr);
     }
     w.EndObject();
   }
