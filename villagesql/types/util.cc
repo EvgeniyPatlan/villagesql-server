@@ -1555,4 +1555,62 @@ bool InjectCustomSpParams(
   }
 }
 
+void BuildQualifiedParamsString(THD *thd, enum_sp_type sp_type,
+                                const sp_pcontext *root_ctx, LEX_STRING *out) {
+  if (!root_ctx) return;
+
+  bool has_custom = false;
+  for (uint i = 0; i < root_ctx->context_var_count(); i++) {
+    if (root_ctx->find_variable(i)->field_def.custom_type_context != nullptr) {
+      has_custom = true;
+      break;
+    }
+  }
+  if (!has_custom) return;
+
+  String buf;
+  buf.set_charset(system_charset_info);
+
+  bool first = true;
+  for (uint i = 0; i < root_ctx->context_var_count(); i++) {
+    sp_variable *spvar = root_ctx->find_variable(i);
+    if (!first) buf.append(STRING_WITH_LEN(", "));
+    first = false;
+
+    if (sp_type == enum_sp_type::PROCEDURE) {
+      switch (spvar->mode) {
+        case sp_variable::MODE_IN:
+          buf.append(STRING_WITH_LEN("IN "));
+          break;
+        case sp_variable::MODE_OUT:
+          buf.append(STRING_WITH_LEN("OUT "));
+          break;
+        case sp_variable::MODE_INOUT:
+          buf.append(STRING_WITH_LEN("INOUT "));
+          break;
+      }
+    }
+
+    append_identifier(thd, &buf, spvar->name.str, spvar->name.length);
+    buf.append(' ');
+
+    const TypeContext *tc = spvar->field_def.custom_type_context;
+    if (tc != nullptr) {
+      AppendFullyQualifiedName(*tc, &buf);
+    } else {
+      TABLE table;
+      TABLE_SHARE share;
+      table.in_use = thd;
+      table.s = &share;
+      Field *field = make_field(spvar->field_def, &share);
+      field->init(&table);
+      field->sql_type(buf);
+      ::destroy_at(field);
+    }
+  }
+
+  out->length = buf.length();
+  out->str = thd->strmake(buf.ptr(), buf.length());
+}
+
 }  // namespace villagesql
