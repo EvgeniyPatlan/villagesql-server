@@ -99,8 +99,7 @@ class Metadata_modifier {
   // Process custom columns for DROP TABLE operations.
   // Returns false on success, true on error.
   template <typename TableContainer>
-  static bool process_drop(THD *thd, bool drop_temporary,
-                           const TableContainer &tables);
+  static bool process_drop(THD *thd, const TableContainer &tables);
 
   // Process custom columns for ALTER TABLE operations.
   // Returns false on success, true on error.
@@ -224,13 +223,7 @@ class Metadata_modifier {
 
 // Template implementation for process_drop
 template <typename TableContainer>
-bool Metadata_modifier::process_drop(THD *thd, bool drop_temporary,
-                                     const TableContainer &tables) {
-  // TODO(villagesql-beta): Extension MDL for temp table.
-  if (drop_temporary) {
-    return false;
-  }
-
+bool Metadata_modifier::process_drop(THD *thd, const TableContainer &tables) {
   Metadata_modifier custom_columns;
   for (auto *table : tables) {
     Table_name db_table = {table->db, table->table_name};
