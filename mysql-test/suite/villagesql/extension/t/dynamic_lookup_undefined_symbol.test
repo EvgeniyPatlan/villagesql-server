@@ -1,0 +1,26 @@
+# Test: undefined function in non-constexpr context bypasses the linker
+# with -undefined dynamic_lookup, but fails at dlopen time.
+#
+# The extension compiles and links successfully, producing a valid .veb.
+# But when the server loads it via INSTALL EXTENSION, dlopen() fails because
+# macOS resolves all symbols eagerly and finds the undefined one.
+
+--source include/villagesql/binlog_check_begin.inc
+
+CALL mtr.add_suppression("Failed to load VEF extension");
+
+--echo #
+--echo # Build extension with -undefined dynamic_lookup.
+--echo # Source has an undefined symbol in a non-constexpr function.
+--echo # Build succeeds because the linker defers symbol resolution.
+--echo #
+--let $extension_name = dynamic_lookup_runtime
+--let $extension_source = $MYSQL_TEST_DIR/suite/villagesql/std_data/dynamic_lookup_runtime_fail.cc
+--source include/villagesql/create_extension_sdk_dynamic_lookup.inc
+
+--echo # INSTALL EXTENSION should fail: dlopen catches the undefined symbol
+--replace_regex /dlopen\(.*\.so/dlopen(EXTENSION_PATH/
+--error ER_VILLAGESQL_GENERIC_ERROR
+INSTALL EXTENSION dynamic_lookup_runtime;
+
+--source include/villagesql/binlog_check_end.inc

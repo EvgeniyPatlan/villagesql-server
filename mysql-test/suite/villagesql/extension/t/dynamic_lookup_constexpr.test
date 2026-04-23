@@ -1,0 +1,47 @@
+# Test: undefined function in constexpr context still fails to compile,
+# even with -undefined dynamic_lookup.
+#
+# The constexpr evaluator catches the non-constexpr function call before
+# the linker is ever invoked, so linker flags are irrelevant.
+
+--source include/villagesql/binlog_check_begin.inc
+
+--echo #
+--echo # Attempt to build extension that calls an undefined function
+--echo # from a constexpr context. This should fail to compile.
+--echo #
+
+--let $extension_name = dynamic_lookup_constexpr
+--let $extension_source = $MYSQL_TEST_DIR/suite/villagesql/std_data/dynamic_lookup_constexpr_fail.cc
+
+# Get paths (same setup as create_extension_sdk_dynamic_lookup.inc,
+# but we run make ourselves so we can expect failure)
+--let $build_dir = `SELECT @@basedir`
+--let $veb_dir = `SELECT @@veb_dir`
+--let $sdk_version = `SELECT @@villagesql_server_version`
+--let $sdk_dir = $build_dir/villagesql-extension-sdk-$sdk_version
+--let $ext_build_dir = $MYSQLTEST_VARDIR/tmp/ext_build_$extension_name
+
+--exec test -d "$sdk_dir" || (echo "ERROR: SDK not found at $sdk_dir" && exit 1)
+
+--exec rm -rf $ext_build_dir
+--exec mkdir -p $ext_build_dir/src $ext_build_dir/build
+--exec cp $extension_source $ext_build_dir/src/extension.cc
+--exec printf '%s' '{"name": "$extension_name", "version": "1.0.0"}' > $ext_build_dir/manifest.json
+
+--let $cmake_template = $MYSQL_TEST_DIR/suite/villagesql/data/extension_creator/CMakeLists.txt.dynamic_lookup_template
+--exec sed 's/@EXTENSION_NAME@/$extension_name/g' $cmake_template > $ext_build_dir/CMakeLists.txt
+
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR $build_dir BUILD_DIR
+--exec cd $ext_build_dir/build && cmake -DVillageSQL_SDK_DIR=$sdk_dir -DCMAKE_MODULE_PATH=$sdk_dir/lib/cmake/VillageSQLExtensionFramework -DVSQL_USE_DEV_ABI=ON .. > cmake_output.txt 2>&1 || (cat cmake_output.txt && exit 1)
+
+--echo # Build should fail: constexpr evaluator catches the undefined function
+--error 2
+--exec cd $ext_build_dir/build && make > make_output.txt 2>&1
+
+--echo # Verify the error mentions constexpr
+--exec grep -q "constant expression" $ext_build_dir/build/make_output.txt && echo "PASS: compile error mentions constant expression"
+
+--exec rm -rf $ext_build_dir
+
+--source include/villagesql/binlog_check_end.inc

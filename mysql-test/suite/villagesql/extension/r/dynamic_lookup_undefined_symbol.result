@@ -1,0 +1,17 @@
+CALL mtr.add_suppression("Failed to load VEF extension");
+#
+# Build extension with -undefined dynamic_lookup.
+# Source has an undefined symbol in a non-constexpr function.
+# Build succeeds because the linker defers symbol resolution.
+#
+Creating extension dynamic_lookup_runtime with -undefined dynamic_lookup...
+Created dynamic_lookup_runtime.veb
+# INSTALL EXTENSION should fail: dlopen catches the undefined symbol
+INSTALL EXTENSION dynamic_lookup_runtime;
+ERROR HY000: Failed to load VEF extension 'dynamic_lookup_runtime': failed to load so: error 2 (dlopen(EXTENSION_PATH, 0x0006): symbol not found in flat namespac
+include/rpl/deprecated/show_binlog_events.inc
+Log_name	Pos	Event_type	Server_id	End_log_pos	Info
+#	#	Query	#	#	BEGIN
+#	#	Table_map	#	#	table_id: # (mtr.test_suppressions)
+#	#	Write_rows	#	#	table_id: # flags: STMT_END_F
+#	#	Xid	#	#	COMMIT /* XID */

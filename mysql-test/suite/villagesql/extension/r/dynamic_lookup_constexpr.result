@@ -1,0 +1,8 @@
+#
+# Attempt to build extension that calls an undefined function
+# from a constexpr context. This should fail to compile.
+#
+# Build should fail: constexpr evaluator catches the undefined function
+# Verify the error mentions constexpr
+PASS: compile error mentions constant expression
+include/rpl/deprecated/show_binlog_events.inc
