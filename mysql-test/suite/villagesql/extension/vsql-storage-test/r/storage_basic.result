@@ -1,0 +1,31 @@
+# Install extension
+INSTALL EXTENSION vsql_storage_test;
+# Create a table with a STORED_INT column
+CREATE TABLE t1 (id INT PRIMARY KEY, n STORED_INT);
+# Insert several values including negative and zero
+INSERT INTO t1 VALUES (1, '42');
+INSERT INTO t1 VALUES (2, '-7');
+INSERT INTO t1 VALUES (3, '0');
+# Select all rows
+SELECT id, n FROM t1 ORDER BY id;
+id	n
+1	42
+2	-7
+3	0
+# Update a value (triggers mark_delete + insert in storage)
+UPDATE t1 SET n = '999' WHERE id = 1;
+SELECT id, n FROM t1 ORDER BY id;
+id	n
+1	999
+2	-7
+3	0
+# Delete a row (triggers mark_delete in storage, purge happens async)
+DELETE FROM t1 WHERE id = 2;
+SELECT id, n FROM t1 ORDER BY id;
+id	n
+1	999
+3	0
+# Cleanup
+DROP TABLE t1;
+# Uninstall extension
+UNINSTALL EXTENSION vsql_storage_test;

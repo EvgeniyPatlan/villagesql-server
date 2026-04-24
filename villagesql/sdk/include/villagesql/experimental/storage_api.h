@@ -38,7 +38,7 @@
 static_assert(VEF_STORAGE_SE_INTF_VERSION == 1,
               "This C++ wrapper supports ABI v1 only");
 
-namespace villagesql::storage {
+namespace vsql::experimental::storage {
 
 // Error codes returned by storage ABI functions.
 enum class Error {
@@ -349,7 +349,9 @@ class Page {
   friend class Segment;
 
   // Mutable access for internal use by Segment::get_header() only.
-  unsigned char *get_data();
+  // Named distinctly from the public const get_data() so that calling
+  // get_data() on a non-const Page always resolves to the public overload.
+  unsigned char *get_mutable_data();
 
   using BlockRef = vef_storage_block_ref_t;
 
@@ -470,7 +472,7 @@ inline Segment::Ref Segment::get_header(Page &root_page, size_t seg_no) {
   if (static_cast<uint64_t>(seg_offset - Page::HEADER_SIZE) + HEADER_SIZE >
       root_page.data_size())
     return nullptr;
-  return static_cast<Ref>(root_page.get_data() + seg_offset);
+  return static_cast<Ref>(root_page.get_mutable_data() + seg_offset);
 }
 
 inline Error Segment::drop(Space::Ref space, TrxRef trx_ref,
@@ -483,7 +485,7 @@ inline Error Segment::drop(Space::Ref space, TrxRef trx_ref,
 // Page inline implementations
 inline Page::Ref Page::get_ref() const { return m_ref; }
 
-inline unsigned char *Page::get_data() { return m_data; }
+inline unsigned char *Page::get_mutable_data() { return m_data; }
 
 inline const unsigned char *Page::get_data() const { return m_data; }
 
@@ -862,5 +864,20 @@ struct Column {
   };
 };
 
-}  // namespace villagesql::storage
+}  // namespace vsql::experimental::storage
+
+// TODO(villagesql-beta): Remove this compatibility alias once all callers have
+// migrated to vsql::experimental::storage::*.
+namespace villagesql {
+namespace storage {
+using vsql::experimental::storage::Column;
+using vsql::experimental::storage::Error;
+using vsql::experimental::storage::MtrCtx;
+using vsql::experimental::storage::Page;
+using vsql::experimental::storage::Segment;
+using vsql::experimental::storage::Space;
+
+using vsql::experimental::storage::last_error;
+}  // namespace storage
+}  // namespace villagesql
 #endif  // VILLAGESQL_EXPERIMENTAL_STORAGE_API_H_

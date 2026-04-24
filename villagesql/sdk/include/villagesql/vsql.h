@@ -76,10 +76,6 @@
 // Parameterized type cache: TypeParamsCache<P>, type_params_cache_for<P>()
 #include <villagesql/vsql/type_params_cache.h>
 
-// Storage interface (column-level custom storage, under development)
-#include <villagesql/experimental/storage_api.h>
-#include <villagesql/experimental/storage_builder.h>
-
 // System variable builder: make_sys_var_int(), make_sys_var_str(), etc.
 #include <villagesql/vsql/sys_var_builder.h>
 
