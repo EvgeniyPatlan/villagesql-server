@@ -281,6 +281,34 @@ IF(NOT WITHOUT_SERVER)
   add_custom_target(keyring_reader_veb ALL)
   add_dependencies(keyring_reader_veb copy_vsql_keyring_reader_veb)
 
+  ExternalProject_Add(vsql_component_escape_hatch_extension
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test-extensions/vsql-component-escape-hatch
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/test-extensions/vsql-component-escape-hatch-build
+    CMAKE_GENERATOR ${CMAKE_GENERATOR}
+    CMAKE_ARGS
+      "-DCMAKE_PREFIX_PATH=${CMAKE_SOURCE_DIR}"
+      "-DVillageSQLExtensionFramework_INCLUDE_DIR=${SDK_STAGING_DIR}/include-dev"
+      "-DMYSQL_INCLUDE_DIR=${CMAKE_SOURCE_DIR}/include"
+      "-DMYSQL_BUILD_INCLUDE_DIR=${CMAKE_BINARY_DIR}/include"
+      "-DVillageSQL_VEB_INSTALL_DIR=${CMAKE_BINARY_DIR}/lib/veb"
+      "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+    DEPENDS sdk
+    BUILD_ALWAYS ON
+    INSTALL_COMMAND ""
+  )
+
+  add_custom_target(copy_vsql_component_escape_hatch_veb
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/veb_output_directory
+    COMMAND ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_BINARY_DIR}/test-extensions/vsql-component-escape-hatch-build/vsql_component_escape_hatch.veb
+      ${CMAKE_BINARY_DIR}/veb_output_directory/
+    DEPENDS vsql_component_escape_hatch_extension
+    COMMENT "Copying vsql_component_escape_hatch.veb to veb_output_directory"
+  )
+
+  add_custom_target(component_escape_hatch_veb ALL)
+  add_dependencies(component_escape_hatch_veb copy_vsql_component_escape_hatch_veb)
+
   ExternalProject_Add(vsql_test_only_extension
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test-extensions/vsql-test-only
     BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/test-extensions/vsql-test-only-build

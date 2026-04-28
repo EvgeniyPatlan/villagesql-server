@@ -235,14 +235,27 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
                        MYF(0), extension_name.c_str());
       mark_success = false;
 
-    } else if (victionary.extension_descriptors().MarkForInsertion(
-                   *thd, villagesql::ExtensionDescriptor(
-                             villagesql::ExtensionDescriptorKey(extension_name,
-                                                                version),
-                             std::move(registration)))) {
-      villagesql_error("Failed to register descriptor for extension '%s'",
-                       MYF(0), extension_name.c_str());
-      mark_success = false;
+    } else {
+      if (registration.negotiated_protocol >= VEF_PROTOCOL_2 &&
+          registration.registration != nullptr &&
+          registration.registration->on_load != nullptr) {
+        char error_msg[VEF_MAX_ERROR_LEN] = {};
+        if (registration.registration->on_load(error_msg)) {
+          villagesql_error("Extension '%s' on_load failed: %s", MYF(0),
+                           extension_name.c_str(), error_msg);
+          mark_success = false;
+        }
+      }
+
+      if (mark_success && victionary.extension_descriptors().MarkForInsertion(
+                              *thd, villagesql::ExtensionDescriptor(
+                                        villagesql::ExtensionDescriptorKey(
+                                            extension_name, version),
+                                        std::move(registration)))) {
+        villagesql_error("Failed to register descriptor for extension '%s'",
+                         MYF(0), extension_name.c_str());
+        mark_success = false;
+      }
     }
   }
 

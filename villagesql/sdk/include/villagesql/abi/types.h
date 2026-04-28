@@ -253,6 +253,19 @@ typedef vef_keyring_result_t (*vef_write_keyring_fn)(const char *data_id,
                                                      const unsigned char *data,
                                                      size_t data_len);
 
+// on_load: called after all VDFs/types/sys vars are live, on every server start
+// and on INSTALL EXTENSION. Return false on success; return true and write an
+// error message to error_msg to abort loading.
+// error_msg points to a buffer of VEF_MAX_ERROR_LEN bytes.
+//
+// on_unload: called before VDFs/types/sys vars are removed, on every server
+// shutdown and on UNINSTALL EXTENSION. The extension must stop any background
+// threads before returning.
+//
+// Available when protocol >= VEF_PROTOCOL_2.
+typedef bool (*vef_on_load_func_t)(char *error_msg);
+typedef void (*vef_on_unload_func_t)();
+
 typedef struct {
   // protocol >= VEF_PROTOCOL_1
   vef_protocol_t protocol;
@@ -270,6 +283,17 @@ typedef struct {
   vef_set_variable_fn set_variable;
   vef_read_keyring_fn read_keyring;
   vef_write_keyring_fn write_keyring;
+
+  // Direct access to the MySQL component service registry.
+  // Call component_registry_acquire() to get a handle, use it with
+  // mysql/components/my_service.h to acquire any component service by name,
+  // then call component_registry_release() when done. Extensions that use
+  // these include MySQL component headers directly and take on MySQL version
+  // compatibility for the services they acquire.
+  //
+  // Available when protocol >= VEF_PROTOCOL_2.
+  void *(*component_registry_acquire)();
+  int (*component_registry_release)(void *registry);
 } vef_register_arg_t;
 
 typedef struct {
@@ -841,6 +865,12 @@ typedef struct {
   // protocol >= VEF_PROTOCOL_2
   unsigned int sys_var_count;
   vef_sys_var_desc_t **sys_vars;
+
+  // Optional lifecycle callbacks (protocol >= VEF_PROTOCOL_2).
+  // on_load: called after all VDFs/types/sys vars are live.
+  // on_unload: called before VDFs/types/sys vars are removed.
+  vef_on_load_func_t on_load;
+  vef_on_unload_func_t on_unload;
 } vef_registration_t;
 
 // The returned objects can be freed when the registration is passed to the

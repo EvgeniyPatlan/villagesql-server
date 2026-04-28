@@ -28,6 +28,7 @@
 #include "my_dir.h"
 #include "my_sharedlib.h"
 #include "my_sys.h"
+#include "mysql/service_plugin_registry.h"
 #include "mysqld_error.h"
 #include "scope_guard.h"
 #include "sha2.h"
@@ -695,6 +696,17 @@ bool load_installed_extensions(THD *thd) {
         return true;
       }
 
+      if (registration.negotiated_protocol >= VEF_PROTOCOL_2 &&
+          registration.registration != nullptr &&
+          registration.registration->on_load != nullptr) {
+        char error_msg[VEF_MAX_ERROR_LEN] = {};
+        if (registration.registration->on_load(error_msg)) {
+          LogVSQL(ERROR_LEVEL, "on_load failed for extension '%s': %s",
+                  extension_name.c_str(), error_msg);
+          return true;
+        }
+      }
+
       if (victionary.extension_descriptors().MarkForInsertion(
               *thd, ExtensionDescriptor(ExtensionDescriptorKey(
                                             extension_name, expected_version),
@@ -802,6 +814,16 @@ static std::string format_dlerror() {
   return buf;
 }
 
+static void *registry_acquire_wrapper() {
+  return const_cast<void *>(
+      reinterpret_cast<const void *>(mysql_plugin_registry_acquire()));
+}
+
+static int registry_release_wrapper(void *registry) {
+  return mysql_plugin_registry_release(
+      static_cast<SERVICE_TYPE(registry) *>(registry));
+}
+
 template <typename T>
 static T lookup_symbol(void *handle, const char *symbol_name,
                        std::string &error_message) {
@@ -856,7 +878,9 @@ bool load_vef_extension(const std::string &so_path,
       villagesql::services::get_variable,
       villagesql::services::set_variable,
       villagesql::services::read_keyring,
-      villagesql::services::write_keyring};
+      villagesql::services::write_keyring,
+      registry_acquire_wrapper,
+      registry_release_wrapper};
 
   vef_registration_t *reg = vef_register(&register_arg);
   if (reg == nullptr) {
@@ -900,6 +924,13 @@ void unload_vef_extension(const ExtensionRegistration &registration) {
   }
 
   if (registration.registration != nullptr) {
+    if (registration.negotiated_protocol >= VEF_PROTOCOL_2 &&
+        registration.registration->on_unload != nullptr) {
+      LogVSQL(INFORMATION_LEVEL, "Calling on_unload for extension '%s'",
+              registration.so_path.c_str());
+      registration.registration->on_unload();
+    }
+
     vef_unregister_arg_t unregister_arg = {registration.negotiated_protocol};
     LogVSQL(INFORMATION_LEVEL, "Calling vef_unregister for extension '%s'",
             registration.so_path.c_str());

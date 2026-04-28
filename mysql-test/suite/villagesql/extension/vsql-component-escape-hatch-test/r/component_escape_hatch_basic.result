@@ -1,0 +1,40 @@
+INSTALL EXTENSION vsql_component_escape_hatch;
+SET GLOBAL vsql_component_escape_hatch.log_file = 'MYSQLTEST_VARDIR/vsql_component_escape_hatch.log';
+SET GLOBAL vsql_component_escape_hatch.log_enabled = ON;
+SET @before = vsql_component_escape_hatch.query_count();
+SELECT 1 + 1 AS result;
+result
+2
+SELECT NOW();
+NOW()
+<now>
+SET @after = vsql_component_escape_hatch.query_count();
+SELECT @after - @before AS queries_executed;
+queries_executed
+3
+SELECT NOW();
+NOW()
+<now>
+# component escape hatch enabled
+# Time: <ts>  Queries: <n>
+# Id: <id>  Status: 0
+SET GLOBAL vsql_component_escape_hatch.log_enabled = ON;
+# Time: <ts>  Queries: <n>
+# Id: <id>  Status: 0
+SET @before = vsql_component_escape_hatch.query_count();
+# Time: <ts>  Queries: <n>
+# Id: <id>  Status: 0
+SELECT 1 + 1 AS result;
+# Time: <ts>  Queries: <n>
+# Id: <id>  Status: 0
+SELECT NOW();
+# Time: <ts>  Queries: <n>
+# Id: <id>  Status: 0
+SET @after = vsql_component_escape_hatch.query_count();
+# Time: <ts>  Queries: <n>
+# Id: <id>  Status: 0
+SELECT @after - @before AS queries_executed;
+# Time: <ts>  Queries: <n>
+# Id: <id>  Status: 0
+SELECT NOW();
+UNINSTALL EXTENSION vsql_component_escape_hatch;

@@ -1,0 +1,40 @@
+INSTALL EXTENSION vsql_component_escape_hatch;
+
+# Use a log file under the test var directory so the path is portable
+--let $log_file = $MYSQLTEST_VARDIR/vsql_component_escape_hatch.log
+
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+eval SET GLOBAL vsql_component_escape_hatch.log_file = '$log_file';
+SET GLOBAL vsql_component_escape_hatch.log_enabled = ON;
+
+# query_count() reads the global Queries status variable via RequiredService
+SET @before = vsql_component_escape_hatch.query_count();
+SELECT 1 + 1 AS result;
+--replace_column 1 <now>
+SELECT NOW();
+SET @after = vsql_component_escape_hatch.query_count();
+SELECT @after - @before AS queries_executed;
+
+# This query should also appear in the log
+--replace_column 1 <now>
+SELECT NOW();
+
+# Read back the log and normalize varying values
+--perl
+use strict;
+my $log_file = $ENV{MYSQLTEST_VARDIR} . "/vsql_component_escape_hatch.log";
+my $vardir   = $ENV{MYSQLTEST_VARDIR};
+open(my $fh, "<", $log_file) or die "Cannot open log: $log_file: $!";
+while (my $line = <$fh>) {
+  chomp $line;
+  $line =~ s/^# Time: \S+  Queries: \d+$/# Time: <ts>  Queries: <n>/;
+  $line =~ s/Id: \d+/Id: <id>/;
+  $line =~ s/\Q$vardir\E/MYSQLTEST_VARDIR/g;
+  print "$line\n";
+}
+close($fh);
+EOF
+
+# Cleanup: uninstall extension and remove log file
+UNINSTALL EXTENSION vsql_component_escape_hatch;
+--remove_file $log_file

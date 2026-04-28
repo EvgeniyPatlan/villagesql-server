@@ -1,0 +1,7 @@
+{
+  "name": "vsql_component_escape_hatch",
+  "version": "0.0.1",
+  "description": "Component query intercept using MySQL component registry passthrough (event_tracking_query consumer)",
+  "author": "VillageSQL Community",
+  "license": "GPL-2.0"
+}

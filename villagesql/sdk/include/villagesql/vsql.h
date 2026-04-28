@@ -82,6 +82,10 @@
 // Keyring access: vsql::keyring::read(), vsql::keyring::write()
 #include <villagesql/vsql/keyring.h>
 
+// MySQL component registry access:
+// vsql::component_registry::acquire()/release()
+#include <villagesql/vsql/component_registry.h>
+
 // Extension builder and VEF_GENERATE_ENTRY_POINTS macro
 #include <villagesql/extension_builder.h>
 
@@ -100,9 +104,10 @@ using villagesql::func_builder::make_type_decode;
 using villagesql::func_builder::make_type_encode;
 using villagesql::func_builder::make_type_hash;
 
-// Re-export sys_var and keyring namespaces
+// Re-export sys_var, keyring, and component_registry namespaces
 namespace sys_var = villagesql::sys_var;
 namespace keyring = villagesql::keyring;
+namespace component_registry = villagesql::component_registry;
 using villagesql::sys_var_builder::make_sys_var_bool;
 using villagesql::sys_var_builder::make_sys_var_double;
 using villagesql::sys_var_builder::make_sys_var_int;
