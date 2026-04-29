@@ -51,6 +51,7 @@
 #include "villagesql/schema/schema_manager.h"
 #include "villagesql/schema/systable/extensions.h"
 #include "villagesql/schema/victionary_client.h"
+#include "villagesql/services/status_vars.h"
 #include "villagesql/services/sys_vars.h"
 #include "villagesql/sql/metadata_modifier.h"
 #include "villagesql/veb/register.h"
@@ -218,6 +219,21 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
     return end_transaction(thd, true);
   }
 
+  const vef_registration_t *raw_reg = registration.registration;
+  if (raw_reg != nullptr &&
+      registration.negotiated_protocol >= VEF_PROTOCOL_2) {
+    if ((raw_reg->sys_var_count > 0 &&
+         villagesql::veb::validate_sys_var_descriptors(extension_name, raw_reg,
+                                                       reg_error)) ||
+        (raw_reg->status_var_count > 0 &&
+         villagesql::veb::validate_status_var_descriptors(
+             extension_name, raw_reg, reg_error))) {
+      villagesql_error("Failed to install extension '%s': %s", MYF(0),
+                       extension_name.c_str(), reg_error.c_str());
+      return end_transaction(thd, true);
+    }
+  }
+
   bool mark_success = true;
   {
     auto write_lock = victionary.get_write_lock();
@@ -232,6 +248,12 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
     } else if (villagesql::services::register_sys_vars_from_extension(
                    extension_name, registration)) {
       villagesql_error("Failed to register system variables for extension '%s'",
+                       MYF(0), extension_name.c_str());
+      mark_success = false;
+
+    } else if (villagesql::services::register_status_vars_from_extension(
+                   extension_name, registration)) {
+      villagesql_error("Failed to register status variables for extension '%s'",
                        MYF(0), extension_name.c_str());
       mark_success = false;
 
@@ -551,6 +573,7 @@ bool Sql_cmd_uninstall_extension::execute(THD *thd) {
   if (to_unregister.has_value()) {
     villagesql::services::unregister_sys_vars_from_extension(extension_name,
                                                              thd);
+    villagesql::services::unregister_status_vars_from_extension(extension_name);
     villagesql::veb::unload_vef_extension(*to_unregister);
   }
 
