@@ -191,8 +191,8 @@ bool MaybeInjectCustomType(THD *thd, TABLE_SHARE &share, Field *field) {
   return CheckFieldLengthMatchesType(field, tc);
 }
 
-bool ResolveTypeToContext(const LEX_STRING &extension_name,
-                          const LEX_STRING &type_name,
+bool ResolveTypeToContext(std::string_view extension_name,
+                          std::string_view type_name,
                           const TypeParameters &parameters, MEM_ROOT &mem_root,
                           const TypeContext *&result) {
   result = nullptr;
@@ -201,13 +201,12 @@ bool ResolveTypeToContext(const LEX_STRING &extension_name,
   if (should_assert_if_false(vclient.is_initialized())) {
     LogVSQL(ERROR_LEVEL,
             "Failed to resolve type %.*s; VictionaryClient not initialized",
-            static_cast<int>(type_name.length), type_name.str);
+            static_cast<int>(type_name.size()), type_name.data());
     return true;
   }
 
-  TypeDescriptorKeyPrefix prefix(
-      std::string(type_name.str, type_name.length),
-      std::string(extension_name.str, extension_name.length));
+  TypeDescriptorKeyPrefix prefix{std::string(type_name),
+                                 std::string(extension_name)};
 
   auto guard = vclient.get_write_lock();
   std::vector<const TypeDescriptor *> results =
@@ -215,7 +214,7 @@ bool ResolveTypeToContext(const LEX_STRING &extension_name,
 
   if (should_assert_if_true(results.size() > 1)) {
     LogVSQL(ERROR_LEVEL, "Found more than one entry for type %.*s",
-            static_cast<int>(type_name.length), type_name.str);
+            static_cast<int>(type_name.size()), type_name.data());
     return true;
   }
 
@@ -1343,12 +1342,8 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
     if (tc != nullptr && tc->is_unknown()) {
       auto it = known_params.find(expected_qbn);
       if (it != known_params.end()) {
-        LEX_STRING lex_type_name;
-        lex_type_name.str = const_cast<char *>(expected_type.custom_type);
-        lex_type_name.length = strlen(expected_type.custom_type);
-
         const TypeContext *resolved_tc = nullptr;
-        if (ResolveTypeToContext(extension_name, lex_type_name,
+        if (ResolveTypeToContext(ext_name, expected_type.custom_type,
                                  *it->second.params, *thd->mem_root,
                                  resolved_tc)) {
           return true;
@@ -1370,10 +1365,6 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
     // Case 3: Arg is a constant string — implicit conversion.
     if (args[i]->type() == Item::STRING_ITEM &&
         args[i]->const_for_execution()) {
-      LEX_STRING lex_type_name;
-      lex_type_name.str = const_cast<char *>(expected_type.custom_type);
-      lex_type_name.length = strlen(expected_type.custom_type);
-
       // Use known params from TD1 if available, otherwise empty (correct for
       // non-parameterized types).
       TypeParameters resolved_params;
@@ -1383,8 +1374,8 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
       }
 
       const TypeContext *type_ctx = nullptr;
-      if (ResolveTypeToContext(extension_name, lex_type_name, resolved_params,
-                               *thd->mem_root, type_ctx)) {
+      if (ResolveTypeToContext(ext_name, expected_type.custom_type,
+                               resolved_params, *thd->mem_root, type_ctx)) {
         return true;
       }
 
@@ -1445,12 +1436,8 @@ void SetVDFReturnTypeContext(THD *thd, const LEX_STRING &extension_name,
     return;
   }
 
-  LEX_STRING lex_return_type;
-  lex_return_type.str = const_cast<char *>(return_type_name);
-  lex_return_type.length = strlen(return_type_name);
-
   const TypeContext *return_type_ctx = nullptr;
-  if (!ResolveTypeToContext(extension_name, lex_return_type,
+  if (!ResolveTypeToContext(to_string_view(extension_name), return_type_name,
                             return_params ? *return_params : TypeParameters{},
                             *thd->mem_root, return_type_ctx) &&
       return_type_ctx != nullptr) {

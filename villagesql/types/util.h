@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #include "lex_string.h"
@@ -91,8 +92,8 @@ extern void BuildQualifiedParamsString(THD *thd, enum_sp_type sp_type,
 // Returns false on success and true on failure. If the type isn't known the
 // function will return false (success), but the result will be nullptr. The
 // mem_root is used to scope the cleanup of the TypeContext.
-extern bool ResolveTypeToContext(const LEX_STRING &extension_name,
-                                 const LEX_STRING &type_name,
+extern bool ResolveTypeToContext(std::string_view extension_name,
+                                 std::string_view type_name,
                                  const TypeParameters &parameters,
                                  MEM_ROOT &mem_root,
                                  const TypeContext *&result);
