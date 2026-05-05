@@ -20,6 +20,8 @@
 #include <tuple>
 #include <utility>
 
+#include <villagesql/detail/capability_hash.h>
+
 #include <villagesql/detail/vef_register.h>
 #include <villagesql/type_builder.h>
 #include <villagesql/vsql/status_var_builder.h>
@@ -33,23 +35,36 @@ namespace villagesql::vsql {
 using namespace func_builder;
 using namespace type_builder;
 
+// cap_receive<Cap, cap_ptr> is a captureless function pointer that copies the
+// server-provided vtable into cap_ptr->abi_. Instantiated once per unique
+// (Cap, cap_ptr) pair. cap_ptr must have static storage duration so its
+// address is a valid non-type template argument.
+template <typename Cap, Cap *cap_ptr>
+void cap_receive(void *vtable) {
+  cap_ptr->abi_ = *static_cast<decltype(cap_ptr->abi_) *>(vtable);
+}
+
 // ExtensionBuilder is the vsql-API extension builder. It is a standalone type
 // (not a wrapper around villagesql::extension_builder::ExtensionBuilder) so it
 // can evolve independently. It satisfies the same duck-typed interface required
 // by VEF_GENERATE_ENTRY_POINTS.
 template <typename FuncTuple, typename TypeTuple, typename SysVarTuple,
-          typename StatusVarTuple>
+          typename StatusVarTuple,
+          typename RequiredCapabilityTuple = std::tuple<>>
 struct ExtensionBuilder {
   FuncTuple funcs_;
   TypeTuple types_;
   SysVarTuple sys_vars_;
   StatusVarTuple status_vars_;
+  RequiredCapabilityTuple required_capabilities_;
   vef_protocol_t min_protocol_;
 
   static constexpr size_t kFuncCount = std::tuple_size_v<FuncTuple>;
   static constexpr size_t kTypeCount = std::tuple_size_v<TypeTuple>;
   static constexpr size_t kSysVarCount = std::tuple_size_v<SysVarTuple>;
   static constexpr size_t kStatusVarCount = std::tuple_size_v<StatusVarTuple>;
+  static constexpr size_t kRequiredCapabilityCount =
+      std::tuple_size_v<RequiredCapabilityTuple>;
   static constexpr bool kHasVsqlGlobals = true;
 
   constexpr vef_protocol_t min_protocol() const { return min_protocol_; }
@@ -74,6 +89,11 @@ struct ExtensionBuilder {
     return std::get<I>(status_vars_);
   }
 
+  template <size_t I>
+  constexpr const auto &required_capability_at() const {
+    return std::get<I>(required_capabilities_);
+  }
+
   constexpr vef_protocol_t require_atleast_min(vef_protocol_t required) const {
     return required > min_protocol_ ? required : min_protocol_;
   }
@@ -82,15 +102,20 @@ struct ExtensionBuilder {
   constexpr auto func(F f) const {
     auto new_funcs = std::tuple_cat(funcs_, std::make_tuple(f));
     return ExtensionBuilder<decltype(new_funcs), TypeTuple, SysVarTuple,
-                            StatusVarTuple>{new_funcs, types_, sys_vars_,
-                                            status_vars_, min_protocol_};
+                            StatusVarTuple, RequiredCapabilityTuple>{
+        new_funcs,    types_, sys_vars_, status_vars_, required_capabilities_,
+        min_protocol_};
   }
 
   constexpr auto type(const type_builder::TypeDescriptor &td) const {
     auto new_types = std::tuple_cat(types_, std::make_tuple(td));
     return ExtensionBuilder<FuncTuple, decltype(new_types), SysVarTuple,
-                            StatusVarTuple>{
-        funcs_, new_types, sys_vars_, status_vars_,
+                            StatusVarTuple, RequiredCapabilityTuple>{
+        funcs_,
+        new_types,
+        sys_vars_,
+        status_vars_,
+        required_capabilities_,
         require_atleast_min(td.vef_desc.protocol)};
   }
 
@@ -102,16 +127,25 @@ struct ExtensionBuilder {
     auto new_types = std::tuple_cat(types_, std::make_tuple(t.descriptor));
     auto new_funcs = std::tuple_cat(funcs_, t.embedded_funcs);
     return ExtensionBuilder<decltype(new_funcs), decltype(new_types),
-                            SysVarTuple, StatusVarTuple>{
-        new_funcs, new_types, sys_vars_, status_vars_,
+                            SysVarTuple, StatusVarTuple,
+                            RequiredCapabilityTuple>{
+        new_funcs,
+        new_types,
+        sys_vars_,
+        status_vars_,
+        required_capabilities_,
         require_atleast_min(t.descriptor.vef_desc.protocol)};
   }
 
   constexpr auto sys_var(const sys_var_builder::SysVarDescriptor &sv) const {
     auto new_svs = std::tuple_cat(sys_vars_, std::make_tuple(sv));
     return ExtensionBuilder<FuncTuple, TypeTuple, decltype(new_svs),
-                            StatusVarTuple>{
-        funcs_, types_, new_svs, status_vars_,
+                            StatusVarTuple, RequiredCapabilityTuple>{
+        funcs_,
+        types_,
+        new_svs,
+        status_vars_,
+        required_capabilities_,
         require_atleast_min(VEF_PROTOCOL_2)};
   }
 
@@ -119,22 +153,56 @@ struct ExtensionBuilder {
       const status_var_builder::StatusVarDescriptor &sv) const {
     auto new_svs = std::tuple_cat(status_vars_, std::make_tuple(sv));
     return ExtensionBuilder<FuncTuple, TypeTuple, SysVarTuple,
-                            decltype(new_svs)>{
-        funcs_, types_, sys_vars_, new_svs,
+                            decltype(new_svs), RequiredCapabilityTuple>{
+        funcs_,
+        types_,
+        sys_vars_,
+        new_svs,
+        required_capabilities_,
         require_atleast_min(VEF_PROTOCOL_2)};
+  }
+
+  // No-op. Preview capability builders that need runtime initialization before
+  // vef_register_impl() runs should wrap ExtensionBuilder and override this.
+  void init() const {}
+
+  // Low-level method for use by capability bind() functions only.
+  // Prefer .with<Traits>() at call sites.
+  constexpr auto required_capability(
+      const vef_required_capability_t &req) const {
+    auto new_caps =
+        std::tuple_cat(required_capabilities_, std::make_tuple(req));
+    return ExtensionBuilder<FuncTuple, TypeTuple, SysVarTuple, StatusVarTuple,
+                            decltype(new_caps)>{
+        funcs_,       types_,   sys_vars_,
+        status_vars_, new_caps, require_atleast_min(VEF_PROTOCOL_2)};
+  }
+
+  // Generic builder extension point for capabilities. Traits is defined in
+  // its own header — only available when that header is included.
+  template <typename Traits>
+  constexpr auto with() const {
+    return Traits::bind(*this);
+  }
+
+  template <typename Traits, typename Config>
+  constexpr auto with(Config config) const {
+    return Traits::bind(*this, config);
   }
 
   // For testing only — forces the extension to require protocol p regardless
   // of which features are registered.
   constexpr auto test_only_require_protocol(vef_protocol_t p) const {
-    return ExtensionBuilder<FuncTuple, TypeTuple, SysVarTuple, StatusVarTuple>{
-        funcs_, types_, sys_vars_, status_vars_, p};
+    return ExtensionBuilder<FuncTuple, TypeTuple, SysVarTuple, StatusVarTuple,
+                            RequiredCapabilityTuple>{
+        funcs_, types_, sys_vars_, status_vars_, required_capabilities_, p};
   }
 };
 
 constexpr auto make_extension() {
   return ExtensionBuilder<std::tuple<>, std::tuple<>, std::tuple<>,
-                          std::tuple<>>{{}, {}, {}, {}, VEF_PROTOCOL_1};
+                          std::tuple<>, std::tuple<>>{{}, {}, {},
+                                                      {}, {}, VEF_PROTOCOL_1};
 }
 
 }  // namespace villagesql::vsql
@@ -146,20 +214,21 @@ constexpr auto make_extension() {
 // descriptors after registration for testing). Otherwise use
 // VEF_GENERATE_ENTRY_POINTS which generates the full extern "C" entry points.
 
-#define VEF_GENERATE_REGISTRATION(ext)                                   \
-  namespace {                                                            \
-  vef_registration_t _vef_reg;                                           \
-  bool _vef_reg_initialized = false;                                     \
-  }                                                                      \
-                                                                         \
-  static vef_registration_t *_vef_do_register(vef_register_arg_t *arg) { \
-    using namespace villagesql::vsql;                                    \
-    static constexpr auto kExt = (ext);                                  \
-    using ExtType = decltype(kExt);                                      \
-    return villagesql::detail::vef_register_impl<                        \
-        decltype(kExt), ExtType::kFuncCount, ExtType::kTypeCount,        \
-        ExtType::kSysVarCount, ExtType::kStatusVarCount>(                \
-        _vef_reg, _vef_reg_initialized, arg, kExt);                      \
+#define VEF_GENERATE_REGISTRATION(ext)                                     \
+  namespace {                                                              \
+  vef_registration_t _vef_reg;                                             \
+  bool _vef_reg_initialized = false;                                       \
+  }                                                                        \
+                                                                           \
+  static vef_registration_t *_vef_do_register(vef_register_arg_t *arg) {   \
+    using namespace villagesql::vsql;                                      \
+    static constexpr auto kExt = (ext);                                    \
+    using ExtType = decltype(kExt);                                        \
+    return villagesql::detail::vef_register_impl<                          \
+        decltype(kExt), ExtType::kFuncCount, ExtType::kTypeCount,          \
+        ExtType::kSysVarCount, ExtType::kStatusVarCount,                   \
+        ExtType::kRequiredCapabilityCount>(_vef_reg, _vef_reg_initialized, \
+                                           arg, kExt);                     \
   }
 
 // VEF_GENERATE_ENTRY_POINTS (vsql variant)
@@ -167,26 +236,27 @@ constexpr auto make_extension() {
 // Generates the extern "C" vef_register and vef_unregister functions.
 // Must be called in a .cc file, not a header (defines functions/variables).
 
-#define VEF_GENERATE_ENTRY_POINTS(ext)                                   \
-  namespace {                                                            \
-  vef_registration_t vef_reg_;                                           \
-  bool vef_reg_initialized_ = false;                                     \
-  }                                                                      \
-                                                                         \
-  extern "C" vef_registration_t *vef_register(vef_register_arg_t *arg) { \
-    using namespace villagesql::vsql;                                    \
-    static constexpr auto kExt = (ext);                                  \
-    using ExtType = decltype(kExt);                                      \
-    return villagesql::detail::vef_register_impl<                        \
-        decltype(kExt), ExtType::kFuncCount, ExtType::kTypeCount,        \
-        ExtType::kSysVarCount, ExtType::kStatusVarCount>(                \
-        vef_reg_, vef_reg_initialized_, arg, kExt);                      \
-  }                                                                      \
-                                                                         \
-  extern "C" void vef_unregister(vef_unregister_arg_t *arg,              \
-                                 vef_registration_t *reg) {              \
-    (void)arg;                                                           \
-    (void)reg;                                                           \
+#define VEF_GENERATE_ENTRY_POINTS(ext)                                     \
+  namespace {                                                              \
+  vef_registration_t vef_reg_;                                             \
+  bool vef_reg_initialized_ = false;                                       \
+  }                                                                        \
+                                                                           \
+  extern "C" vef_registration_t *vef_register(vef_register_arg_t *arg) {   \
+    using namespace villagesql::vsql;                                      \
+    static constexpr auto kExt = (ext);                                    \
+    using ExtType = decltype(kExt);                                        \
+    return villagesql::detail::vef_register_impl<                          \
+        decltype(kExt), ExtType::kFuncCount, ExtType::kTypeCount,          \
+        ExtType::kSysVarCount, ExtType::kStatusVarCount,                   \
+        ExtType::kRequiredCapabilityCount>(vef_reg_, vef_reg_initialized_, \
+                                           arg, kExt);                     \
+  }                                                                        \
+                                                                           \
+  extern "C" void vef_unregister(vef_unregister_arg_t *arg,                \
+                                 vef_registration_t *reg) {                \
+    (void)arg;                                                             \
+    (void)reg;                                                             \
   }
 
 #endif  // VILLAGESQL_VSQL_EXTENSION_BUILDER_H

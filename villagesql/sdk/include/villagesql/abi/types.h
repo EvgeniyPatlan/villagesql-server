@@ -173,6 +173,12 @@ typedef enum : unsigned int {
                    // + get_variable/set_variable/read_keyring/write_keyring
                    //   function pointers in vef_register_arg_t: access to
                    //   MySQL system variables and keyring component.
+                   // + Preview capability system: extensions declare named
+                   //   capabilities they require in vef_registration_t;
+                   //   the server populates their function pointers before
+                   //   vef_register() returns.
+                   //   (vef_required_capability_t, required_capabilities,
+                   //   required_capability_count in vef_registration_t)
 } vef_protocol_t;
 
 // Max length of error messages in caller-provided buffers.
@@ -872,7 +878,27 @@ typedef struct {
   };
 } vef_status_var_desc_t;
 
+// Forward declaration so vef_required_capability_t can reference it.
+typedef struct vef_registration_t vef_registration_t;
+
+// A single capability request in vef_registration_t.required_capabilities.
+// The extension sets name, version, and a receive callback. The server calls
+// receive() with the vtable pointer if the capability is registered; the
+// callback assigns it into the extension's struct in a type-safe way.
 typedef struct {
+  // Capability name, e.g. "vsql::ping". Must remain valid for the lifetime
+  // of the extension (use a string literal).
+  const char *name;
+  // Called by the server with the capability vtable pointer if registered.
+  // The extension assigns the vtable to its own capability struct.
+  void (*receive)(void *vtable);
+  // Compile-time hash of the ABI struct type, computed via
+  // villagesql::detail::abi_type_hash<AbiType>(). The server compares this
+  // against its own hash for the same name to detect ABI struct mismatches.
+  size_t abi_type_hash;
+} vef_required_capability_t;
+
+typedef struct vef_registration_t {
   // protocol >= VEF_PROTOCOL_1
   vef_protocol_t protocol;
 
@@ -899,6 +925,15 @@ typedef struct {
   // protocol >= VEF_PROTOCOL_2
   unsigned int status_var_count;
   vef_status_var_desc_t **status_vars;
+
+  // protocol >= VEF_PROTOCOL_2
+  // Preview capabilities required by this extension. Each entry names a
+  // capability the extension needs (e.g. "vsql::ping"). The server populates
+  // the capability struct pointed to by each entry before vef_register()
+  // returns. If a capability is unavailable or there is an ABI struct
+  // mismatch, loading the extension fails with an error.
+  unsigned int required_capability_count;
+  const vef_required_capability_t *required_capabilities;
 } vef_registration_t;
 
 // The returned objects can be freed when the registration is passed to the

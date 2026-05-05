@@ -43,6 +43,7 @@
 #include "villagesql/include/error.h"
 #include "villagesql/include/version.h"
 #include "villagesql/schema/victionary_client.h"
+#include "villagesql/services/capability_registry.h"
 #include "villagesql/services/keyring.h"
 #include "villagesql/services/status_vars.h"
 #include "villagesql/services/sys_vars.h"
@@ -886,6 +887,15 @@ bool load_vef_extension(const std::string &so_path,
     return true;
   }
 
+  // Populate any capabilities the extension requires.
+  if (villagesql::services::populate_capabilities(reg, &register_arg,
+                                                  error_message)) {
+    vef_unregister_arg_t unregister_arg = {negotiated_protocol};
+    vef_unregister(&unregister_arg, reg);
+    dlclose(handle);
+    return true;
+  }
+
   // TODO(villagesql-beta): Add more validation of the returned registration
   // object (e.g. func/type descriptors, protocol version, null pointers).
 
@@ -909,6 +919,7 @@ void unload_vef_extension(const ExtensionRegistration &registration) {
   }
 
   if (registration.registration != nullptr) {
+    villagesql::services::depopulate_capabilities(registration.registration);
     vef_unregister_arg_t unregister_arg = {registration.negotiated_protocol};
     LogVSQL(INFORMATION_LEVEL, "Calling vef_unregister for extension '%s'",
             registration.so_path.c_str());
