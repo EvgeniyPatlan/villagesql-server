@@ -52,9 +52,14 @@ std::string normalize_extension_name(const std::string &name);
 std::string normalize_type_name(const std::string &name);
 
 // Build a qualified base name string "extension_name.type_name".
-inline std::string make_qualified_base_name(const std::string &extension_name,
-                                            const std::string &type_name) {
-  return extension_name + "." + type_name;
+inline std::string make_qualified_base_name(std::string_view extension_name,
+                                            std::string_view type_name) {
+  std::string result;
+  result.reserve(extension_name.size() + 1 + type_name.size());
+  result.append(extension_name);
+  result.push_back('.');
+  result.append(type_name);
+  return result;
 }
 
 // Returns true if name is a qualified custom type name (contains a dot),
