@@ -3,8 +3,20 @@ name: Build and Test
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'Docs/**'
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'Docs/**'
+
+# Cancel superseded runs on the same PR branch. main pushes are not cancelled
+# so each merged commit gets its own pass.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-test:
