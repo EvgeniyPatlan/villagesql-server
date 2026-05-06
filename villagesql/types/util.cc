@@ -1251,7 +1251,7 @@ void ClearAlterCustomFields(THD *thd) {
 }
 
 bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
-                                    const LEX_STRING &extension_name,
+                                    std::string_view extension_name,
                                     uint arg_count, Item **args,
                                     const vef_signature_t *signature,
                                     TypeParameters *out_return_params) {
@@ -1277,7 +1277,6 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
     uint arg_index;
   };
   std::map<std::string, KnownEntry> known_params;
-  const std::string ext_name(extension_name.str, extension_name.length);
 
   for (uint i = 0; i < arg_count; i++) {
     const vef_type_t &expected_type = signature->params[i];
@@ -1286,7 +1285,7 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
 
     assert(expected_type.custom_type != nullptr);
     const std::string expected_qbn =
-        make_qualified_base_name(ext_name, expected_type.custom_type);
+        make_qualified_base_name(extension_name, expected_type.custom_type);
 
     auto *tc = args[i]->get_type_context();
     if (tc == nullptr) continue;  // String constants handled in pass 2
@@ -1329,7 +1328,7 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
 
     assert(expected_type.custom_type != nullptr);
     const std::string expected_qbn =
-        make_qualified_base_name(ext_name, expected_type.custom_type);
+        make_qualified_base_name(extension_name, expected_type.custom_type);
 
     auto *tc = args[i]->get_type_context();
 
@@ -1343,7 +1342,7 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
       auto it = known_params.find(expected_qbn);
       if (it != known_params.end()) {
         const TypeContext *resolved_tc = nullptr;
-        if (ResolveTypeToContext(ext_name, expected_type.custom_type,
+        if (ResolveTypeToContext(extension_name, expected_type.custom_type,
                                  *it->second.params, *thd->mem_root,
                                  resolved_tc)) {
           return true;
@@ -1374,7 +1373,7 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
       }
 
       const TypeContext *type_ctx = nullptr;
-      if (ResolveTypeToContext(ext_name, expected_type.custom_type,
+      if (ResolveTypeToContext(extension_name, expected_type.custom_type,
                                resolved_params, *thd->mem_root, type_ctx)) {
         return true;
       }
@@ -1416,8 +1415,8 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
   if (out_return_params != nullptr &&
       signature->return_type.id == VEF_TYPE_CUSTOM &&
       signature->return_type.custom_type != nullptr) {
-    const std::string return_qbn =
-        make_qualified_base_name(ext_name, signature->return_type.custom_type);
+    const std::string return_qbn = make_qualified_base_name(
+        extension_name, signature->return_type.custom_type);
     auto it = known_params.find(return_qbn);
     if (it != known_params.end()) {
       *out_return_params = *it->second.params;
@@ -1427,7 +1426,7 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
   return false;
 }
 
-void SetVDFReturnTypeContext(THD *thd, const LEX_STRING &extension_name,
+void SetVDFReturnTypeContext(THD *thd, std::string_view extension_name,
                              const vef_signature_t *signature,
                              Item *result_item,
                              const TypeParameters *return_params) {
@@ -1437,7 +1436,7 @@ void SetVDFReturnTypeContext(THD *thd, const LEX_STRING &extension_name,
   }
 
   const TypeContext *return_type_ctx = nullptr;
-  if (!ResolveTypeToContext(to_string_view(extension_name), return_type_name,
+  if (!ResolveTypeToContext(extension_name, return_type_name,
                             return_params ? *return_params : TypeParameters{},
                             *thd->mem_root, return_type_ctx) &&
       return_type_ctx != nullptr) {

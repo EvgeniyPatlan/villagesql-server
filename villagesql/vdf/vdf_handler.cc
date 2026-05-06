@@ -17,6 +17,7 @@
 
 #include <type_traits>
 
+#include "lex_string.h"
 #include "my_sys.h"
 #include "mysql/strings/m_ctype.h"
 #include "sql/current_thd.h"
@@ -98,8 +99,8 @@ bool vdf_handler::fix_fields(THD *thd [[maybe_unused]],
   villagesql::TypeParameters return_params;
   if (signature != nullptr &&
       villagesql::ValidateAndConvertVDFArguments(
-          thd, m_udf->name.str, m_udf->extension_name, arg_count, m_args,
-          signature, &return_params)) {
+          thd, m_udf->name.str, to_string_view(m_udf->extension_name),
+          arg_count, m_args, signature, &return_params)) {
     return true;
   }
 
@@ -171,8 +172,9 @@ bool vdf_handler::fix_fields(THD *thd [[maybe_unused]],
   // return_params inferred from args via the call to
   // ValidateAndConvertVDFArguments.
   if (signature != nullptr && signature->return_type.id == VEF_TYPE_CUSTOM) {
-    villagesql::SetVDFReturnTypeContext(thd, m_udf->extension_name, signature,
-                                        func, &return_params);
+    villagesql::SetVDFReturnTypeContext(thd,
+                                        to_string_view(m_udf->extension_name),
+                                        signature, func, &return_params);
     m_return_type_context = func->get_type_context();
   }
 
