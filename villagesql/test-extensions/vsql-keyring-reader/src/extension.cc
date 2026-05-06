@@ -29,9 +29,8 @@
 #include <villagesql/vsql.h>
 
 using namespace vsql;
-using vsql::preview::preview_keyring;
 
-static auto g_keyring = vsql::preview::keyring::make_capability();
+static auto g_keyring = vsql::keyring::make_capability();
 
 // keyring_read(data_id, auth_id) - reads a secret from the keyring.
 // Returns the secret as a string, or NULL if not found.
@@ -91,4 +90,4 @@ VEF_GENERATE_ENTRY_POINTS(make_extension()
                                         .param(STRING)
                                         .param(STRING)
                                         .build())
-                              .with<preview_keyring<g_keyring>>())
+                              .with<keyring_cap<g_keyring>>())

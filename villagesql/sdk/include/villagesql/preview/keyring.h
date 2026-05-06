@@ -23,21 +23,21 @@
 #include <villagesql/detail/capability_hash.h>
 #include <villagesql/vsql/extension_builder.h>
 
-namespace vsql::preview::keyring {
+namespace vsql::keyring {
 
-// C++ wrapper around vef_preview_keyring_t.
+// C++ wrapper around vef_keyring_t.
 //
 // Usage:
-//   static auto g_keyring = vsql::preview::keyring::make_capability();
+//   static auto g_keyring = vsql::keyring::make_capability();
 //
 //   // In extension code:
 //   auto result = g_keyring.read("my-key", "", value);
 //
 // Register with:
-//   make_extension().with<preview_keyring<g_keyring>>()
+//   make_extension().with<keyring_cap<g_keyring>>()
 class Capability {
  public:
-  static constexpr const char *kName = VEF_PREVIEW_KEYRING_NAME;
+  static constexpr const char *kName = VEF_KEYRING_NAME;
 
   // Read a secret from the MySQL keyring component into value.
   //   auth_id may be empty to read internal keys.
@@ -73,19 +73,19 @@ class Capability {
 
   // Public so that cap_receive() can access abi_ via a pointer.
   // Do not access directly — use read(), write(), and available() instead.
-  vef_preview_keyring_t abi_;
+  vef_keyring_t abi_;
 };
 
 inline Capability make_capability() { return Capability{}; }
 
-}  // namespace vsql::preview::keyring
+}  // namespace vsql::keyring
 
-namespace vsql::preview {
+namespace vsql {
 
 // Traits type for registering the keyring capability via
-// .with<preview_keyring<cap>>. Only available when this header is included.
+// .with<keyring_cap<cap>>. Only available when this header is included.
 template <auto &cap>
-struct preview_keyring {
+struct keyring_cap {
   template <typename Inner>
   static constexpr auto bind(Inner builder) {
     using Cap = keyring::Capability;
@@ -95,6 +95,6 @@ struct preview_keyring {
   }
 };
 
-}  // namespace vsql::preview
+}  // namespace vsql
 
 #endif  // VILLAGESQL_PREVIEW_KEYRING_H

@@ -54,9 +54,9 @@ void register_builtin_capabilities() {
   register_capability(VEF_PREVIEW_PING_NAME, preview_ping_vtable(),
                       villagesql::detail::abi_type_hash<vef_preview_ping_t>(),
                       true);
-  register_capability(
-      VEF_PREVIEW_KEYRING_NAME, preview_keyring_vtable(),
-      villagesql::detail::abi_type_hash<vef_preview_keyring_t>(), false);
+  register_capability(VEF_KEYRING_NAME, keyring_vtable(),
+                      villagesql::detail::abi_type_hash<vef_keyring_t>(),
+                      false);
   // TODO(villagesql-beta): register "vsql::thread_worker" and "vsql::sql" here
 }
 

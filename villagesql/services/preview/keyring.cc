@@ -83,10 +83,10 @@ vef_keyring_result_t write_keyring(const char *data_id, const char *auth_id,
   return result;
 }
 
-vef_preview_keyring_t g_keyring_vtable{read_keyring, write_keyring};
+vef_keyring_t g_keyring_vtable{read_keyring, write_keyring};
 
 }  // namespace
 
-vef_preview_keyring_t *preview_keyring_vtable() { return &g_keyring_vtable; }
+vef_keyring_t *keyring_vtable() { return &g_keyring_vtable; }
 
 }  // namespace villagesql::services

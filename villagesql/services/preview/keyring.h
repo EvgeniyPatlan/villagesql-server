@@ -20,9 +20,8 @@
 
 namespace villagesql::services {
 
-// Returns the server-side vtable for the "vsql::preview::keyring" preview
-// capability.
-vef_preview_keyring_t *preview_keyring_vtable();
+// Returns the server-side vtable for the "vsql::keyring" capability.
+vef_keyring_t *keyring_vtable();
 
 }  // namespace villagesql::services
 
