@@ -30,14 +30,16 @@ namespace {
 struct CapabilityValue {
   void *vtable;
   size_t abi_type_hash;
+  bool is_preview;
 };
 
 std::unordered_map<std::string, CapabilityValue> g_registry;
 
 }  // namespace
 
-void register_capability(std::string name, void *vtable, size_t abi_type_hash) {
-  g_registry[std::move(name)] = {vtable, abi_type_hash};
+void register_capability(std::string name, void *vtable, size_t abi_type_hash,
+                         bool is_preview) {
+  g_registry[std::move(name)] = {vtable, abi_type_hash, is_preview};
 }
 
 void unregister_capability(const std::string &name) { g_registry.erase(name); }
@@ -50,10 +52,11 @@ static const CapabilityValue *find_capability_entry(const std::string &name) {
 
 void register_builtin_capabilities() {
   register_capability(VEF_PREVIEW_PING_NAME, preview_ping_vtable(),
-                      villagesql::detail::abi_type_hash<vef_preview_ping_t>());
+                      villagesql::detail::abi_type_hash<vef_preview_ping_t>(),
+                      true);
   register_capability(
       VEF_PREVIEW_KEYRING_NAME, preview_keyring_vtable(),
-      villagesql::detail::abi_type_hash<vef_preview_keyring_t>());
+      villagesql::detail::abi_type_hash<vef_preview_keyring_t>(), true);
   // TODO(villagesql-beta): register "vsql::thread_worker" and "vsql::sql" here
 }
 
@@ -67,13 +70,6 @@ bool populate_capabilities(const vef_registration_t *reg,
       reg->required_capability_count == 0)
     return false;
 
-  if (!vsql_allow_preview_extensions) {
-    error_message =
-        "extension requires preview capabilities but "
-        "vsql_allow_preview_extensions is OFF";
-    return true;
-  }
-
   for (uint32_t i = 0; i < reg->required_capability_count; ++i) {
     const vef_required_capability_t &req = reg->required_capabilities[i];
     if (req.name == nullptr || req.receive == nullptr) continue;
@@ -82,6 +78,12 @@ bool populate_capabilities(const vef_registration_t *reg,
     if (entry == nullptr) {
       error_message =
           std::string("required capability not registered: ") + req.name;
+      return true;
+    }
+    if (entry->is_preview && !vsql_allow_preview_extensions) {
+      error_message =
+          std::string("capability '") + req.name +
+          "' is preview; set vsql_allow_preview_extensions = ON to use it";
       return true;
     }
     if (entry->abi_type_hash != req.abi_type_hash) {
