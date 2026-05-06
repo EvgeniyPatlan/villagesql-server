@@ -82,9 +82,6 @@
 // Status variable builder: make_status_var_int(), make_status_var_double()
 #include <villagesql/vsql/status_var_builder.h>
 
-// Keyring access: vsql::keyring::read(), vsql::keyring::write()
-#include <villagesql/vsql/keyring.h>
-
 // vsql ExtensionBuilder, make_extension(), and VEF_GENERATE_ENTRY_POINTS
 #include <villagesql/vsql/extension_builder.h>
 

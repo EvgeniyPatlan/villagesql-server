@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-// Preview capability: "vsql::ping"
+// Preview capability: "vsql::preview::ping"
 //
 // A trivial capability used to exercise and test the preview capability
 // registration system. The server provides a single ping() function that
@@ -30,7 +30,7 @@ extern "C" {
 //
 // Capability name: VEF_PREVIEW_PING_NAME
 
-#define VEF_PREVIEW_PING_NAME "vsql::ping"
+#define VEF_PREVIEW_PING_NAME "vsql::preview::ping"
 
 // Returns a monotonically incrementing counter. Used to verify that the
 // capability system is wired up correctly end-to-end.
