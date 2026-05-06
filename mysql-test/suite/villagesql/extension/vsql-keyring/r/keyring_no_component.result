@@ -1,4 +1,3 @@
-SET PERSIST vsql_allow_preview_extensions = ON;
 # Install extension
 INSTALL EXTENSION vsql_keyring_reader;
 # Read raises error when no keyring component is installed
@@ -24,8 +23,6 @@ vsql_keyring_reader.keyring_read('vsql_test_key', NULL)
 my_secret_value
 # Uninstall extension
 UNINSTALL EXTENSION vsql_keyring_reader;
-SET PERSIST vsql_allow_preview_extensions = OFF;
-RESET PERSIST vsql_allow_preview_extensions;
 # Uninstall keyring component
 # ----------------------------------------------------------------------
 # Teardown

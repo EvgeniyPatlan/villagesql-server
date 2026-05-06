@@ -4,7 +4,6 @@
 # Creating manifest file for current MySQL server instance
 # Re-starting mysql server with manifest file
 # ----------------------------------------------------------------------
-SET PERSIST vsql_allow_preview_extensions = ON;
 # Install extension
 INSTALL EXTENSION vsql_keyring_reader;
 # Store a secret in the keyring
@@ -31,8 +30,6 @@ vsql_keyring_reader.keyring_read(NULL, NULL) IS NULL
 1
 # Uninstall extension
 UNINSTALL EXTENSION vsql_keyring_reader;
-SET PERSIST vsql_allow_preview_extensions = OFF;
-RESET PERSIST vsql_allow_preview_extensions;
 # ----------------------------------------------------------------------
 # Teardown
 # Removing manifest file for current MySQL server instance
