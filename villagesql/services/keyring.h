@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-#ifndef VILLAGESQL_SERVICES_PREVIEW_KEYRING_H
-#define VILLAGESQL_SERVICES_PREVIEW_KEYRING_H
+#ifndef VILLAGESQL_SERVICES_KEYRING_H
+#define VILLAGESQL_SERVICES_KEYRING_H
 
-#include "villagesql/sdk/include/villagesql/abi/preview/keyring.h"
+#include "villagesql/sdk/include/villagesql/abi/keyring.h"
 
 namespace villagesql::services {
 
@@ -25,4 +25,4 @@ vef_keyring_t *keyring_vtable();
 
 }  // namespace villagesql::services
 
-#endif  // VILLAGESQL_SERVICES_PREVIEW_KEYRING_H
+#endif  // VILLAGESQL_SERVICES_KEYRING_H

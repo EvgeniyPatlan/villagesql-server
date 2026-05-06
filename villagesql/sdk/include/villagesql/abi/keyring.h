@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-#ifndef VILLAGESQL_ABI_PREVIEW_KEYRING_H
-#define VILLAGESQL_ABI_PREVIEW_KEYRING_H
+#ifndef VILLAGESQL_ABI_KEYRING_H
+#define VILLAGESQL_ABI_KEYRING_H
 
 #include <stddef.h>
 
@@ -69,4 +69,4 @@ typedef struct {
 }
 #endif
 
-#endif  // VILLAGESQL_ABI_PREVIEW_KEYRING_H
+#endif  // VILLAGESQL_ABI_KEYRING_H

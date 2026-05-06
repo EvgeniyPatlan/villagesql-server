@@ -25,7 +25,6 @@
 // Prerequisites: a keyring component must be installed, e.g.:
 //   INSTALL COMPONENT 'file://component_keyring_file';
 
-#include <villagesql/preview/keyring.h>
 #include <villagesql/vsql.h>
 
 using namespace vsql;

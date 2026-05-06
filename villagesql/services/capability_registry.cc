@@ -18,7 +18,7 @@
 #include <unordered_map>
 
 #include "villagesql/sdk/include/villagesql/detail/capability_hash.h"
-#include "villagesql/services/preview/keyring.h"
+#include "villagesql/services/keyring.h"
 #include "villagesql/services/preview/ping.h"
 
 bool vsql_allow_preview_extensions = false;

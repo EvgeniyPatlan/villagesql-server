@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-#ifndef VILLAGESQL_PREVIEW_KEYRING_H
-#define VILLAGESQL_PREVIEW_KEYRING_H
+#ifndef VILLAGESQL_KEYRING_H
+#define VILLAGESQL_KEYRING_H
 
 #include <string>
 #include <string_view>
 
-#include <villagesql/abi/preview/keyring.h>
+#include <villagesql/abi/keyring.h>
 #include <villagesql/detail/capability_hash.h>
 #include <villagesql/vsql/extension_builder.h>
 
@@ -97,4 +97,4 @@ struct keyring_cap {
 
 }  // namespace vsql
 
-#endif  // VILLAGESQL_PREVIEW_KEYRING_H
+#endif  // VILLAGESQL_KEYRING_H

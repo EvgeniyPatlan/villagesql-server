@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-#include "villagesql/services/preview/keyring.h"
+#include "villagesql/services/keyring.h"
 
 #include "mysql/components/my_service.h"
 #include "mysql/components/services/keyring_metadata_query.h"
