@@ -22,14 +22,14 @@
 extern "C" {
 #endif
 
-// Preview capability: "vsql::keyring"
+// Preview capability: "vsql::preview::keyring"
 //
 // Provides access to the MySQL keyring component. Extensions that require
 // this capability can read and write secrets via the vtable functions below.
 //
 // Capability name: VEF_PREVIEW_KEYRING_NAME
 
-#define VEF_PREVIEW_KEYRING_NAME "vsql::keyring"
+#define VEF_PREVIEW_KEYRING_NAME "vsql::preview::keyring"
 
 typedef enum {
   VEF_KEYRING_OK = 0,

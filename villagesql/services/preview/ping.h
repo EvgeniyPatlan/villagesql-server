@@ -20,7 +20,8 @@
 
 namespace villagesql::services {
 
-// Returns the server-side vtable for the "vsql::ping" preview capability.
+// Returns the server-side vtable for the "vsql::preview::ping" preview
+// capability.
 vef_preview_ping_t *preview_ping_vtable();
 
 }  // namespace villagesql::services
