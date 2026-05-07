@@ -46,6 +46,7 @@
 
 #include <villagesql/abi/types.h>
 #include <villagesql/vsql/func_types.h>
+#include <villagesql/vsql/maybe_params.h>
 #include <villagesql/vsql/type_params_cache.h>
 
 namespace vsql {
@@ -197,13 +198,36 @@ struct FuncWithMetadata {
 // Extension Author Function Signatures
 // =============================================================================
 
-// Encode: string -> binary. false=success, true=error. SIZE_MAX length = NULL.
-using TypeEncodeFunc = bool (*)(std::string_view from, Span<unsigned char> buf,
-                                size_t *length);
+// Encode: string -> custom binary. The function reports its outcome by
+// calling out.set_length(n), out.set_null(), out.warning(msg), or
+// out.error(msg). If none is called, the result is undefined.
+using TypeEncodeFunc = void (*)(std::string_view from, CustomResult out);
+// Parameterized variant: MaybeParams<P> carries the params, which may be
+// known on entry (validate against the string) or unknown (infer from the
+// string and write the inferred values back via p.set()). At runtime today
+// MaybeParams<P> is always known; the unknown case is exercised by a future
+// fix_fields-time pre-execute path for constant string literals.
+//
+// The result wrapper is plain CustomResult (not CustomResultWith<P>) because
+// params come from the MaybeParams<P>& argument.
 template <typename P>
-using TypeEncodeWithParamsFunc = bool (*)(const P &, std::string_view from,
-                                          Span<unsigned char> buf,
-                                          size_t *length);
+using TypeEncodeWithParamsFunc = void (*)(MaybeParams<P> &,
+                                          std::string_view from, CustomResult);
+
+// Backward-compat (deprecated) signatures for from_string. New extensions
+// should use TypeEncodeFunc / TypeEncodeWithParamsFunc<P>; these aliases let
+// existing extensions continue to compile against the SDK during a transition
+// window. Failure on the old signature: return true and the wrapper surfaces
+// "failed to encode '<input>'". length == SIZE_MAX signals NULL output.
+//
+// TODO(villagesql-beta): drop these once all bundled extensions migrate to
+// the typed CustomResult shape.
+using TypeEncodeFuncOld = bool (*)(std::string_view from,
+                                   Span<unsigned char> buf, size_t *length);
+template <typename P>
+using TypeEncodeWithParamsFuncOld = bool (*)(const P &, std::string_view from,
+                                             Span<unsigned char> buf,
+                                             size_t *length);
 
 // Decode: binary -> string. false=success, true=error.
 using TypeDecodeFunc = bool (*)(Span<const unsigned char> data, Span<char> out,
@@ -335,8 +359,46 @@ struct Wrapper {
 // Type Operation VDF Wrappers
 // =============================================================================
 
-// TypeEncodeVdfWrapper: wraps TypeEncodeFunc into a VDF.
+// Pre-fills result->type / result->error_msg with a default
+// "failed to encode '<input>'" warning, truncating long inputs. Both encode
+// wrappers call this before invoking the extension's from_string so that an
+// extension that early-returns without setting an outcome still surfaces a
+// useful warning.
+//
+// TODO(villagesql-beta): tighten the contract so every from_string (and
+// every other wrapped type-op once they're migrated to typed result
+// wrappers) is expected to explicitly call out.set_length / set_null /
+// warning / error on every path. This default-WARNING fallback exists today
+// because some in-tree extensions (vsql-complex, vsql-simple, vsql-test-only,
+// vsql-storage-test) early-return on failure paths without calling anything;
+// once they're updated to be explicit, drop this synthesis and treat
+// "extension didn't set a result" as an SDK bug.
+inline void set_default_encode_failure(vef_vdf_result_t *result,
+                                       const vef_invalue_t &arg) {
+  result->type = VEF_RESULT_WARNING;
+  constexpr size_t kMaxInputDisplay = 64;
+  size_t display_len = arg.str_len;
+  const char *ellipsis = "";
+  if (display_len > kMaxInputDisplay) {
+    display_len = kMaxInputDisplay;
+    ellipsis = "...";
+  }
+  snprintf(result->error_msg, VEF_MAX_ERROR_LEN, "failed to encode '%.*s%s'",
+           static_cast<int>(display_len), arg.str_value, ellipsis);
+}
+
+// TypeEncodeVdfWrapper: wraps TypeEncodeFunc / TypeEncodeFuncOld into a VDF.
 // VDF signature: (STRING) -> CUSTOM(type).
+//
+// New signature (TypeEncodeFunc): pre-sets the result to VEF_RESULT_WARNING
+// with a default "failed to encode '<input>'" message; the extension can
+// override by calling out.set_length(), out.set_null(), out.warning(), or
+// out.error(); any early return without such a call surfaces the default
+// warning.
+//
+// Old signature (TypeEncodeFuncOld): bool return is treated as true=error
+// (synthesizes the same default warning), false=success. length == SIZE_MAX
+// signals NULL output.
 template <auto Func>
 struct TypeEncodeVdfWrapper {
   static void invoke(vef_context_t *ctx, vef_vdf_args_t *args,
@@ -346,29 +408,24 @@ struct TypeEncodeVdfWrapper {
       result->type = VEF_RESULT_NULL;
       return;
     }
-    size_t length;
-    bool failed = Func({arg.str_value, arg.str_len},
-                       {result->bin_buf, result->max_bin_len}, &length);
-    if (failed) {
-      result->type = VEF_RESULT_WARNING;
-      constexpr size_t kMaxInputDisplay = 64;
-      size_t display_len = arg.str_len;
-      const char *ellipsis = "";
-      if (display_len > kMaxInputDisplay) {
-        display_len = kMaxInputDisplay;
-        ellipsis = "...";
+    if constexpr (std::is_same_v<decltype(Func), TypeEncodeFuncOld>) {
+      size_t length;
+      bool failed = Func({arg.str_value, arg.str_len},
+                         {result->bin_buf, result->max_bin_len}, &length);
+      if (failed) {
+        set_default_encode_failure(result, arg);
+        return;
       }
-      snprintf(result->error_msg, VEF_MAX_ERROR_LEN,
-               "failed to encode '%.*s%s'", static_cast<int>(display_len),
-               arg.str_value, ellipsis);
-      return;
+      if (length == SIZE_MAX) {
+        result->type = VEF_RESULT_NULL;
+        return;
+      }
+      result->type = VEF_RESULT_VALUE;
+      result->actual_len = length;
+    } else {
+      set_default_encode_failure(result, arg);
+      Func({arg.str_value, arg.str_len}, CustomResult(result));
     }
-    if (length == SIZE_MAX) {
-      result->type = VEF_RESULT_NULL;
-      return;
-    }
-    result->type = VEF_RESULT_VALUE;
-    result->actual_len = length;
   }
 };
 
@@ -433,10 +490,27 @@ struct TypeHashVdfWrapper {
 
 // Cache-aware wrappers for parameterized types.
 
+// Recovers the params type P from the encode function's first argument.
+//   New signature first arg: MaybeParams<P>& -> P
+//   Old signature first arg: const P&        -> P
+template <typename T>
+struct ExtractEncodeParamsType {
+  using type = T;
+};
+template <typename P>
+struct ExtractEncodeParamsType<MaybeParams<P>> {
+  using type = P;
+};
+
 template <auto Func>
 struct TypeEncodeWithCacheVdfWrapper {
-  using P = std::remove_cv_t<std::remove_reference_t<
+  // Func has either:
+  //   new: void(MaybeParams<P>&, string_view, CustomResult)
+  //   old: bool(const P&, string_view, Span<uchar>, size_t*)
+  // Recover P from the first argument.
+  using FirstArgStripped = std::remove_cv_t<std::remove_reference_t<
       std::tuple_element_t<0, typename FuncParamTypes<decltype(Func)>::type>>>;
+  using P = typename ExtractEncodeParamsType<FirstArgStripped>::type;
 
   static void invoke(vef_context_t *ctx, vef_vdf_args_t *args,
                      vef_vdf_result_t *result) {
@@ -445,30 +519,36 @@ struct TypeEncodeWithCacheVdfWrapper {
       result->type = VEF_RESULT_NULL;
       return;
     }
-    const P &p = type_params_cache_for<P>().get(result->type_params);
-    size_t length;
-    bool failed = Func(p, {arg.str_value, arg.str_len},
-                       {result->bin_buf, result->max_bin_len}, &length);
-    if (failed) {
-      result->type = VEF_RESULT_ERROR;
-      constexpr size_t kMaxInputDisplay = 64;
-      size_t display_len = arg.str_len;
-      const char *ellipsis = "";
-      if (display_len > kMaxInputDisplay) {
-        display_len = kMaxInputDisplay;
-        ellipsis = "...";
+    if constexpr (std::is_same_v<decltype(Func),
+                                 TypeEncodeWithParamsFuncOld<P>>) {
+      const P &p = type_params_cache_for<P>().get(result->type_params);
+      size_t length;
+      bool failed = Func(p, {arg.str_value, arg.str_len},
+                         {result->bin_buf, result->max_bin_len}, &length);
+      if (failed) {
+        set_default_encode_failure(result, arg);
+        return;
       }
-      snprintf(result->error_msg, VEF_MAX_ERROR_LEN,
-               "failed to encode '%.*s%s'", static_cast<int>(display_len),
-               arg.str_value, ellipsis);
-      return;
+      if (length == SIZE_MAX) {
+        result->type = VEF_RESULT_NULL;
+        return;
+      }
+      result->type = VEF_RESULT_VALUE;
+      result->actual_len = length;
+    } else {
+      // At runtime today the type params are always known by the time the
+      // encode VDF runs (fix_fields binds them via TD1/TD2 / Case 3). The
+      // future pre-execute path for constant literals will call this wrapper
+      // with empty type_params to request inference; the wrapper construction
+      // below will then leave MaybeParams<P> in the unknown state.
+      MaybeParams<P> maybe_params;
+      if (result->type_params.count > 0) {
+        maybe_params =
+            MaybeParams<P>(type_params_cache_for<P>().get(result->type_params));
+      }
+      set_default_encode_failure(result, arg);
+      Func(maybe_params, {arg.str_value, arg.str_len}, CustomResult(result));
     }
-    if (length == SIZE_MAX) {
-      result->type = VEF_RESULT_NULL;
-      return;
-    }
-    result->type = VEF_RESULT_VALUE;
-    result->actual_len = length;
   }
 };
 
@@ -1058,16 +1138,30 @@ constexpr FuncBuilder<Func, 0> make_func(const char *name) {
 }
 
 // make_type_encode<&fn>("name", TYPE) — (STRING) -> CUSTOM(type).
+//
+// Accepts four signatures:
+//   TypeEncodeFunc                 (new, non-parameterized)
+//   TypeEncodeFuncOld              (deprecated, non-parameterized)
+//   TypeEncodeWithParamsFunc<P>    (new, parameterized)
+//   TypeEncodeWithParamsFuncOld<P> (deprecated, parameterized)
 template <auto Func>
 constexpr StaticFuncDesc<1> make_type_encode(const char *name,
                                              const char *type_name) {
+  using F = decltype(Func);
   FuncWithMetadata meta{};
-  if constexpr (std::is_same_v<decltype(Func), TypeEncodeFunc>) {
+  if constexpr (std::is_same_v<F, TypeEncodeFunc> ||
+                std::is_same_v<F, TypeEncodeFuncOld>) {
     meta.f = &TypeEncodeVdfWrapper<Func>::invoke;
   } else {
+    using P = typename TypeEncodeWithCacheVdfWrapper<Func>::P;
+    static_assert(std::is_same_v<F, TypeEncodeWithParamsFunc<P>> ||
+                      std::is_same_v<F, TypeEncodeWithParamsFuncOld<P>>,
+                  "make_type_encode: function must match one of "
+                  "TypeEncodeFunc, TypeEncodeFuncOld, "
+                  "TypeEncodeWithParamsFunc<P>, or "
+                  "TypeEncodeWithParamsFuncOld<P>.");
     meta.f = &TypeEncodeWithCacheVdfWrapper<Func>::invoke;
-    meta.check_params_cache_bound =
-        &is_params_cache_bound<typename TypeEncodeWithCacheVdfWrapper<Func>::P>;
+    meta.check_params_cache_bound = &is_params_cache_bound<P>;
   }
   meta.return_type = to_vef_type(type_name);
   meta.param_types[0] = to_vef_type(STRING);
