@@ -875,25 +875,38 @@ typedef struct {
 typedef bool (*vef_receive_capability_fn)(vef_capability_receive_arg_t *arg);
 
 // A single capability request in vef_registration_t.required_capabilities.
-// The extension sets name, receive, abi_type_hash, and min_version. The server
-// calls receive() with the vtable pointer if the capability is registered and
-// passes all checks; the callback assigns it into the extension's struct in a
-// type-safe way.
+// The extension sets name, receive, vtable_abi_hash, min_version, and
+// optionally extension_data / descriptor_abi_hash. The server calls receive()
+// after its own compatibility checks pass. For capabilities that need to
+// register resources with the server (e.g. a background thread), the extension
+// sets extension_data to point to a capability-specific descriptor. The server
+// reads it after receive() returns.
 typedef struct {
   // Capability name, e.g. "vsql::preview::ping". Must remain valid for the
   // lifetime of the extension (use a string literal).
   const char *name;
   // Extension-side callback. See vef_receive_capability_fn above.
   vef_receive_capability_fn receive;
-  // Compile-time hash of the ABI struct type, computed via
-  // villagesql::detail::abi_type_hash<AbiType>(). The server compares this
-  // against its own hash for the same name to detect ABI struct mismatches.
-  size_t abi_type_hash;
+  // Compile-time hash of the server-provided vtable struct type, computed via
+  // villagesql::detail::abi_type_hash<VtableType>(). The server compares this
+  // against its own hash to detect vtable ABI mismatches.
+  size_t vtable_abi_hash;
   // Minimum capability ABI version the extension requires. The server reads
   // the version field from its vtable and fails loading if it is less than
   // this value. Set to the VEF_PREVIEW_*_ABI_VERSION constant the extension
   // was compiled against.
   uint32_t min_version;
+  // Optional. Capability-specific descriptor supplied by the extension to the
+  // server. For VEF_PREVIEW_THREAD_WORKER_NAME this points to a
+  // vef_thread_worker_descriptor_t. NULL for capabilities that do not need it.
+  // Must remain valid for the lifetime of the extension.
+  const void *extension_data;
+  // Compile-time hash of the descriptor struct type pointed to by
+  // extension_data, computed via
+  // villagesql::detail::abi_type_hash<DescriptorType>(). 0 if extension_data
+  // is NULL. The server compares this against its own hash to detect
+  // descriptor ABI mismatches.
+  size_t descriptor_abi_hash;
 } vef_required_capability_t;
 
 typedef struct vef_registration_t {
