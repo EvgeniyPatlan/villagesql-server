@@ -31,6 +31,7 @@
 #include "villagesql/include/version.h"
 #include "villagesql/schema/schema_manager.h"
 #include "villagesql/schema/victionary_client.h"
+#include "villagesql/services/airlock_registry.h"
 #include "villagesql/services/capability_registry.h"
 #include "villagesql/veb/veb_file.h"
 
@@ -265,6 +266,7 @@ bool init_extension_infrastructure() {
   sysd::notify("STATUS=VillageSQL initialization in progress\n");
 
   villagesql::services::register_builtin_capabilities();
+  villagesql::services::register_builtin_airlock_handlers();
 
   // We need a temporary THD during boot
   // The initialization code may update table settings, in order to avoid
