@@ -891,6 +891,16 @@ typedef struct {
   // this value. Set to the VEF_PREVIEW_*_ABI_VERSION constant the extension
   // was compiled against.
   uint32_t min_version;
+  // Optional. Capability-specific descriptor supplied by the extension to the
+  // server. Its type is capability-specific. NULL for capabilities that do not
+  // need it. Must remain valid for the lifetime of the extension.
+  const void *extension_data;
+  // Compile-time hash of the descriptor struct type pointed to by
+  // extension_data, computed via
+  // villagesql::detail::abi_type_hash<DescriptorType>(). 0 if extension_data
+  // is NULL. The server compares this against its own hash to detect
+  // descriptor ABI mismatches.
+  size_t descriptor_abi_hash;
 } vef_required_capability_t;
 
 typedef struct vef_registration_t {
