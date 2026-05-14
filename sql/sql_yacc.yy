@@ -1460,6 +1460,7 @@ void warn_on_deprecated_user_defined_collation(
 // TODO(villagesql-rebase): Check if token number needs updating during MySQL rebase
 %token<lexer.keyword> EXTENSION_SYM              1215  /* VILLAGESQL */
 %token                DOUBLE_COLON               1216  /* VILLAGESQL OPERATOR */
+%token<lexer.keyword> VERSION_SYM                1217  /* VILLAGESQL */
 
 /*
   NOTE! When adding new non-standard keywords, make sure they are added to the
@@ -1552,6 +1553,7 @@ void warn_on_deprecated_user_defined_collation(
         opt_channel
         opt_explain_for_schema
         opt_compression_algorithm
+        opt_extension_version
 
 %type <lex_str_list> TEXT_STRING_sys_list
 
@@ -10716,6 +10718,11 @@ function_call_keyword:
           {
             $$= NEW_PTN Item_func_user(@$);
           }
+        // TODO(villagesql-rebase): VERSION() as keyword-function, check placement during MySQL rebase
+        | VERSION_SYM '(' ')'
+          {
+            $$= NEW_PTN Item_func_version(@$);
+          }
         | YEAR_SYM '(' expr ')'
           {
             $$= NEW_PTN Item_func_year(@$, $3);
@@ -15825,6 +15832,7 @@ ident_keywords_unambiguous:
         | VALUE_SYM
         | VARIABLES
         | VCPU_SYM
+        | VERSION_SYM
         | VIEW_SYM
         | VISIBLE_SYM
         | WAIT_SYM
@@ -18295,11 +18303,12 @@ uninstall:
             lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_uninstall_plugin(to_lex_cstring($3));
           }
        // TODO(villagesql-rebase): UNINSTALL EXTENSION grammar rule, check placement during MySQL rebase
-       | UNINSTALL_SYM EXTENSION_SYM IDENT_sys
+       | UNINSTALL_SYM EXTENSION_SYM IDENT_sys opt_extension_version
           {
             LEX *lex= Lex;
             lex->sql_command= SQLCOM_UNINSTALL_EXTENSION;
-            lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_uninstall_extension(to_lex_cstring($3));
+            lex->m_sql_cmd= new (YYMEM_ROOT)
+                Sql_cmd_uninstall_extension(to_lex_cstring($3), $4);
           }
        | UNINSTALL_SYM COMPONENT_SYM TEXT_STRING_sys_list
           {
@@ -18307,6 +18316,11 @@ uninstall:
             lex->sql_command= SQLCOM_UNINSTALL_COMPONENT;
             lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_uninstall_component($3);
           }
+        ;
+
+opt_extension_version:
+          %empty { $$ = {}; }
+        | VERSION_SYM TEXT_STRING_sys { $$ = to_lex_cstring($2); }
         ;
 
 TEXT_STRING_sys_list:
