@@ -179,6 +179,7 @@ struct FuncWithMetadata {
         num_params(0),
         buffer_size(0),
         deterministic(false),
+        is_varargs(false),
         check_params_cache_bound(nullptr) {}
 
   ExtFunc f;
@@ -191,6 +192,7 @@ struct FuncWithMetadata {
   size_t num_params;
   size_t buffer_size;
   bool deterministic;
+  bool is_varargs;
   bool (*check_params_cache_bound)();
 };
 
@@ -779,6 +781,7 @@ struct StaticFuncDesc {
   vef_vdf_accumulate_func_t accumulate_;
   size_t buffer_size_;
   bool deterministic_;
+  bool is_varargs_;
   bool (*check_params_cache_bound_)();
 
   constexpr StaticFuncDesc(const char *name, const FuncWithMetadata &meta)
@@ -792,6 +795,7 @@ struct StaticFuncDesc {
         accumulate_(meta.accumulate),
         buffer_size_(meta.buffer_size),
         deterministic_(meta.deterministic),
+        is_varargs_(meta.is_varargs),
         check_params_cache_bound_(meta.check_params_cache_bound) {
     for (size_t i = 0; i < NumParams && i < meta.num_params; ++i) {
       params_[i] = meta.param_types[i];
@@ -799,7 +803,9 @@ struct StaticFuncDesc {
   }
 
   constexpr const char *name() const { return name_; }
-  constexpr size_t num_params() const { return NumParams; }
+  constexpr size_t num_params() const {
+    return is_varargs_ ? VEF_PARAM_VARARGS : NumParams;
+  }
   constexpr const vef_type_t *params() const { return params_; }
   constexpr vef_type_t return_type() const { return return_type_; }
   constexpr ExtFunc vdf() const { return vdf_; }
@@ -884,7 +890,9 @@ struct apply_params_cache_checker<std::tuple<Ps...>>
 // FuncBuilder
 // =============================================================================
 
-template <auto Func, size_t NumParams>
+enum class ParamMode { kUnset, kFixed, kVarargs };
+
+template <auto Func, size_t NumParams, ParamMode Mode = ParamMode::kUnset>
 struct FuncBuilder {
   constexpr FuncBuilder()
       : name_(nullptr),
@@ -903,13 +911,20 @@ struct FuncBuilder {
   vef_postrun_func_t postrun_;
   bool deterministic_;
 
-  constexpr FuncBuilder<Func, NumParams> &returns(const char *t) {
+  constexpr FuncBuilder<Func, NumParams, Mode> &returns(const char *t) {
     return_type_ = t;
     return *this;
   }
 
-  constexpr FuncBuilder<Func, NumParams + 1> param(const char *t) const {
-    FuncBuilder<Func, NumParams + 1> next;
+  // Add a typed parameter. Mutually exclusive with .param() and .varargs().
+  constexpr FuncBuilder<Func, NumParams + 1, ParamMode::kFixed> param(
+      const char *t) const {
+    static_assert(Mode != ParamMode::kVarargs,
+                  ".param(TYPE) and .varargs() are mutually exclusive");
+    static_assert(Mode != ParamMode::kFixed || NumParams > 0,
+                  ".param(TYPE) and .param() (zero-arity) are mutually "
+                  "exclusive");
+    FuncBuilder<Func, NumParams + 1, ParamMode::kFixed> next;
     next.name_ = name_;
     next.return_type_ = return_type_;
     next.buffer_size_ = buffer_size_;
@@ -923,24 +938,60 @@ struct FuncBuilder {
     return next;
   }
 
-  constexpr FuncBuilder<Func, NumParams> &buffer_size(size_t s) {
+  // Explicitly declare zero-arity (takes no arguments).
+  // Mutually exclusive with .param(TYPE) and .varargs().
+  constexpr FuncBuilder<Func, 0, ParamMode::kFixed> param() const {
+    static_assert(NumParams == 0,
+                  ".param() (zero-arity) and .param(TYPE) are mutually "
+                  "exclusive");
+    static_assert(Mode != ParamMode::kVarargs,
+                  ".param() (zero-arity) and .varargs() are mutually "
+                  "exclusive");
+    FuncBuilder<Func, 0, ParamMode::kFixed> next;
+    next.name_ = name_;
+    next.return_type_ = return_type_;
+    next.buffer_size_ = buffer_size_;
+    next.prerun_ = prerun_;
+    next.postrun_ = postrun_;
+    next.deterministic_ = deterministic_;
+    return next;
+  }
+
+  // Declare that this function accepts a variable number of arguments.
+  // Requires a prerun function to validate arguments at call time.
+  // Mutually exclusive with .param() and .param(TYPE).
+  constexpr FuncBuilder<Func, 0, ParamMode::kVarargs> varargs() const {
+    static_assert(Mode != ParamMode::kFixed,
+                  ".varargs() is mutually exclusive with .param() and "
+                  ".param(TYPE)");
+    FuncBuilder<Func, 0, ParamMode::kVarargs> next;
+    next.name_ = name_;
+    next.return_type_ = return_type_;
+    next.buffer_size_ = buffer_size_;
+    next.prerun_ = prerun_;
+    next.postrun_ = postrun_;
+    next.deterministic_ = deterministic_;
+    return next;
+  }
+
+  constexpr FuncBuilder<Func, NumParams, Mode> &buffer_size(size_t s) {
     buffer_size_ = s;
     return *this;
   }
 
-  constexpr FuncBuilder<Func, NumParams> &deterministic(bool d = true) {
+  constexpr FuncBuilder<Func, NumParams, Mode> &deterministic(bool d = true) {
     deterministic_ = d;
     return *this;
   }
 
   template <vef_prerun_func_t Hook>
-  constexpr FuncBuilder<Func, NumParams> &prerun() {
+  constexpr FuncBuilder<Func, NumParams, Mode> &prerun() {
     prerun_ = Hook;
     return *this;
   }
 
   template <vef_postrun_func_t Hook>
-  constexpr FuncBuilder<Func, NumParams> &postrun() {
+  constexpr FuncBuilder<Func, NumParams, Mode> &postrun() {
     postrun_ = Hook;
     return *this;
   }
@@ -953,13 +1004,20 @@ struct FuncBuilder {
     using UniquePTuple = typename unique_params_types<AllParams>::type;
 
     FuncWithMetadata meta{};
-    meta.f = &Wrapper<Func, NumParams>::invoke;
+    if constexpr (std::is_same_v<decltype(Func), vef_vdf_func_t>) {
+      // Varargs escape hatch: the user supplied a raw ABI function, so we
+      // bypass the typed Wrapper and dispatch directly.
+      meta.f = Func;
+    } else {
+      meta.f = &Wrapper<Func, NumParams>::invoke;
+    }
     meta.prerun = prerun_;
     meta.postrun = postrun_;
     meta.return_type = to_vef_type(return_type_);
     meta.num_params = NumParams;
     meta.buffer_size = buffer_size_;
     meta.deterministic = deterministic_;
+    meta.is_varargs = (Mode == ParamMode::kVarargs);
     for (size_t i = 0; i < NumParams; ++i) {
       meta.param_types[i] = to_vef_type(param_types_[i]);
     }
@@ -1128,11 +1186,11 @@ template <auto Func>
 constexpr FuncBuilder<Func, 0> make_func(const char *name) {
   using AllParams = typename FuncParamTypes<decltype(Func)>::type;
   static_assert(
-      std::tuple_size_v<AllParams> == 0 ||
+      std::is_same_v<decltype(Func), vef_vdf_func_t> ||
+          std::tuple_size_v<AllParams> == 0 ||
           !is_context_param<std::tuple_element_t<0, AllParams>>::value,
       "vsql make_func: deprecated vef_context_t* first parameter not "
-      "supported; use a typed function or make_aggregate_func (see "
-      "extension.h)");
+      "supported; write a typed function without the context parameter");
   FuncBuilder<Func, 0> builder;
   builder.name_ = name;
   return builder;

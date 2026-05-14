@@ -17,6 +17,7 @@
 #ifndef VILLAGESQL_ABI_TYPES_H_
 #define VILLAGESQL_ABI_TYPES_H_
 
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -498,6 +499,11 @@ typedef struct {
   // defined in this extension.
   const char *custom_type;
 } vef_type_t;
+
+// Sentinel value for vef_signature_t::param_count indicating that the function
+// accepts a variable number of arguments. When set, the framework skips
+// argument count validation and delegates to the prerun function instead.
+#define VEF_PARAM_VARARGS UINT_MAX
 
 typedef struct {
   unsigned int param_count;

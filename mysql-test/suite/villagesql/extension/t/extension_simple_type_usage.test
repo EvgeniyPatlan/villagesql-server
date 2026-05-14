@@ -44,6 +44,44 @@ SELECT CONCAT("'", vsql_simple.ba_concat(t1.data, t2.data), "'") as concatenated
 FROM test_bytearray t1, test_bytearray t2
 WHERE t1.id = 1 AND t2.id = 2;
 
+--echo # Test ba_len function (zero-arity)
+SELECT vsql_simple.ba_len() as len;
+
+--echo # Test ba_len rejects arguments
+--error ER_VILLAGESQL_GENERIC_ERROR
+SELECT vsql_simple.ba_len(1);
+
+--echo # Test ba_concat rejects wrong argument count
+--error ER_VILLAGESQL_GENERIC_ERROR
+SELECT vsql_simple.ba_concat(t1.data) FROM test_bytearray t1 WHERE t1.id = 1;
+
+--echo # Test ba_concat_all function (varargs, uses prerun escape hatch)
+--echo # Single argument
+SELECT CONCAT("'", vsql_simple.ba_concat_all(t1.data), "'") as result
+FROM test_bytearray t1 WHERE t1.id = 1;
+
+--echo # Two arguments (same as ba_concat)
+SELECT CONCAT("'", vsql_simple.ba_concat_all(t1.data, t2.data), "'") as result
+FROM test_bytearray t1, test_bytearray t2
+WHERE t1.id = 1 AND t2.id = 2;
+
+--echo # Three arguments
+SELECT CONCAT("'", vsql_simple.ba_concat_all(t1.data, t2.data, t3.data), "'") as result
+FROM test_bytearray t1, test_bytearray t2, test_bytearray t3
+WHERE t1.id = 1 AND t2.id = 2 AND t3.id = 3;
+
+--echo # NULL handling: any NULL argument returns NULL
+SELECT vsql_simple.ba_concat_all(t1.data, NULL) as result
+FROM test_bytearray t1 WHERE t1.id = 1;
+
+--echo # ba_concat_all rejects zero arguments
+--error ER_CANT_INITIALIZE_UDF
+SELECT vsql_simple.ba_concat_all();
+
+--echo # ba_concat_all rejects non-BYTEARRAY arguments (INT)
+--error ER_CANT_INITIALIZE_UDF
+SELECT vsql_simple.ba_concat_all(1, 2);
+
 --echo # Clean up
 DROP TABLE test_bytearray;
 
