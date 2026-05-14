@@ -246,11 +246,6 @@ int CustomMemCompare(const Item *item, const uchar *data1, size_t len1,
                      const uchar *data2, size_t len2, size_t min_len,
                      bool reverse);
 
-// Check if two TypeContexts represent compatible types for comparison
-// operations Types are compatible if they have the same type name, extension
-// name, and version Returns true if compatible, false if incompatible
-bool AreTypesCompatible(const TypeContext &tc1, const TypeContext &tc2);
-
 // Validate custom type compatibility for UNION operations.
 // Checks if the accumulator (Item_aggregate_type) and incoming item have
 // compatible custom types. Propagates type context to the accumulator as

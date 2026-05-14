@@ -290,4 +290,58 @@ TEST_F(TypeContextTest, EmptyParamsSkipsResolveCallback) {
   EXPECT_EQ(ctx.max_decode_buffer_length(), 0);
 }
 
+TEST_F(TypeContextTest, SameKeysAreCompatible) {
+  villagesql::TypeDescriptor desc(
+      villagesql::TypeDescriptorKey("COMPLEX", "test_ext", "1.0.0"),
+      VEF_PROTOCOL_1, 1, 16, 256, villagesql::EncodeFunction(dummy_encode),
+      villagesql::DecodeFunction(dummy_decode),
+      villagesql::CompareFunction(dummy_compare));
+  villagesql::TypeContextKey key("COMPLEX", "test_ext", "1.0.0");
+  villagesql::TypeContext a = make_context(key, &desc);
+  villagesql::TypeContext b = make_context(key, &desc);
+  EXPECT_TRUE(a.is_compatible_with(b));
+  EXPECT_TRUE(b.is_compatible_with(a));
+}
+
+TEST_F(TypeContextTest, DifferentTypeNamesAreNotCompatible) {
+  villagesql::TypeDescriptor desc_a(
+      villagesql::TypeDescriptorKey("COMPLEX", "test_ext", "1.0.0"),
+      VEF_PROTOCOL_1, 1, 16, 256, villagesql::EncodeFunction(dummy_encode),
+      villagesql::DecodeFunction(dummy_decode),
+      villagesql::CompareFunction(dummy_compare));
+  villagesql::TypeDescriptor desc_b(
+      villagesql::TypeDescriptorKey("OTHER", "test_ext", "1.0.0"),
+      VEF_PROTOCOL_1, 1, 16, 256, villagesql::EncodeFunction(dummy_encode),
+      villagesql::DecodeFunction(dummy_decode),
+      villagesql::CompareFunction(dummy_compare));
+  villagesql::TypeContext a = make_context(
+      villagesql::TypeContextKey("COMPLEX", "test_ext", "1.0.0"), &desc_a);
+  villagesql::TypeContext b = make_context(
+      villagesql::TypeContextKey("OTHER", "test_ext", "1.0.0"), &desc_b);
+  EXPECT_FALSE(a.is_compatible_with(b));
+  EXPECT_FALSE(b.is_compatible_with(a));
+}
+
+TEST_F(TypeContextTest, DifferentParametersAreNotCompatible) {
+  static auto rp_ok_fd =
+      make_resolve_params_fd("rp_ok_compat", &resolve_params_ok_vdf);
+
+  villagesql::TypeDescriptor desc(
+      villagesql::TypeDescriptorKey("VVECTOR", "test_ext", "1.0.0"),
+      VEF_PROTOCOL_2, 1, -1, 0, villagesql::EncodeFunction(dummy_encode),
+      villagesql::DecodeFunction(dummy_decode),
+      villagesql::CompareFunction(dummy_compare), std::nullopt, std::nullopt,
+      villagesql::ResolveParamsFunction(&rp_ok_fd));
+  villagesql::TypeContextKey key_3(
+      villagesql::TypeDescriptorKey("VVECTOR", "test_ext", "1.0.0"),
+      villagesql::TypeParameters("dimension=3"));
+  villagesql::TypeContextKey key_4(
+      villagesql::TypeDescriptorKey("VVECTOR", "test_ext", "1.0.0"),
+      villagesql::TypeParameters("dimension=4"));
+  villagesql::TypeContext v3 = make_context(key_3, &desc);
+  villagesql::TypeContext v4 = make_context(key_4, &desc);
+  EXPECT_FALSE(v3.is_compatible_with(v4));
+  EXPECT_FALSE(v4.is_compatible_with(v3));
+}
+
 }  // namespace villagesql_unittest

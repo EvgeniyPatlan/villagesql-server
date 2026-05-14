@@ -499,7 +499,7 @@ bool InjectAndEncodeCustomType(Item *item, const TypeContext &tc) {
   if (item->has_type_context()) {
     // We already got one, you see?
     // Make sure they are compatible!
-    return !AreTypesCompatible(*item->get_type_context(), tc);
+    return !item->get_type_context()->is_compatible_with(tc);
   }
 
   // Set the type context
@@ -557,12 +557,6 @@ std::optional<size_t> TryComputeHash(const TypeContext &tc, const uchar *data,
   return hash_op->invoke(data, len);
 }
 
-bool AreTypesCompatible(const TypeContext &tc1, const TypeContext &tc2) {
-  // Types are compatible if they have the same key (type name, extension,
-  // version, and parameters). This ensures e.g. TVECTOR(3) != TVECTOR(4).
-  return tc1.key() == tc2.key();
-}
-
 bool MaybeValidateUnionTypeCompatibility(Item *accumulator, Item *item) {
   const TypeContext *accumulator_tc = accumulator->get_type_context();
   const TypeContext *item_tc = item->get_type_context();
@@ -587,7 +581,7 @@ bool MaybeValidateUnionTypeCompatibility(Item *accumulator, Item *item) {
                      MYF(0));
     return true;
   } else if (accumulator_tc != nullptr && item_tc != nullptr &&
-             !AreTypesCompatible(*accumulator_tc, *item_tc)) {
+             !accumulator_tc->is_compatible_with(*item_tc)) {
     // Both have custom types but they're incompatible
     villagesql_error(
         "Cannot use UNION with different custom types '%s' and '%s'", MYF(0),
@@ -612,7 +606,7 @@ bool MaybeValidateAndCastCustomTypeComparison(Item &left, Item &right,
 
   // Case 1: Both sides have custom types
   if (lhs_tc != nullptr && rhs_tc != nullptr) {
-    if (!AreTypesCompatible(*lhs_tc, *rhs_tc)) {
+    if (!lhs_tc->is_compatible_with(*rhs_tc)) {
       villagesql_error("Cannot compare types %s and %s in %s", MYF(0),
                        lhs_tc->qualified_name().c_str(),
                        rhs_tc->qualified_name().c_str(), operation_name);
@@ -664,7 +658,7 @@ const TypeContext *GetCompatibleCustomType(const Item &item1,
   auto *tc1 = item1.get_type_context();
   auto *tc2 = item2.get_type_context();
 
-  if (AreTypesCompatible(*tc1, *tc2)) {
+  if (tc1->is_compatible_with(*tc2)) {
     return tc1;  // Compatible - return either one
   }
 
@@ -676,8 +670,8 @@ bool CanStoreInCustomField(const Item *item, const Field *field) {
 
   // If item also has custom type context, check compatibility
   if (item->has_type_context()) {
-    return AreTypesCompatible(*item->get_type_context(),
-                              *field->get_type_context());
+    return item->get_type_context()->is_compatible_with(
+        *field->get_type_context());
   }
 
   // For non-custom items storing into custom fields:
@@ -850,7 +844,7 @@ bool TryCopyCustomTypeField(const Field *from, Field *to) {
   // If target doesn't have a custom type, or custom types do not match,
   // this is an incompatible conversion.
   if (!to->has_type_context() ||
-      !AreTypesCompatible(*from->get_type_context(), *to->get_type_context())) {
+      !from->get_type_context()->is_compatible_with(*to->get_type_context())) {
     StringBuffer<MAX_FIELD_WIDTH> result(from->charset());
     result.length(0U);
     from->val_external_str(&result);
@@ -1001,7 +995,7 @@ static bool AllArgsCompatible(Item_func *func) {
   for (uint i = 1; any_tc && i < func->arg_count; i++) {
     auto *tc = func->get_arg(i)->get_type_context();
     if (!tc) continue;  // not yet custom-typed, skip
-    if (!AreTypesCompatible(*any_tc, *tc)) {
+    if (!any_tc->is_compatible_with(*tc)) {
       villagesql_error("Cannot compare types %s and %s in %s", MYF(0),
                        any_tc->qualified_name().c_str(),
                        tc->qualified_name().c_str(), func->func_name());
@@ -1058,7 +1052,7 @@ static bool CaseArgsCompatible(Item_func *func) {
       villagesql_error(ER_INCOMPARABLE_TYPES, MYF(0), func->func_name());
       return false;
     }
-    if (!AreTypesCompatible(*tc0, *tc1)) {
+    if (!tc0->is_compatible_with(*tc1)) {
       villagesql_error(ER_INCOMPATIBLE_TYPES, MYF(0), tc0->type_name().c_str(),
                        tc1->type_name().c_str());
       return false;
