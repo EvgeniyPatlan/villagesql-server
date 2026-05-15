@@ -54,6 +54,7 @@
 #include "villagesql/services/status_vars.h"
 #include "villagesql/services/sys_vars.h"
 #include "villagesql/sql/metadata_modifier.h"
+#include "villagesql/veb/extension_uninstall_checks.h"
 #include "villagesql/veb/register.h"
 #include "villagesql/veb/validate.h"
 #include "villagesql/veb/veb_file.h"
@@ -425,6 +426,11 @@ bool remove_extension_from_victionary(
 
   const auto &all_sp_params = victionary.sp_params().get_all_committed();
   if (check_for_sp_params_of_extension(*ext_entry, all_sp_params)) {
+    return true;
+  }
+
+  const auto &all_indexes = victionary.custom_indexes().get_all_committed();
+  if (villagesql::check_for_indexes_of_extension(*ext_entry, all_indexes)) {
     return true;
   }
 

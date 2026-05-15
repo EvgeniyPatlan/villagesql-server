@@ -14,6 +14,7 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 SET(VILLAGESQL_VEB_SOURCES
+  extension_uninstall_checks.cc
   register.cc
   sql_extension.cc
   validate.cc

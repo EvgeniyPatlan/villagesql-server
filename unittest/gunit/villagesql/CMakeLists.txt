@@ -20,6 +20,7 @@ SET(VILLAGESQL_UNIT_TESTS
   abi_v1_check-t
   abi_v2_check-t
   custom_indexes-t
+  extension_uninstall_checks-t
   semver-t
   type_context-t
   type_descriptor-t
@@ -63,6 +64,7 @@ ENDMACRO()
 ADD_VILLAGESQL_TEST(abi_v1_check-t)
 ADD_VILLAGESQL_TEST(abi_v2_check-t)
 ADD_VILLAGESQL_TEST(custom_indexes-t)
+ADD_VILLAGESQL_TEST(extension_uninstall_checks-t)
 ADD_VILLAGESQL_TEST(semver-t)
 ADD_VILLAGESQL_TEST(type_context-t)
 ADD_VILLAGESQL_TEST(type_descriptor-t)
