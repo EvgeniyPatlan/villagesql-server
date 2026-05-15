@@ -44,6 +44,9 @@ SELECT CONCAT("'", vsql_simple.ba_concat(t1.data, t2.data), "'") as concatenated
 FROM test_bytearray t1, test_bytearray t2
 WHERE t1.id = 1 AND t2.id = 2;
 
+--echo # Test ba_call_index (exercises typed prerun/postrun + state-passing VDF)
+SELECT vsql_simple.ba_call_index() as idx FROM test_bytearray ORDER BY id;
+
 --echo # Clean up
 DROP TABLE test_bytearray;
 
