@@ -22,6 +22,7 @@
 #include <cctype>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "villagesql/schema/descriptor/type_descriptor.h"
@@ -89,7 +90,7 @@ class TypeParameters {
   // Normalize a raw "k=v,k=v,..." string: split pairs, sort by lowercased
   // key, lowercase values, re-serialize. Used by TYPE('k=v,...') SQL parser
   // path.
-  static TypeParameters from_raw(const std::string &raw);
+  static TypeParameters from_raw(const std::string_view raw);
 
   bool empty() const { return str_.empty(); }
   const std::string &str() const { return str_; }
