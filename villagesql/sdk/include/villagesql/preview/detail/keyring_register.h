@@ -17,6 +17,7 @@
 #define VILLAGESQL_PREVIEW_DETAIL_KEYRING_REGISTER_H
 
 #include <villagesql/abi/preview/keyring.h>
+#include <villagesql/detail/abi_signature_literals.h>
 #include <villagesql/detail/capability_traits.h>
 #include <villagesql/preview/keyring.h>
 
@@ -27,8 +28,13 @@ struct CapabilityTraits<::vsql::preview_keyring::KeyringCapability> {
   static constexpr const char *kName = VEF_PREVIEW_KEYRING_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_keyring::KeyringCapability";
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_KEYRING_ABI_VERSION;
-  using AbiType = vef_preview_keyring_t;
+  // Per-target ABI fingerprint for the keyring vtable type.  The
+  // literals are the source of truth on the extension side -- the
+  // server independently verifies them against the structural hash
+  // via VEF_PIN_VERIFY in capability_registry.cc.
+  static constexpr const char *kVtableHash = VEF_PIN(
+      VEF_PREVIEW_KEYRING_ABI_HASH_MAC, VEF_PREVIEW_KEYRING_ABI_HASH_LINUX_X86,
+      VEF_PREVIEW_KEYRING_ABI_HASH_LINUX_ARM);
 
   static constexpr void *vtable_destination(
       ::vsql::preview_keyring::KeyringCapability *p) noexcept {

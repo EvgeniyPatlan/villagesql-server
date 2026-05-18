@@ -46,6 +46,16 @@ extern "C" {
 #define VEF_PREVIEW_SQL_QUERY_NAME "vsql::preview::sql_query"
 #define VEF_PREVIEW_SQL_QUERY_ABI_VERSION 1
 
+// Per-target pin literals for vef_preview_sql_query_t.  Empty
+// placeholders for now; run the abi_pin_literals gunit test on each
+// target to obtain the current structural hash and paste it in.
+// An empty pin matches another empty pin at extension load time but
+// not a real pin, so until these are filled in, only extensions
+// built against an SDK with the same empty placeholder will load.
+#define VEF_PREVIEW_SQL_QUERY_ABI_HASH_MAC ""
+#define VEF_PREVIEW_SQL_QUERY_ABI_HASH_LINUX_X86 ""
+#define VEF_PREVIEW_SQL_QUERY_ABI_HASH_LINUX_ARM ""
+
 // Forward declaration — defined in abi/preview/thread_worker.h.
 struct vef_thread_handle_t;
 

@@ -37,6 +37,14 @@ extern "C" {
 // which fields the server supports.
 #define VEF_PREVIEW_PING_ABI_VERSION 1
 
+// Per-target structural fingerprint of vef_preview_ping_t.  See
+// villagesql/detail/abi_signature_literals.h for usage.  Linux and macOS
+// diverge here because vef_ping_fn returns uint64_t, which is `unsigned long`
+// on LP64 Linux but `unsigned long long` on macOS.
+#define VEF_PREVIEW_PING_ABI_HASH_MAC "verhash-001-d51bd5e5b09abd0a"
+#define VEF_PREVIEW_PING_ABI_HASH_LINUX_X86 "verhash-001-d51bd5e5b09aa38f"
+#define VEF_PREVIEW_PING_ABI_HASH_LINUX_ARM "verhash-001-d51bd5e5b09aa38f"
+
 // Returns a monotonically incrementing counter. Used to verify that the
 // capability system is wired up correctly end-to-end.
 typedef uint64_t (*vef_ping_fn)(void);

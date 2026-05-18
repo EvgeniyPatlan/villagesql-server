@@ -34,6 +34,18 @@ extern "C" {
 
 #define VEF_PREVIEW_STATUS_VAR_NAME "vsql::status_var"
 
+// Per-target pin literals for vef_preview_status_var_t and its
+// descriptor list type.  Empty placeholders for now; run the
+// abi_pin_literals gunit test on each target to obtain the current
+// structural hashes and paste them in.  See sql_query.h for the
+// rationale on empty pins.
+#define VEF_PREVIEW_STATUS_VAR_ABI_HASH_MAC ""
+#define VEF_PREVIEW_STATUS_VAR_ABI_HASH_LINUX_X86 ""
+#define VEF_PREVIEW_STATUS_VAR_ABI_HASH_LINUX_ARM ""
+#define VEF_STATUS_VAR_DESC_LIST_ABI_HASH_MAC ""
+#define VEF_STATUS_VAR_DESC_LIST_ABI_HASH_LINUX_X86 ""
+#define VEF_STATUS_VAR_DESC_LIST_ABI_HASH_LINUX_ARM ""
+
 // Capability ABI version compiled into this SDK snapshot.
 #define VEF_PREVIEW_STATUS_VAR_ABI_VERSION 1
 
@@ -44,6 +56,11 @@ typedef enum {
   VEF_STATUS_VAR_DOUBLE = 1,  // double gauge
 } vef_status_var_type_t;
 
+// TODO(villagesql-beta): rename vef_status_var_desc_t to
+// vef_status_var_cc_t (capability_config) and
+// vef_status_var_descriptor_list_t to vef_status_var_cc_list_t to match
+// the capability_config naming used by
+// vef_required_capability_t.capability_config.
 typedef struct {
   // Variable name (without extension prefix). Encoded using UTF-8.
   const char *name;

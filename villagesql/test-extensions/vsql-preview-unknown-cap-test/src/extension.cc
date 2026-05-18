@@ -44,8 +44,11 @@ template <>
 struct CapabilityTraits<NonexistentCap> {
   static constexpr const char *kName = "vsql::nonexistent";
   static constexpr const char *kCppTypeName = "NonexistentCap";
-  static constexpr uint32_t kAbiVersion = 1;
-  using AbiType = NonexistentAbi;
+  // The capability name "vsql::nonexistent" is never registered server-side,
+  // so the server returns "required capability not registered" before
+  // vtable_hash is consulted -- the value here doesn't matter.  Empty pin
+  // is the simplest stable choice.
+  static constexpr const char *kVtableHash = "";
 
   static constexpr void *vtable_destination(NonexistentCap *p) noexcept {
     return static_cast<void *>(&p->abi);

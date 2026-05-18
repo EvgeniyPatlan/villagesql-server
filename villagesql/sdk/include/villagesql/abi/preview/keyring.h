@@ -37,6 +37,14 @@ extern "C" {
 // which fields the server supports.
 #define VEF_PREVIEW_KEYRING_ABI_VERSION 1
 
+// Per-target structural fingerprint of vef_preview_keyring_t.  Both server
+// and extension consume these via the VEF_PIN(...).mac/.linux_x86/.linux_arm
+// chain to verify the type's shape matches what the literal asserts.  See
+// villagesql/detail/abi_signature_literals.h for the full rationale.
+#define VEF_PREVIEW_KEYRING_ABI_HASH_MAC "verhash-001-19e62e9110eb750c"
+#define VEF_PREVIEW_KEYRING_ABI_HASH_LINUX_X86 "verhash-001-19e62e9110eb750c"
+#define VEF_PREVIEW_KEYRING_ABI_HASH_LINUX_ARM "verhash-001-19e62e9110eb750c"
+
 typedef enum {
   VEF_KEYRING_OK = 0,
   VEF_KEYRING_NOT_FOUND = 1,    // key does not exist

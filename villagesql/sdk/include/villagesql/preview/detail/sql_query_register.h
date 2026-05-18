@@ -17,6 +17,7 @@
 #define VILLAGESQL_PREVIEW_DETAIL_SQL_QUERY_REGISTER_H
 
 #include <villagesql/abi/preview/sql_query.h>
+#include <villagesql/detail/abi_signature_literals.h>
 #include <villagesql/detail/capability_traits.h>
 #include <villagesql/preview/sql_query.h>
 
@@ -27,8 +28,13 @@ struct CapabilityTraits<::vsql::preview_sql_query::SqlQueryCapability> {
   static constexpr const char *kName = VEF_PREVIEW_SQL_QUERY_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_sql_query::SqlQueryCapability";
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_SQL_QUERY_ABI_VERSION;
-  using AbiType = vef_preview_sql_query_t;
+  // Empty placeholders until real per-target literals are recorded
+  // (run the abi_pin_literals gunit test on each target to obtain
+  // them).  See abi_signature_literals.h for empty-pin semantics.
+  static constexpr const char *kVtableHash =
+      VEF_PIN(VEF_PREVIEW_SQL_QUERY_ABI_HASH_MAC,
+              VEF_PREVIEW_SQL_QUERY_ABI_HASH_LINUX_X86,
+              VEF_PREVIEW_SQL_QUERY_ABI_HASH_LINUX_ARM);
 
   static constexpr void *vtable_destination(
       ::vsql::preview_sql_query::SqlQueryCapability *p) noexcept {

@@ -264,6 +264,14 @@ typedef struct {
 #define VEF_STORAGE_SE_INTF_VERSION VEF_STORAGE_SE_INTF_VERSION_1
 #define VEF_STORAGE_MINIMUM_SE_INTF_VERSION VEF_STORAGE_SE_INTF_VERSION_1
 
+// Per-target structural fingerprint of vef_preview_storage_t.  Linux and
+// macOS diverge because the storage interface exposes uint64_t fields,
+// which is `unsigned long` on LP64 Linux but `unsigned long long` on
+// macOS.  See villagesql/detail/abi_signature_literals.h for usage.
+#define VEF_PREVIEW_STORAGE_ABI_HASH_MAC "verhash-001-e2262ee52a49fcbf"
+#define VEF_PREVIEW_STORAGE_ABI_HASH_LINUX_X86 "verhash-001-6c7de457822625ce"
+#define VEF_PREVIEW_STORAGE_ABI_HASH_LINUX_ARM "verhash-001-6c7de457822625ce"
+
 // ABI compatibility guarantee:
 // 1. Extensions built against any ABI version in the range
 //    [VEF_STORAGE_MINIMUM_SE_INTF_VERSION, VEF_STORAGE_SE_INTF_VERSION]
@@ -573,7 +581,7 @@ typedef struct {
 // type_name to a registered type after all types are loaded.
 //
 // Pass a vef_preview_column_store_ext_desc_t as
-// vef_required_capability_t.extension_data when requiring this capability.
+// vef_required_capability_t.capability_config when requiring this capability.
 //
 // Capability name: VEF_PREVIEW_COLUMN_STORE_NAME
 
@@ -582,8 +590,25 @@ typedef struct {
 #define VEF_COLUMN_STORE_INTF_VERSION_1 1
 #define VEF_COLUMN_STORE_INTF_VERSION VEF_COLUMN_STORE_INTF_VERSION_1
 
+// Per-target pin literals for vef_preview_column_store_t and its
+// extension descriptor type.  Empty placeholders for now; run the
+// abi_pin_literals gunit test on each target to obtain the current
+// structural hashes and paste them in.  See sql_query.h for the
+// rationale on empty pins.
+#define VEF_PREVIEW_COLUMN_STORE_ABI_HASH_MAC ""
+#define VEF_PREVIEW_COLUMN_STORE_ABI_HASH_LINUX_X86 ""
+#define VEF_PREVIEW_COLUMN_STORE_ABI_HASH_LINUX_ARM ""
+#define VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_MAC ""
+#define VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_LINUX_X86 ""
+#define VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_LINUX_ARM ""
+
 // Extension descriptor for vsql::preview::column_store.
-// Pass as vef_required_capability_t.extension_data.
+// Pass as vef_required_capability_t.capability_config.
+//
+// TODO(villagesql-beta): rename vef_preview_column_store_ext_desc_t to
+// vef_preview_column_store_cc_t (capability_config) to match the
+// capability_config naming used by
+// vef_required_capability_t.capability_config.
 typedef struct {
   // Must be set to VEF_COLUMN_STORE_INTF_VERSION.
   uint32_t version;

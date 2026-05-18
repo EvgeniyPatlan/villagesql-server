@@ -17,6 +17,8 @@
 
 # List of all VillageSQL unit tests
 SET(VILLAGESQL_UNIT_TESTS
+  abi_pin_literals-t
+  abi_signature-t
   abi_v1_check-t
   abi_v2_check-t
   custom_indexes-t
@@ -66,6 +68,8 @@ MACRO(ADD_VILLAGESQL_TEST test_name)
 ENDMACRO()
 
 # Add all VillageSQL unit tests
+ADD_VILLAGESQL_TEST(abi_pin_literals-t)
+ADD_VILLAGESQL_TEST(abi_signature-t)
 ADD_VILLAGESQL_TEST(abi_v1_check-t)
 ADD_VILLAGESQL_TEST(abi_v2_check-t)
 ADD_VILLAGESQL_TEST(custom_indexes-t)

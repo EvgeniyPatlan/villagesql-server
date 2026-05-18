@@ -58,7 +58,7 @@ struct RegisteredSysVar {
   vef_sys_var_on_change_func_t on_change;
   // Back-pointer to the descriptor list this var came from, used as the
   // depopulate key.
-  const void *extension_data;
+  const void *capability_config;
 };
 
 std::mutex g_sys_vars_mutex;
@@ -210,7 +210,7 @@ static bool sys_var_set(const char *component_name, const char *name,
 bool on_populate_sys_var(const PopulateContext &ctx,
                          std::string &error_message) {
   const auto *list =
-      static_cast<const vef_sys_var_descriptor_list_t *>(ctx.extension_data);
+      static_cast<const vef_sys_var_descriptor_list_t *>(ctx.capability_config);
   if (list == nullptr || list->vars == nullptr || list->var_count == 0)
     return false;
   const std::string extension_name(ctx.extension_name);
@@ -313,7 +313,7 @@ bool on_populate_sys_var(const PopulateContext &ctx,
           auto it =
               std::remove_if(g_sys_vars.begin(), g_sys_vars.end(),
                              [&](const RegisteredSysVar &rv) {
-                               if (rv.extension_data == ctx.extension_data) {
+                               if (rv.capability_config == ctx.capability_config) {
                                  to_unreg.push_back(rv.var_name);
                                  return true;
                                }
@@ -336,7 +336,7 @@ bool on_populate_sys_var(const PopulateContext &ctx,
     {
       std::lock_guard<std::mutex> lock(g_sys_vars_mutex);
       g_sys_vars.push_back({extension_name, std::string(v->name), v->type,
-                            value_ptr, v->on_change, ctx.extension_data});
+                            value_ptr, v->on_change, ctx.capability_config});
     }
 
     LogVSQL(INFORMATION_LEVEL,
@@ -355,7 +355,7 @@ void on_depopulate_sys_var(const DepopulateContext &ctx) {
     std::lock_guard<std::mutex> lock(g_sys_vars_mutex);
     auto it = std::remove_if(g_sys_vars.begin(), g_sys_vars.end(),
                              [&](const RegisteredSysVar &v) {
-                               if (v.extension_data == ctx.extension_data) {
+                               if (v.capability_config == ctx.capability_config) {
                                  if (extension_name.empty())
                                    extension_name = v.extension_name;
                                  var_names.push_back(v.var_name);

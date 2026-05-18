@@ -21,8 +21,15 @@
 
 #include <villagesql/abi/preview/sql_query.h>
 #include <villagesql/abi/preview/thread_worker.h>
+#include <villagesql/detail/abi_signature_literals.h>
 #include <villagesql/detail/capability_base.h>
 #include <villagesql/detail/capability_traits.h>
+
+// vef_sql_session_t, vef_sql_result_t and vef_thread_handle_t (reached
+// transitively through open_session) are forward-declared server-only
+// handles that extensions only see by pointer.  Their registrations as
+// opaque ABI handles live in villagesql/services/abi_specializations.h
+// on the server side; extensions don't compute hashes here.
 
 namespace vsql::preview_sql_query {
 

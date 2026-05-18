@@ -17,6 +17,7 @@
 #define VILLAGESQL_PREVIEW_DETAIL_STORAGE_BUILDER_REGISTER_H
 
 #include <villagesql/abi/preview/storage.h>
+#include <villagesql/detail/abi_signature_literals.h>
 #include <villagesql/detail/capability_traits.h>
 #include <villagesql/preview/storage_builder.h>
 
@@ -27,8 +28,9 @@ struct CapabilityTraits<::vsql::preview_storage_builder::StorageCapability> {
   static constexpr const char *kName = VEF_PREVIEW_STORAGE_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_storage_builder::StorageCapability";
-  static constexpr uint32_t kAbiVersion = VEF_STORAGE_SE_INTF_VERSION_1;
-  using AbiType = vef_preview_storage_t;
+  static constexpr const char *kVtableHash = VEF_PIN(
+      VEF_PREVIEW_STORAGE_ABI_HASH_MAC, VEF_PREVIEW_STORAGE_ABI_HASH_LINUX_X86,
+      VEF_PREVIEW_STORAGE_ABI_HASH_LINUX_ARM);
 
   static void *vtable_destination(
       ::vsql::preview_storage_builder::StorageCapability * /*p*/) noexcept {
@@ -42,16 +44,25 @@ struct CapabilityTraits<
   static constexpr const char *kName = VEF_PREVIEW_COLUMN_STORE_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_storage_builder::ColumnStoreCapability";
-  static constexpr uint32_t kAbiVersion = VEF_COLUMN_STORE_INTF_VERSION_1;
-  using AbiType = vef_preview_column_store_t;
-  using DescriptorType = vef_preview_column_store_ext_desc_t;
+  using CapabilityConfigType = vef_preview_column_store_ext_desc_t;
+  // Empty placeholders until real per-target literals are recorded
+  // (run the abi_pin_literals gunit test on each target to obtain
+  // them).  See abi_signature_literals.h for empty-pin semantics.
+  static constexpr const char *kVtableHash =
+      VEF_PIN(VEF_PREVIEW_COLUMN_STORE_ABI_HASH_MAC,
+              VEF_PREVIEW_COLUMN_STORE_ABI_HASH_LINUX_X86,
+              VEF_PREVIEW_COLUMN_STORE_ABI_HASH_LINUX_ARM);
+  static constexpr const char *kCapabilityConfigHash =
+      VEF_PIN(VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_MAC,
+              VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_LINUX_X86,
+              VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_LINUX_ARM);
 
   static void *vtable_destination(
       ::vsql::preview_storage_builder::ColumnStoreCapability<N> *p) noexcept {
     return static_cast<void *>(&p->vtable_);
   }
 
-  static const void *extension_data(
+  static const void *capability_config(
       ::vsql::preview_storage_builder::ColumnStoreCapability<N> *p) noexcept {
     return p->extension_desc();
   }

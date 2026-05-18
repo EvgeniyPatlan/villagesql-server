@@ -59,9 +59,13 @@ typedef vef_next_wakeup_t (*vef_work_fn_t)(vef_wakeup_reason_t reason,
                                            void *arg);
 
 // Descriptor filled in by the extension and passed to the server as
-// extension_data in vef_required_capability_t. The server stores it at
+// capability_config in vef_required_capability_t. The server stores it at
 // extension load time and manages the thread entirely — the extension only
 // provides the work function and configuration.
+//
+// TODO(villagesql-beta): rename `descriptor` to `cc` (capability_config) to
+// match vef_required_capability_t.capability_config and the trait/server
+// naming.  This is the type whose instance is passed as capability_config.
 //
 // All pointers must remain valid for the lifetime of the extension.
 typedef struct {
@@ -89,7 +93,7 @@ typedef struct {
 
 // Preview capability: "vsql::preview::thread_worker"
 //
-// The extension sets extension_data = &descriptor in vef_required_capability_t.
+// The extension sets capability_config = &descriptor in vef_required_capability_t.
 // The server registers a control sys var on the extension's behalf at load
 // time. The var name is descriptor->var_name if set, otherwise
 // "{suffix}_enabled". Setting it ON starts the background thread; OFF stops it.
@@ -106,6 +110,19 @@ typedef struct {
 typedef struct {
   uint32_t version;
 } vef_preview_thread_worker_t;
+
+// Per-target structural fingerprints for the thread_worker vtable and
+// descriptor.  See villagesql/detail/abi_signature_literals.h for usage.  These
+// types currently produce the same hash on every target we ship to (no
+// uint64_t / long-double / similar divergence), but pins are declared
+// per platform so future drift is caught individually.
+#define VEF_PREVIEW_THREAD_WORKER_ABI_HASH_MAC "verhash-001-e3cbaf4b1fcbabf1"
+#define VEF_PREVIEW_THREAD_WORKER_ABI_HASH_LINUX_X86 "verhash-001-e3cbaf4b1fcbabf1"
+#define VEF_PREVIEW_THREAD_WORKER_ABI_HASH_LINUX_ARM "verhash-001-e3cbaf4b1fcbabf1"
+
+#define VEF_THREAD_WORKER_DESCRIPTOR_ABI_HASH_MAC "verhash-001-00f31518f917775f"
+#define VEF_THREAD_WORKER_DESCRIPTOR_ABI_HASH_LINUX_X86 "verhash-001-00f31518f917775f"
+#define VEF_THREAD_WORKER_DESCRIPTOR_ABI_HASH_LINUX_ARM "verhash-001-00f31518f917775f"
 
 #ifdef __cplusplus
 }

@@ -746,15 +746,30 @@ typedef struct {
 typedef struct vef_registration_t vef_registration_t;
 
 // A single capability request in vef_registration_t.required_capabilities.
-// The extension sets name, vtable_dest, abi_type_hash, and min_version. If the
-// capability is registered and passes all server-side checks, the server
-// writes the vtable pointer directly to *vtable_dest before vef_register
-// returns.
-//
-// Server-side compatibility logic (ABI hash check, min_version floor, and the
-// option to override both per capability) lives in cap_compat_fn in
-// capability_registry.h and is not visible to extension authors.
+// The extension sets name, vtable_dest, vtable_hash, and (if the capability
+// has a capability_config) capability_config_hash.  If the capability is
+// registered and the server has a matching (vtable_hash,
+// capability_config_hash) entry, the server writes the vtable pointer
+// directly to *vtable_dest before vef_register returns.
 typedef struct {
+  // Hashes appear first so a memory dump of this struct shows the ABI
+  // identity up front -- useful when diagnosing capability load failures
+  // from a core file.
+  //
+  // Compile-time structural fingerprint of the ABI struct type, of the form
+  // "hash-XXXXXXXXXXXXXXXX".  The server's capability registry holds one or
+  // more (vtable, fingerprint) entries per capability name; the server picks
+  // the entry whose fingerprint matches this field, allowing a single
+  // capability to ship multiple ABI versions simultaneously.  Must point to
+  // a string literal (or otherwise static-lifetime storage).
+  const char *vtable_hash;
+  // Compile-time structural fingerprint of the capability_config struct
+  // type pointed to by capability_config, of the same
+  // "hash-XXXXXXXXXXXXXXXX" form as vtable_hash.  NULL when
+  // capability_config is NULL (capability has no config).  Same matching
+  // semantics as vtable_hash: the server's registered config fingerprint
+  // must equal this for the capability version to match.
+  const char *capability_config_hash;
   // Capability name, e.g. "vsql::preview::ping". Must remain valid for the
   // lifetime of the extension (use a string literal).
   const char *name;
@@ -762,25 +777,12 @@ typedef struct {
   // wrapper. The server writes the vtable pointer here on success. Must
   // remain valid for the lifetime of the extension.
   void **vtable_dest;
-  // Compile-time hash of the ABI struct type, computed via
-  // villagesql::detail::abi_type_hash<AbiType>(). The server compares this
-  // against its own hash for the same name to detect ABI struct mismatches.
-  size_t abi_type_hash;
-  // Minimum capability ABI version the extension requires. The server reads
-  // the version field from its vtable and fails loading if it is less than
-  // this value. Set to the VEF_PREVIEW_*_ABI_VERSION constant the extension
-  // was compiled against.
-  uint32_t min_version;
-  // Optional. Capability-specific descriptor supplied by the extension to the
-  // server. Its type is capability-specific. NULL for capabilities that do not
-  // need it. Must remain valid for the lifetime of the extension.
-  const void *extension_data;
-  // Compile-time hash of the descriptor struct type pointed to by
-  // extension_data, computed via
-  // villagesql::detail::abi_type_hash<DescriptorType>(). 0 if extension_data
-  // is NULL. The server compares this against its own hash to detect
-  // descriptor ABI mismatches.
-  size_t descriptor_abi_hash;
+  // Optional. Capability-specific configuration supplied by the extension
+  // to the server.  Its type is capability-specific (see
+  // capability_config_hash above) and is the C ABI struct that the matching
+  // server-side capability knows how to read.  NULL for capabilities that
+  // do not need it. Must remain valid for the lifetime of the extension.
+  const void *capability_config;
 } vef_required_capability_t;
 
 typedef struct vef_registration_t {

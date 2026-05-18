@@ -26,8 +26,8 @@
 #include <utility>
 
 #include <villagesql/abi/types.h>
+#include <villagesql/detail/abi_signature_literals.h>
 #include <villagesql/detail/capability_base.h>
-#include <villagesql/detail/capability_hash.h>
 #include <villagesql/detail/capability_traits.h>
 #include <villagesql/sdk_version.h>
 
@@ -110,26 +110,20 @@ void vef_fill_type_ptrs(vef_type_desc_t **arr, const Ext &e,
    ...);
 }
 
-// has_extension_data<T>: true when CapabilityTraits<T> provides extension_data.
-template <typename Traits, typename Cap, typename = void>
-struct has_extension_data : std::false_type {};
-template <typename Traits, typename Cap>
-struct has_extension_data<
-    Traits, Cap,
-    std::void_t<decltype(Traits::extension_data(std::declval<Cap *>()))>>
-    : std::true_type {};
-
-// Detection idiom: true if CapabilityTraits has a DescriptorType member.
+// Detection idiom: true if CapabilityTraits has a CapabilityConfigType
+// member -- present only on traits whose capability carries a
+// configuration struct alongside the vtable.
 template <typename T, typename = void>
-struct has_capability_descriptor : std::false_type {};
+struct has_capability_config : std::false_type {};
 template <typename T>
-struct has_capability_descriptor<T, std::void_t<typename T::DescriptorType>>
+struct has_capability_config<T, std::void_t<typename T::CapabilityConfigType>>
     : std::true_type {};
 
 // Fill arr[I] with the wire entry for this Capability. The vtable_dest
 // points at the abi-pointer slot inside the extension's wrapper, as
 // determined by the trait specialization; the server writes the vtable
-// pointer there at registration time if all compat checks pass.
+// pointer there at registration time if the (vtable_hash,
+// capability_config_hash) tuple matches a registered capability version.
 template <size_t I, typename Ext>
 void vef_fill_one_capability_req(vef_required_capability_t *arr, const Ext &e) {
   auto *cap_ptr = e.template required_capability_at<I>();
@@ -139,19 +133,13 @@ void vef_fill_one_capability_req(vef_required_capability_t *arr, const Ext &e) {
   arr[I].name = Traits::kName;
   arr[I].vtable_dest =
       static_cast<void **>(Traits::vtable_destination(cap_ptr));
-  arr[I].abi_type_hash =
-      villagesql::detail::abi_type_hash<typename Traits::AbiType>();
-  arr[I].min_version = Traits::kAbiVersion;
-  if constexpr (has_extension_data<Traits, Capability>::value) {
-    arr[I].extension_data = Traits::extension_data(cap_ptr);
+  arr[I].vtable_hash = Traits::kVtableHash;
+  if constexpr (has_capability_config<Traits>::value) {
+    arr[I].capability_config = Traits::capability_config(cap_ptr);
+    arr[I].capability_config_hash = Traits::kCapabilityConfigHash;
   } else {
-    arr[I].extension_data = nullptr;
-  }
-  if constexpr (has_capability_descriptor<Traits>::value) {
-    arr[I].descriptor_abi_hash =
-        villagesql::detail::abi_type_hash<typename Traits::DescriptorType>();
-  } else {
-    arr[I].descriptor_abi_hash = 0;
+    arr[I].capability_config = nullptr;
+    arr[I].capability_config_hash = nullptr;
   }
 }
 

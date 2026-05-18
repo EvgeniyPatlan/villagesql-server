@@ -16,10 +16,12 @@
 // a future ping ABI v2 (which includes pong()) loading against a server that
 // only provides ping ABI v1.
 //
-// Uses a local ping_abi_v2.h instead of the SDK's ping header so that it can
-// declare kAbiVersion=2 without waiting for the real ping v2 to exist. The
-// server's preview_ping_compat checks min_version against its vtable version
-// field (1) and rejects the extension with "capability version too old".
+// Uses a local ping_abi_v2.h instead of the SDK's ping header.  The
+// extension's CapabilityTraits<PingV2Capability>::kVtableHash is a
+// deliberately unreachable "verhash-002-0000000000000000" -- valid
+// format but guaranteed not to match the server's pinned
+// vef_preview_ping_t fingerprint, so INSTALL EXTENSION fails with "no
+// matching ABI version for capability 'vsql::preview::ping'".
 
 #include "ping_abi_v2.h"
 
@@ -31,6 +33,19 @@
 
 using namespace vsql;
 
+// This extension drops below the usual high-level capability API (no
+// vsql::preview_ping_v2::* wrapper, no shipped _register.h) and hand-rolls
+// the pieces a real capability would get from the SDK:
+//   - PingV2Capability is the minimal wrapper a CapabilityTraits
+//     specialization needs (just the abi pointer slot the server writes
+//     into).
+//   - The CapabilityTraits<PingV2Capability> specialization below is what a
+//     `<villagesql/preview/ping_v2_register.h>` header *would* provide if
+//     ping v2 actually existed.
+// We do this because the whole point of the test is to assert mismatch
+// behaviour against a hypothetical future ABI shape -- introducing a full
+// high-level wrapper just for the test would be more machinery than the
+// failure mode it exercises.
 struct PingV2Capability
     : public ::vsql::detail::CapabilityBase<PingV2Capability> {
   PingV2Capability() {}
@@ -44,8 +59,14 @@ template <>
 struct CapabilityTraits<PingV2Capability> {
   static constexpr const char *kName = VEF_PREVIEW_PING_NAME;
   static constexpr const char *kCppTypeName = "PingV2Capability";
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_PING_V2_ABI_VERSION;
-  using AbiType = vef_preview_ping_v2_t;
+  // Stand-in for the structural fingerprint of the local
+  // vef_preview_ping_v2_t.  Real verhash format ("verhash-NNN-" + 16
+  // hex digits) but a deliberately unreachable all-zeros payload --
+  // guaranteed not to match the server's pinned vef_preview_ping_t
+  // fingerprint, so INSTALL fires the "no matching ABI version" path
+  // which is what this test exercises.
+  static constexpr const char *kVtableHash =
+      "verhash-002-0000000000000000";
 
   static constexpr void *vtable_destination(PingV2Capability *p) noexcept {
     return static_cast<void *>(&p->abi);
