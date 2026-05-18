@@ -25,8 +25,8 @@
 //   3. DISABLE closes the socket cleanly; active_port() returns 0.
 //
 // SQL queries are issued from the worker thread rather than from a VDF because
-// the sql_query capability requires a vef_thread_handle_t, which is only
-// available inside the worker callback.  While it is technically possible to
+// the sql_query capability requires a ThreadHandle, which is only available
+// inside the worker callback.  While it is technically possible to
 // call SQL from a VDF, doing so creates a nested statement context (a statement
 // executing inside another statement), which is not recommended.  The worker
 // thread is the intended place for extension-initiated SQL.
@@ -53,9 +53,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
 #include <cerrno>
-#include <cstring>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -90,7 +91,7 @@ static constexpr int kSendFlags =
     0;
 #endif
 
-static int open_socket() {
+static int open_socket(WorkerState &state) {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) return -1;
 
@@ -112,15 +113,22 @@ static int open_socket() {
   struct sockaddr_in bound{};
   socklen_t len = sizeof(bound);
   if (getsockname(fd, reinterpret_cast<struct sockaddr *>(&bound), &len) == 0)
-    g_state.active_port.store(ntohs(bound.sin_port));
+    state.active_port.store(ntohs(bound.sin_port));
 
   return fd;
 }
 
-static const char *get_cmd(const char *buf, const char *prefix) {
-  size_t plen = std::strlen(prefix);
-  if (std::strncmp(buf, prefix, plen) != 0) return nullptr;
-  return buf + plen;
+static std::string_view trim_line_endings(std::string_view value) {
+  while (!value.empty() && (value.back() == '\n' || value.back() == '\r'))
+    value.remove_suffix(1);
+  return value;
+}
+
+static std::optional<std::string_view> get_cmd(std::string_view command,
+                                               std::string_view prefix) {
+  if (command.size() < prefix.size()) return std::nullopt;
+  if (command.substr(0, prefix.size()) != prefix) return std::nullopt;
+  return command.substr(prefix.size());
 }
 
 static void append_value(std::string_view value, std::string &out) {
@@ -159,8 +167,8 @@ static void capture_warnings(const vsql::preview_sql_query::Result &r,
   }
 }
 
-static void run_monitor_sql_for_each(struct vef_thread_handle_t *handle,
-                                     const char *sql, ReturnCtx &return_ctx) {
+static void run_monitor_sql_for_each(ThreadHandle handle, std::string_view sql,
+                                     ReturnCtx &return_ctx) {
   auto session = SQL_QUERY.open(handle);
   if (!session) {
     return_ctx.sql_err = "Session open failed";
@@ -179,8 +187,8 @@ static void run_monitor_sql_for_each(struct vef_thread_handle_t *handle,
   capture_warnings(status, return_ctx);
 }
 
-static void run_monitor_sql_execute(struct vef_thread_handle_t *handle,
-                                    const char *sql, ReturnCtx &return_ctx) {
+static void run_monitor_sql_execute(ThreadHandle handle, std::string_view sql,
+                                    ReturnCtx &return_ctx) {
   auto session = SQL_QUERY.open(handle);
   if (!session) {
     return_ctx.sql_err = "Session open failed";
@@ -214,52 +222,51 @@ static void write_response(int fd, const ReturnCtx &return_ctx) {
   }
 }
 
-static vef_next_wakeup_t worker(vef_wakeup_reason_t reason,
-                                struct vef_thread_handle_t *handle, void *) {
-  if (reason == VEF_WAKEUP_ENABLE) {
-    g_state.listen_fd = open_socket();
-    return {0, g_state.listen_fd};
+static NextWakeup worker(Wakeup<WorkerState> wakeup) {
+  WorkerState &state = wakeup.arg();
+
+  if (wakeup.reason() == WakeupReason::Enable) {
+    state.listen_fd = open_socket(state);
+    return NextWakeup::on_fd(state.listen_fd);
   }
 
-  if (reason == VEF_WAKEUP_DISABLE) {
-    if (g_state.listen_fd >= 0) {
-      close(g_state.listen_fd);
-      g_state.listen_fd = -1;
+  if (wakeup.reason() == WakeupReason::Disable) {
+    if (state.listen_fd >= 0) {
+      close(state.listen_fd);
+      state.listen_fd = -1;
     }
-    g_state.active_port.store(0);
-    return {};
+    state.active_port.store(0);
+    return NextWakeup::done();
   }
 
-  if (reason != VEF_WAKEUP_POLL_FD) return {};
+  if (wakeup.reason() != WakeupReason::PollFd) return NextWakeup::done();
 
-  // VEF_WAKEUP_POLL_FD: accept, read command, close.
-  if (g_state.listen_fd >= 0) {
-    int client = accept(g_state.listen_fd, nullptr, nullptr);
+  // Accept one pending client, read one command, then close the client.
+  if (state.listen_fd >= 0) {
+    int client = accept(state.listen_fd, nullptr, nullptr);
     if (client >= 0) {
-      char rbuf[256]{};
-      ssize_t n = recv(client, rbuf, sizeof(rbuf) - 1, 0);
+      std::array<char, 256> rbuf{};
+      ssize_t n = recv(client, rbuf.data(), rbuf.size(), 0);
       if (n > 0) {
-        while (n > 0 && (rbuf[n - 1] == '\n' || rbuf[n - 1] == '\r')) --n;
-        rbuf[n] = '\0';
-
-        const char *sql;
+        std::string_view command =
+            trim_line_endings({rbuf.data(), static_cast<size_t>(n)});
         ReturnCtx return_ctx;
 
-        if ((sql = get_cmd(rbuf, "SQL_FOR_EACH ")) != nullptr)
-          run_monitor_sql_for_each(handle, sql, return_ctx);
-        else if ((sql = get_cmd(rbuf, "SQL_EXECUTE ")) != nullptr)
-          run_monitor_sql_execute(handle, sql, return_ctx);
+        if (auto sql = get_cmd(command, "SQL_FOR_EACH "))
+          run_monitor_sql_for_each(wakeup.handle(), *sql, return_ctx);
+        else if (auto sql = get_cmd(command, "SQL_EXECUTE "))
+          run_monitor_sql_execute(wakeup.handle(), *sql, return_ctx);
 
         write_response(client, return_ctx);
       }
       close(client);
     }
   }
-  return {};
+  return NextWakeup::done();
 }
 
 static vsql::preview_thread_worker::ThreadWorkerCapability<&worker>
-    THREAD_WORKER{"listener"};
+    THREAD_WORKER{"listener", g_state};
 
 static void active_port_vdf(IntResult out) {
   out.set(g_state.active_port.load(std::memory_order_relaxed));

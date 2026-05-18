@@ -27,9 +27,9 @@
 #include <string_view>
 
 #include <villagesql/abi/preview/sql_query.h>
-#include <villagesql/abi/preview/thread_worker.h>
 #include <villagesql/detail/capability_base.h>
 #include <villagesql/detail/capability_traits.h>
+#include <villagesql/preview/thread_worker.h>
 
 namespace vsql::preview_sql_query {
 
@@ -52,31 +52,24 @@ class SqlQuery;
 // Usage:
 //   static vsql::preview_sql_query::SqlQueryCapability g_sql_query_cap;
 //
-//   static vef_next_wakeup_t worker(vef_wakeup_reason_t reason,
-//                                   vef_thread_handle_t *handle, void *) {
-//     auto session = g_sql_query_cap.open(handle);
-//     if (!session) return {};
+//   static vsql::NextWakeup worker(vsql::Wakeup<> w) {
+//     auto session = g_sql_query_cap.open(w.handle());
+//     if (!session) return vsql::NextWakeup::done();
 //
 //     // Option A: for_each — runs fn once per row. Returned Result holds
 //     // no buffered rows; use it for diagnostics only.
 //     auto status = session.sql("SELECT 1").for_each(
 //         [](const auto &row) { /* ... */ });
 //     if (status.has_error()) { /* status.error().message */ }
-//     for (unsigned i = 0; i < status.warning_count(); ++i) {
-//       auto w = status.warning(i);  // w.errno_, w.severity, w.message
-//     }
 //
 //     // Option B: execute + next — iterate manually.
 //     auto result = session.sql("SELECT id, name FROM t").execute();
-//     if (result.has_error()) { /* result.error().message */ return {}; }
+//     if (result.has_error()) { /* result.error().message */ }
 //     while (result.next()) {
 //       auto id   = result.column_int(0);
 //       auto name = result.column_str(1);
 //     }
-//     for (unsigned i = 0; i < result.warning_count(); ++i) {
-//       auto w = result.warning(i);
-//     }
-//     return {};
+//     return vsql::NextWakeup::done();
 //   }
 //
 //   VEF_GENERATE_ENTRY_POINTS(
@@ -86,9 +79,10 @@ class SqlQuery;
 class SqlQueryCapability
     : public ::vsql::detail::CapabilityBase<SqlQueryCapability> {
  public:
-  // Open a SQL session bound to the given background thread handle.
-  // Returns an invalid Session (operator bool == false) on failure.
-  Session open(vef_thread_handle_t *handle) const;
+  // Open a SQL session bound to the worker thread identified by `handle`.
+  // Returns an invalid Session (operator bool == false) on failure. The
+  // handle is obtained via Wakeup::handle() inside the work function.
+  Session open(::vsql::preview_thread_worker::ThreadHandle handle) const;
 
  private:
   template <typename Capability>
@@ -145,8 +139,9 @@ class Session {
   vef_sql_session_t *handle_{nullptr};
 };
 
-inline Session SqlQueryCapability::open(vef_thread_handle_t *handle) const {
-  return Session::open(*this, handle);
+inline Session SqlQueryCapability::open(
+    ::vsql::preview_thread_worker::ThreadHandle handle) const {
+  return Session::open(*this, handle.raw_handle());
 }
 
 // One diagnostic (statement error or warning/note) returned from a query.

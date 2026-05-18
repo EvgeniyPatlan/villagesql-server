@@ -29,11 +29,11 @@ using namespace vsql;
 
 static std::atomic<long long> g_tick_count{0};
 
-static vef_next_wakeup_t monitor_work(vef_wakeup_reason_t reason,
-                                      struct vef_thread_handle_t *, void *) {
-  if (reason == VEF_WAKEUP_ENABLE) return {100, 0};
-  if (reason == VEF_WAKEUP_PERIODIC) g_tick_count.fetch_add(1);
-  return {};
+static NextWakeup monitor_work(Wakeup<> wakeup) {
+  if (wakeup.reason() == WakeupReason::Enable)
+    return NextWakeup::in(std::chrono::milliseconds{100});
+  if (wakeup.reason() == WakeupReason::Periodic) g_tick_count.fetch_add(1);
+  return NextWakeup::done();
 }
 
 static vsql::preview_thread_worker::ThreadWorkerCapability<&monitor_work>
