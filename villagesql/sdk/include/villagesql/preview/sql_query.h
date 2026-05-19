@@ -67,6 +67,8 @@ class SqlQueryCapability {
   // Returns an invalid Session (operator bool == false) on failure.
   Session open(vef_thread_handle_t *handle) const;
 
+  [[nodiscard]] bool available() const noexcept { return abi_ != nullptr; }
+
  private:
   template <typename Capability>
   friend struct ::vsql::detail::CapabilityTraits;

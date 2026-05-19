@@ -70,6 +70,10 @@ class StorageCapability {
  public:
   static constexpr const char *kName = VEF_PREVIEW_STORAGE_NAME;
   static constexpr uint32_t kAbiVersion = VEF_STORAGE_SE_INTF_VERSION_1;
+
+  [[nodiscard]] bool available() const noexcept {
+    return ::vsql::preview_storage::detail::g_abi != nullptr;
+  }
 };
 
 // =============================================================================
@@ -122,6 +126,8 @@ class ColumnStoreCapability {
 
   // Sink for the server-written vtable pointer. Not used by the extension.
   void *vtable_{nullptr};
+
+  [[nodiscard]] bool available() const noexcept { return vtable_ != nullptr; }
 
   template <size_t M>
   friend class ColumnStoreCapability;

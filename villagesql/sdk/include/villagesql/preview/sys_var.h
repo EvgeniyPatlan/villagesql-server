@@ -244,6 +244,8 @@ class SysVarCapability {
   // can return its address as extension_data.
   vef_sys_var_descriptor_list_t descriptor_list{};
 
+  [[nodiscard]] bool available() const noexcept { return abi_ != nullptr; }
+
  private:
   template <typename Capability>
   friend struct ::vsql::detail::CapabilityTraits;

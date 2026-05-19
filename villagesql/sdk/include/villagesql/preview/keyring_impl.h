@@ -23,6 +23,9 @@ namespace vsql::preview_keyring {
 
 inline KeyringCapability::ReadResult KeyringCapability::read(
     std::string_view data_id, std::string_view auth_id) const {
+  if (abi_ == nullptr || abi_->read == nullptr) {
+    return {Status::UNAVAILABLE, {}};
+  }
   std::string value;
   value.resize(4096);
   size_t out_len = 0;
@@ -39,9 +42,14 @@ inline KeyringCapability::ReadResult KeyringCapability::read(
 inline KeyringCapability::Status KeyringCapability::write(
     std::string_view data_id, std::string_view auth_id,
     std::string_view data) const {
+  if (abi_ == nullptr || abi_->write == nullptr) return Status::UNAVAILABLE;
   return static_cast<Status>(abi_->write(
       data_id.data(), auth_id.empty() ? nullptr : auth_id.data(),
       reinterpret_cast<const unsigned char *>(data.data()), data.size()));
+}
+
+inline bool KeyringCapability::available() const noexcept {
+  return abi_ != nullptr;
 }
 
 }  // namespace vsql::preview_keyring

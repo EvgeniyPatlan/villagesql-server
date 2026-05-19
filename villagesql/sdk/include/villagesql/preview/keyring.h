@@ -52,6 +52,8 @@ class KeyringCapability {
   [[nodiscard]] Status write(std::string_view data_id, std::string_view auth_id,
                              std::string_view data) const;
 
+  [[nodiscard]] bool available() const noexcept;
+
  private:
   template <typename Capability>
   friend struct ::vsql::detail::CapabilityTraits;

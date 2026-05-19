@@ -48,6 +48,8 @@ class ThreadWorkerCapability {
   // the wire format carries a pointer to it.
   static inline vef_thread_worker_descriptor_t descriptor{};
 
+  [[nodiscard]] bool available() const noexcept { return abi_ != nullptr; }
+
  private:
   template <typename Capability>
   friend struct ::vsql::detail::CapabilityTraits;
