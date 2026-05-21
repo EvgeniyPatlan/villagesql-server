@@ -27,7 +27,8 @@ struct CapabilityTraits<::vsql::preview_storage_builder::StorageCapability> {
   static constexpr const char *kName = VEF_PREVIEW_STORAGE_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_storage_builder::StorageCapability";
-  static constexpr const char *kVtableHash = "ver-1";
+  static constexpr const char *kVtableHash =
+      VEF_PREVIEW_STORAGE_VTABLE_VERSION;
 
   static void *vtable_destination(
       ::vsql::preview_storage_builder::StorageCapability * /*p*/) noexcept {
@@ -42,8 +43,10 @@ struct CapabilityTraits<
   static constexpr const char *kCppTypeName =
       "vsql::preview_storage_builder::ColumnStoreCapability";
   using CapabilityConfigType = vef_preview_column_store_ext_desc_t;
-  static constexpr const char *kVtableHash = "ver-1";
-  static constexpr const char *kCapabilityConfigHash = "ver-1";
+  static constexpr const char *kVtableHash =
+      VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION;
+  static constexpr const char *kCapabilityConfigHash =
+      VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION;
 
   static void *vtable_destination(
       ::vsql::preview_storage_builder::ColumnStoreCapability<N> *p) noexcept {

@@ -395,7 +395,7 @@ void on_depopulate_thread_worker(const DepopulateContext &ctx) {
 
 namespace {
 vef_preview_thread_worker_t g_thread_worker_vtable{
-    VEF_PREVIEW_THREAD_WORKER_ABI_VERSION};
+    VEF_PREVIEW_THREAD_WORKER_VTABLE_VERSION};
 }  // namespace
 
 vef_preview_thread_worker_t *preview_thread_worker_vtable() {

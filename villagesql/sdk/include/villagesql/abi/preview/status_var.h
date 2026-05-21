@@ -34,8 +34,9 @@ extern "C" {
 
 #define VEF_PREVIEW_STATUS_VAR_NAME "vsql::status_var"
 
-// Capability ABI version compiled into this SDK snapshot.
-#define VEF_PREVIEW_STATUS_VAR_ABI_VERSION 1
+// Version tag for the vtable + descriptor-list structs (locked
+// together).  See ping.h for the rationale.
+#define VEF_PREVIEW_STATUS_VAR_VTABLE_VERSION "ver-1"
 
 // Status variable type. Unlike system variables (which are configurable),
 // status variables are read-only counters and gauges exposed via SHOW STATUS.
@@ -75,11 +76,11 @@ typedef struct {
 } vef_status_var_descriptor_list_t;
 
 typedef struct {
-  // Capability ABI version. Always the first field in every capability vtable.
-  uint32_t version;
-
-  // version >= 1: no extension-callable functions needed; the server reads the
-  // descriptor list from the extension's StatusVarCapability at populate time.
+  // Capability ABI version string ("ver-1", "ver-2", ...).  Matched by
+  // strcmp on the wire; bumped when the layout of this struct changes.
+  const char *version;
+  // No extension-callable functions; the server reads the descriptor
+  // list from the extension's StatusVarCapability at populate time.
 } vef_preview_status_var_t;
 
 #ifdef __cplusplus

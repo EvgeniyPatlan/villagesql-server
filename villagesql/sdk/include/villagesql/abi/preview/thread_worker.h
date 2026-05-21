@@ -103,13 +103,16 @@ typedef struct {
 
 #define VEF_PREVIEW_THREAD_WORKER_NAME "vsql::preview::thread_worker"
 
-// Current ABI version for the "vsql::preview::thread_worker" capability.
-#define VEF_PREVIEW_THREAD_WORKER_ABI_VERSION 1
+// Version tag for the vtable + descriptor structs (locked together).
+// See ping.h for the rationale.
+#define VEF_PREVIEW_THREAD_WORKER_VTABLE_VERSION "ver-1"
 
 // Server-side vtable. The version field is always first, matching the
 // convention used by other preview capabilities.
 typedef struct {
-  uint32_t version;
+  // Capability ABI version string ("ver-1", "ver-2", ...).  Matched by
+  // strcmp on the wire; bumped when the layout of this struct changes.
+  const char *version;
 } vef_preview_thread_worker_t;
 
 #ifdef __cplusplus

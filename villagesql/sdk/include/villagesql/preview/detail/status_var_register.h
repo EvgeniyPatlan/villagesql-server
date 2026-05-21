@@ -28,8 +28,10 @@ struct CapabilityTraits<::vsql::preview_status_var::StatusVarCapability<N>> {
   static constexpr const char *kCppTypeName =
       "vsql::preview_status_var::StatusVarCapability";
   using CapabilityConfigType = vef_status_var_descriptor_list_t;
-  static constexpr const char *kVtableHash = "ver-1";
-  static constexpr const char *kCapabilityConfigHash = "ver-1";
+  static constexpr const char *kVtableHash =
+      VEF_PREVIEW_STATUS_VAR_VTABLE_VERSION;
+  static constexpr const char *kCapabilityConfigHash =
+      VEF_PREVIEW_STATUS_VAR_VTABLE_VERSION;
 
   static constexpr void *vtable_destination(
       ::vsql::preview_status_var::StatusVarCapability<N> *p) noexcept {

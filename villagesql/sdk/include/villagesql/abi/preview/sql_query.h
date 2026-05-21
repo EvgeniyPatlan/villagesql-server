@@ -44,7 +44,9 @@ extern "C" {
 // Capability name: VEF_PREVIEW_SQL_QUERY_NAME
 
 #define VEF_PREVIEW_SQL_QUERY_NAME "vsql::preview::sql_query"
-#define VEF_PREVIEW_SQL_QUERY_ABI_VERSION 1
+
+// Version tag for the vtable struct.  See ping.h for the rationale.
+#define VEF_PREVIEW_SQL_QUERY_VTABLE_VERSION "ver-1"
 
 // Forward declaration — defined in abi/preview/thread_worker.h.
 struct vef_thread_handle_t;
@@ -145,10 +147,10 @@ typedef bool (*vef_sql_get_warning_fn)(const vef_sql_result_t *result,
 
 // Server-provided vtable for SQL execution.
 typedef struct {
-  // Capability ABI version. Always the first field in every capability vtable.
-  uint32_t version;
+  // Capability ABI version string ("ver-1", "ver-2", ...).  Matched by
+  // strcmp on the wire; bumped when the layout of this struct changes.
+  const char *version;
 
-  // version >= 1
   vef_sql_open_session_fn open_session;
   vef_sql_close_session_fn close_session;
   vef_sql_execute_fn execute;

@@ -35,7 +35,7 @@ namespace villagesql::services {
 namespace {
 
 vef_preview_status_var_t g_status_var_vtable{
-    VEF_PREVIEW_STATUS_VAR_ABI_VERSION};
+    VEF_PREVIEW_STATUS_VAR_VTABLE_VERSION};
 
 // One registered status variable together with its SHOW_VAR storage.
 // The SHOW_VAR array must remain valid until unregister_variable() is called.

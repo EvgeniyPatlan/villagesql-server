@@ -31,20 +31,23 @@ extern "C" {
 
 #define VEF_PREVIEW_PING_NAME "vsql::preview::ping"
 
-// This extension was compiled against v2 of the ping ABI.
-#define VEF_PREVIEW_PING_V2_ABI_VERSION 2
+// Version literal this fake extension claims it was built against.
+// Doesn't match the server's "ver-1" -- that's the whole point.
+#define VEF_PREVIEW_PING_V2_VTABLE_VERSION "ver-2"
 
 typedef uint64_t (*vef_ping_fn)(void);
 typedef uint64_t (*vef_pong_fn)(void);
 
 typedef struct {
-  // Capability ABI version. Always the first field in every capability vtable.
-  uint32_t version;
+  const char *version;  // "ver-2"
 
-  // version >= 1
+  // ping() exists in the server's real "ver-1" ABI.
   vef_ping_fn ping;
 
-  // version >= 2
+  // pong() is the new function this hypothetical "ver-2" ABI adds --
+  // the server doesn't provide it.  The version mismatch is what
+  // this test exercises: an extension built against a future ABI
+  // shape must fail to load on an older server.
   vef_pong_fn pong;
 } vef_preview_ping_v2_t;
 

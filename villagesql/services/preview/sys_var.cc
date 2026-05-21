@@ -42,7 +42,7 @@ static bool sys_var_set(const char *component_name, const char *name,
 
 namespace {
 
-static vef_preview_sys_var_t g_sys_var_vtable{VEF_PREVIEW_SYS_VAR_ABI_VERSION,
+static vef_preview_sys_var_t g_sys_var_vtable{VEF_PREVIEW_SYS_VAR_VTABLE_VERSION,
                                               get_variable, sys_var_set};
 
 // A registered system variable together with the extension it belongs to, so

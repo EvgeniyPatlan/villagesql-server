@@ -538,7 +538,7 @@ static bool sql_get_warning(const vef_sql_result_t *result, unsigned int i,
 }
 
 namespace {
-vef_preview_sql_query_t g_sql_query_vtable{VEF_PREVIEW_SQL_QUERY_ABI_VERSION,
+vef_preview_sql_query_t g_sql_query_vtable{VEF_PREVIEW_SQL_QUERY_VTABLE_VERSION,
                                            &sql_open_session,
                                            &sql_close_session,
                                            &sql_execute,

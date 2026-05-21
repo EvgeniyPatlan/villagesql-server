@@ -23,7 +23,7 @@ namespace {
 
 std::atomic<uint64_t> g_ping_counter{0};
 uint64_t vsql_ping() { return ++g_ping_counter; }
-vef_preview_ping_t g_ping_vtable{VEF_PREVIEW_PING_ABI_VERSION, &vsql_ping};
+vef_preview_ping_t g_ping_vtable{VEF_PREVIEW_PING_VTABLE_VERSION, &vsql_ping};
 
 }  // namespace
 

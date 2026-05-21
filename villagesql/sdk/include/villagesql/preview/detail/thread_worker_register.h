@@ -30,8 +30,10 @@ struct CapabilityTraits<
   static constexpr const char *kCppTypeName =
       "vsql::preview_thread_worker::ThreadWorkerCapability";
   using CapabilityConfigType = vef_thread_worker_descriptor_t;
-  static constexpr const char *kVtableHash = "ver-1";
-  static constexpr const char *kCapabilityConfigHash = "ver-1";
+  static constexpr const char *kVtableHash =
+      VEF_PREVIEW_THREAD_WORKER_VTABLE_VERSION;
+  static constexpr const char *kCapabilityConfigHash =
+      VEF_PREVIEW_THREAD_WORKER_VTABLE_VERSION;
 
   static constexpr void *vtable_destination(Cap *p) noexcept {
     return static_cast<void *>(&p->abi_);

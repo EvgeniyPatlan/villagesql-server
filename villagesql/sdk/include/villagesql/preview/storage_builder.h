@@ -122,7 +122,7 @@ class ColumnStoreCapability
   // Called once at registration time; COLUMN_STORE must be in static storage
   // by then so that ptrs_ has a stable address.
   const vef_preview_column_store_ext_desc_t *extension_desc() {
-    ext_desc_.version = VEF_COLUMN_STORE_INTF_VERSION;
+    ext_desc_.version = VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION;
     ext_desc_.type_storage_count = static_cast<uint32_t>(N);
     ext_desc_.type_storages = N > 0 ? ptrs_ : nullptr;
     return &ext_desc_;

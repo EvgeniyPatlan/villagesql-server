@@ -259,38 +259,26 @@ typedef struct {
 // TODO(villagesql-windows): Export symbols with __declspec(dllexport) on
 // Windows so that extensions can link against these functions.
 
-// Storage engine interface version constants.
-#define VEF_STORAGE_SE_INTF_VERSION_1 1
-#define VEF_STORAGE_SE_INTF_VERSION VEF_STORAGE_SE_INTF_VERSION_1
-#define VEF_STORAGE_MINIMUM_SE_INTF_VERSION VEF_STORAGE_SE_INTF_VERSION_1
+// Version tag for the vef_preview_storage_t vtable struct.  See
+// ping.h for the rationale.
+#define VEF_PREVIEW_STORAGE_VTABLE_VERSION "ver-1"
 
-// ABI compatibility guarantee:
-// 1. Extensions built against any ABI version in the range
-//    [VEF_STORAGE_MINIMUM_SE_INTF_VERSION, VEF_STORAGE_SE_INTF_VERSION]
-//    MUST continue to work with this server.
-//
-// 2. Extensions built against an ABI version greater than
-//    VEF_STORAGE_SE_INTF_VERSION MUST fail to load.
-//
-// 3. Extensions built against an ABI version lower than
-//    VEF_STORAGE_MINIMUM_SE_INTF_VERSION MUST fail to load.
-//
 // ABI change rules:
 // 1. Functions:
 //     A. Modify existing functions (signature, behavior, ownership): NEVER
-//     B. Add new functions: Bump VEF_STORAGE_SE_INTF_VERSION
+//     B. Add new functions: Bump VEF_PREVIEW_STORAGE_VTABLE_VERSION
 //
 // 2. Structures/Enums:
 //     A. Modify, remove, reorder existing fields: NEVER
 //     B. Add new fields at the end only (with size/version guarding):
-//        Bump VEF_STORAGE_SE_INTF_VERSION
+//        Bump VEF_PREVIEW_STORAGE_VTABLE_VERSION
 //
 // 3. Constants:
 //     A. Constants appearing in this file affects ABI-visible memory layout,
 //        buffer size, on-disk format, or extension-visible limit.
 //
 //     B. If a constant must be changed:
-//        Bump VEF_STORAGE_MINIMUM_SE_INTF_VERSION and document the break.
+//        Bump VEF_PREVIEW_STORAGE_VTABLE_VERSION and document the break.
 //
 
 // Constants defining the on-page storage format used by the storage engine.
@@ -547,11 +535,10 @@ typedef void (*vef_storage_page_write_string_fn)(
     const unsigned char *str, uint32_t len, vef_storage_mtr_ref_t mtr_ref);
 
 typedef struct {
-  // Capability ABI version. Always the first field in every capability vtable.
-  // Extensions must check this before accessing fields added in later versions.
-  uint32_t version;
+  // Capability ABI version string ("ver-1", "ver-2", ...).  Matched by
+  // strcmp on the wire; bumped when the layout of this struct changes.
+  const char *version;
 
-  // version >= VEF_STORAGE_SE_INTF_VERSION_1
   vef_storage_mtr_start_fn mtr_start;
   vef_storage_mtr_commit_fn mtr_commit;
   vef_storage_segment_create_fn segment_create;
@@ -579,8 +566,9 @@ typedef struct {
 
 #define VEF_PREVIEW_COLUMN_STORE_NAME "vsql::preview::column_store"
 
-#define VEF_COLUMN_STORE_INTF_VERSION_1 1
-#define VEF_COLUMN_STORE_INTF_VERSION VEF_COLUMN_STORE_INTF_VERSION_1
+// Version tag for the column_store vtable + extension-descriptor
+// structs (locked together).  See ping.h for the rationale.
+#define VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION "ver-1"
 
 // Extension descriptor for vsql::preview::column_store.
 // Pass as vef_required_capability_t.capability_config.
@@ -590,8 +578,8 @@ typedef struct {
 // capability_config naming used by
 // vef_required_capability_t.capability_config.
 typedef struct {
-  // Must be set to VEF_COLUMN_STORE_INTF_VERSION.
-  uint32_t version;
+  // Must be set to VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION.
+  const char *version;
 
   uint32_t type_storage_count;
 
@@ -605,8 +593,8 @@ typedef struct {
 // This capability provides no server-callable functions; it exists only to
 // carry the extension descriptor to the server at registration time.
 typedef struct {
-  // Capability ABI version.
-  uint32_t version;
+  // Capability ABI version string ("ver-1", "ver-2", ...).
+  const char *version;
 } vef_preview_column_store_t;
 
 #ifdef __cplusplus

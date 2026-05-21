@@ -32,10 +32,8 @@ extern "C" {
 
 #define VEF_PREVIEW_KEYRING_NAME "vsql::preview::keyring"
 
-// Capability ABI version compiled into this SDK snapshot.
-// Extensions can compare this against abi_->version at runtime to determine
-// which fields the server supports.
-#define VEF_PREVIEW_KEYRING_ABI_VERSION 1
+// Version tag for the vtable struct.  See ping.h for the rationale.
+#define VEF_PREVIEW_KEYRING_VTABLE_VERSION "ver-1"
 
 typedef enum {
   VEF_KEYRING_OK = 0,
@@ -67,11 +65,10 @@ typedef vef_keyring_result_t (*vef_write_keyring_fn)(const char *data_id,
                                                      size_t data_len);
 
 typedef struct {
-  // Capability ABI version. Always the first field in every capability vtable.
-  // Extensions must check this before accessing fields added in later versions.
-  uint32_t version;
+  // Capability ABI version string ("ver-1", "ver-2", ...).  Matched by
+  // strcmp on the wire; bumped when the layout of this struct changes.
+  const char *version;
 
-  // version >= 1
   vef_read_keyring_fn read;
   vef_write_keyring_fn write;
 } vef_preview_keyring_t;

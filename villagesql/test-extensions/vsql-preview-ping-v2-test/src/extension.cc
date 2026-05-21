@@ -58,10 +58,10 @@ template <>
 struct CapabilityTraits<PingV2Capability> {
   static constexpr const char *kName = VEF_PREVIEW_PING_NAME;
   static constexpr const char *kCppTypeName = "PingV2Capability";
-  // Deliberately mismatched version -- the server registers
-  // vef_preview_ping_t as "ver-1", so "ver-2" guarantees INSTALL hits
-  // the "no matching ABI version" path which this test exercises.
-  static constexpr const char *kVtableHash = "ver-2";
+  // "ver-2" so the wire-level strcmp against the server's registered
+  // "ver-1" entry fails -- which is what this test exercises.
+  static constexpr const char *kVtableHash =
+      VEF_PREVIEW_PING_V2_VTABLE_VERSION;
 
   static constexpr void *vtable_destination(PingV2Capability *p) noexcept {
     return static_cast<void *>(&p->abi);
@@ -81,7 +81,9 @@ static void ping_v2_value_impl(IntResult out) {
 }
 
 static void pong_value_impl(IntResult out) {
-  if (g_ping.abi == nullptr || g_ping.abi->version < 2) {
+  // Dead code in practice: the extension never loads because the
+  // server's "ver-1" doesn't match this extension's "ver-2" wire pin.
+  if (g_ping.abi == nullptr) {
     out.set_null();
     return;
   }

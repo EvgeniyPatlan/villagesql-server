@@ -34,8 +34,9 @@ extern "C" {
 
 #define VEF_PREVIEW_SYS_VAR_NAME "vsql::sys_var"
 
-// Capability ABI version compiled into this SDK snapshot.
-#define VEF_PREVIEW_SYS_VAR_ABI_VERSION 1
+// Version tag for the vtable + descriptor-list structs (locked
+// together).  See ping.h for the rationale.
+#define VEF_PREVIEW_SYS_VAR_VTABLE_VERSION "ver-1"
 
 // System variable value type.
 typedef enum {
@@ -143,8 +144,9 @@ typedef bool (*vef_sys_var_set_func_t)(const char *component_name,
                                        const char *val);
 
 typedef struct {
-  // Capability ABI version. Always the first field in every capability vtable.
-  uint32_t version;
+  // Capability ABI version string ("ver-1", "ver-2", ...).  Matched by
+  // strcmp on the wire; bumped when the layout of this struct changes.
+  const char *version;
 
   // Read/write access to system variables from extension code.
   // Set by the server during capability registration; call through these

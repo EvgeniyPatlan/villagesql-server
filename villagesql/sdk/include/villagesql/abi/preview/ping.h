@@ -32,21 +32,21 @@ extern "C" {
 
 #define VEF_PREVIEW_PING_NAME "vsql::preview::ping"
 
-// Capability ABI version compiled into this SDK snapshot.
-// Extensions can compare this against abi_->version at runtime to determine
-// which fields the server supports.
-#define VEF_PREVIEW_PING_ABI_VERSION 1
+// Version tag for the vtable struct.  Single source of truth: server
+// fills the vtable's `version` field with this; extension carries the
+// same literal as its CapabilityTraits::kVtableHash and on the wire.
+// Bump when the layout of vef_preview_ping_t changes.
+#define VEF_PREVIEW_PING_VTABLE_VERSION "ver-1"
 
 // Returns a monotonically incrementing counter. Used to verify that the
 // capability system is wired up correctly end-to-end.
 typedef uint64_t (*vef_ping_fn)(void);
 
 typedef struct {
-  // Capability ABI version. Always the first field in every capability vtable.
-  // Extensions must check this before accessing fields added in later versions.
-  uint32_t version;
+  // Capability ABI version string ("ver-1", "ver-2", ...).  Matched by
+  // strcmp on the wire; bumped when the layout of this struct changes.
+  const char *version;
 
-  // version >= 1
   vef_ping_fn ping;
 } vef_preview_ping_t;
 
