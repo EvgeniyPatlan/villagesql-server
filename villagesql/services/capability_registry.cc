@@ -135,30 +135,28 @@ void register_builtin_capabilities() {
   // literal in each capability's _register.h must use the same value;
   // that is what makes the wire-level strcmp at extension load time
   // meaningful.
-  register_capability(VEF_PREVIEW_PING_NAME,
-                      {.vtable = preview_ping_vtable(),
-                       .vtable_hash = "ver-1"});
-  register_capability(VEF_PREVIEW_KEYRING_NAME,
-                      {.vtable = preview_keyring_vtable(),
-                       .vtable_hash = "ver-1"});
-  register_capability(VEF_PREVIEW_STORAGE_NAME,
-                      {.vtable = preview_storage_vtable(),
-                       .vtable_hash = "ver-1"});
+  register_capability(VEF_PREVIEW_PING_NAME, {.vtable = preview_ping_vtable(),
+                                              .vtable_hash = "ver-1"});
   register_capability(
-      VEF_PREVIEW_THREAD_WORKER_NAME,
-      {.vtable = preview_thread_worker_vtable(),
-       .vtable_hash = "ver-1",
-       .capability_config_hash = "ver-1",
-       .on_server_startup = init_thread_worker_psi_keys,
-       .on_populate = on_populate_thread_worker,
-       .on_depopulate = on_depopulate_thread_worker});
+      VEF_PREVIEW_KEYRING_NAME,
+      {.vtable = preview_keyring_vtable(), .vtable_hash = "ver-1"});
+  register_capability(
+      VEF_PREVIEW_STORAGE_NAME,
+      {.vtable = preview_storage_vtable(), .vtable_hash = "ver-1"});
+  register_capability(VEF_PREVIEW_THREAD_WORKER_NAME,
+                      {.vtable = preview_thread_worker_vtable(),
+                       .vtable_hash = "ver-1",
+                       .capability_config_hash = "ver-1",
+                       .on_server_startup = init_thread_worker_psi_keys,
+                       .on_populate = on_populate_thread_worker,
+                       .on_depopulate = on_depopulate_thread_worker});
   register_capability(VEF_PREVIEW_COLUMN_STORE_NAME,
                       {.vtable = preview_column_store_vtable(),
                        .vtable_hash = "ver-1",
                        .capability_config_hash = "ver-1"});
-  register_capability(VEF_PREVIEW_SQL_QUERY_NAME,
-                      {.vtable = preview_sql_query_vtable(),
-                       .vtable_hash = "ver-1"});
+  register_capability(
+      VEF_PREVIEW_SQL_QUERY_NAME,
+      {.vtable = preview_sql_query_vtable(), .vtable_hash = "ver-1"});
   // Status var: on_populate registers the extension's variables with
   // MySQL; on_depopulate unregisters them on extension unload.
   register_capability(VEF_PREVIEW_STATUS_VAR_NAME,
