@@ -34,6 +34,7 @@
 #include <villagesql/abi/types.h>
 #include <villagesql/vsql/func_types.h>
 #include <villagesql/vsql/type_params.h>
+#include <villagesql/vsql/var_args.h>
 
 namespace vsql {
 namespace func_builder {
@@ -288,6 +289,7 @@ struct FuncWithMetadata {
         num_params(0),
         buffer_size(0),
         deterministic(false),
+        is_varargs(false),
         check_params_cache_bound(nullptr),
         check_signature(nullptr) {}
 
@@ -301,6 +303,10 @@ struct FuncWithMetadata {
   size_t num_params;
   size_t buffer_size;
   bool deterministic;
+  // When true, the function accepts a variable number of arguments. The
+  // server skips argument validation and delegates to prerun. num_params
+  // and param_types are unused (a varargs StaticFuncDesc has NumParams == 0).
+  bool is_varargs;
   bool (*check_params_cache_bound)();
   const char *(*check_signature)(const vef_type_t *, size_t,
                                  const vef_type_t &);
@@ -406,6 +412,34 @@ struct Wrapper {
   template <typename T>
   static T make_result(vef_vdf_result_t *r) {
     return T(r);
+  }
+};
+
+// Generates a vef_vdf_func_t for a varargs VDF whose signature is
+//   void func(vsql::VarArgs, ResultWrapper)
+//
+// The wrapper constructs a VarArgs view over args and the declared typed
+// result wrapper, then calls Func. Argument-count and argument-type
+// validation are skipped at this layer (varargs functions delegate that
+// to their prerun).
+template <auto Func>
+struct VarArgsWrapper {
+  using Params = typename FuncParamTypes<decltype(Func)>::type;
+  static_assert(
+      std::tuple_size_v<Params> == 2,
+      "vsql .varargs(): function must take exactly (VarArgs, ResultWrapper)");
+  using ArgsParam = std::tuple_element_t<0, Params>;
+  using ResultParam = std::tuple_element_t<1, Params>;
+  static_assert(std::is_same_v<ArgsParam, ::vsql::VarArgs>,
+                "vsql .varargs(): first parameter must be vsql::VarArgs");
+  static_assert(is_result_wrapper<ResultParam>::value,
+                "vsql .varargs(): second parameter must be a result wrapper "
+                "(IntResult, RealResult, StringResult, CustomResult, or "
+                "CustomResultWith<P>)");
+
+  static void invoke(vef_context_t * /*ctx*/, vef_vdf_args_t *args,
+                     vef_vdf_result_t *result) {
+    Func(::vsql::VarArgs(args), ResultParam(result));
   }
 };
 
@@ -842,12 +876,24 @@ struct StaticFuncDesc {
   vef_vdf_accumulate_func_t accumulate_;
   size_t buffer_size_;
   bool deterministic_;
+  bool is_varargs_;
   bool (*check_params_cache_bound_)();
   const char *(*check_signature_)(const vef_type_t *, size_t,
                                   const vef_type_t &);
 
   constexpr const char *name() const { return name_; }
-  constexpr size_t num_params() const { return NumParams; }
+  // For varargs: reports VEF_PARAM_VARARGS so materialize_func_desc writes
+  // the sentinel into vef_signature_t::param_count and the server (and
+  // tooling that reads it back, e.g. extension_registration) treat the
+  // function as variadic.
+  constexpr size_t num_params() const {
+    return is_varargs_ ? VEF_PARAM_VARARGS : NumParams;
+  }
+  // Varargs reads args->values (protocol-2 pointer-array layout) without a
+  // protocol-1 fallback, so a varargs VDF cannot run on protocol 1.
+  constexpr vef_protocol_t required_protocol() const {
+    return is_varargs_ ? VEF_PROTOCOL_2 : VEF_PROTOCOL_1;
+  }
   constexpr size_t buffer_size() const { return buffer_size_; }
   constexpr bool deterministic() const { return deterministic_; }
   constexpr auto check_params_cache_bound() const -> bool (*)() {
@@ -877,6 +923,7 @@ struct StaticFuncDesc {
         accumulate_(meta.accumulate),
         buffer_size_(meta.buffer_size),
         deterministic_(meta.deterministic),
+        is_varargs_(meta.is_varargs),
         check_params_cache_bound_(meta.check_params_cache_bound),
         check_signature_(meta.check_signature) {
     for (size_t i = 0; i < NumParams && i < meta.num_params; ++i) {

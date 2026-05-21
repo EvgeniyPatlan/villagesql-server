@@ -1253,6 +1253,13 @@ bool ValidateAndConvertVDFArguments(THD *thd, const char *func_name,
                                     uint arg_count, Item **args,
                                     const vef_signature_t *signature,
                                     TypeParameters *out_return_params) {
+  // Varargs: skip both arg-count and per-arg type validation. The function's
+  // prerun hook is responsible for inspecting arg_count and arg_types and
+  // rejecting calls it does not accept.
+  if (signature->param_count == VEF_PARAM_VARARGS) {
+    return false;
+  }
+
   // Validate argument count matches signature
   if (arg_count != signature->param_count) {
     villagesql_error(

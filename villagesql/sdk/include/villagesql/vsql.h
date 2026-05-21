@@ -68,6 +68,9 @@
 // Typed argument/result wrappers: IntArg, RealArg, StringArg, CustomArg, etc.
 #include <villagesql/vsql/func_types.h>
 
+// Varargs typed views: vsql::VarArgs and vsql::AnyArg
+#include <villagesql/vsql/var_args.h>
+
 // Object-based type builder: vsql::make_type<Name>()
 #include <villagesql/vsql/type_builder.h>
 

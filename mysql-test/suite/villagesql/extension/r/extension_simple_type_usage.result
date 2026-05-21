@@ -68,6 +68,46 @@ FROM test_bytearray t1, test_bytearray t2
 WHERE t1.id = 1 AND t2.id = 2;
 concatenated
 'hello   world123'
+# Test ba_len function (zero-arity, returns a constant)
+SELECT vsql_simple.ba_len() AS len;
+len
+8
+# ba_concat (declared with two params) rejects a single-arg call
+SELECT vsql_simple.ba_concat(t.data) FROM test_bytearray t WHERE t.id = 1;
+ERROR HY000: Cannot initialize function 'ba_concat': wrong number of arguments (expected 2, got 1)
+# Test ba_concat_all function (varargs, returns STRING)
+SELECT vsql_simple.ba_concat_all(t.data) AS one
+FROM test_bytearray t WHERE t.id = 1;
+one
+hello   
+SELECT vsql_simple.ba_concat_all(t1.data, t2.data, t3.data) AS three
+FROM test_bytearray t1, test_bytearray t2, test_bytearray t3
+WHERE t1.id = 1 AND t2.id = 2 AND t3.id = 3;
+three
+hello   world123abcdefgh
+SELECT CONCAT("'", vsql_simple.ba_concat_all(t1.data, t2.data, t3.data), "'") AS three
+FROM test_bytearray t1, test_bytearray t2, test_bytearray t3
+WHERE t1.id = 1 AND t2.id = 2 AND t3.id = 3;
+three
+'hello   world123abcdefgh'
+# ba_concat_all rejects zero arguments via prerun
+SELECT vsql_simple.ba_concat_all();
+ERROR HY000: Can't initialize function 'ba_concat_all'; ba_concat_all requires at least one argument
+# ba_concat_all rejects non-BYTEARRAY arguments via prerun
+SELECT vsql_simple.ba_concat_all(1);
+ERROR HY000: Can't initialize function 'ba_concat_all'; ba_concat_all: argument 0 must be BYTEARRAY
+# ba_concat_all propagates NULL
+SELECT vsql_simple.ba_concat_all(t1.data, NULL) AS with_null
+FROM test_bytearray t1 WHERE t1.id = 1;
+with_null
+NULL
+# ba_concat_all treats a non-NULL STRING literal as NULL: prerun lets
+# STRING through so NULL literals (typed STRING) work, but cannot
+# distinguish them from real strings, so the body checks is_custom().
+SELECT vsql_simple.ba_concat_all(t1.data, 'abc') AS with_str
+FROM test_bytearray t1 WHERE t1.id = 1;
+with_str
+NULL
 # Clean up
 DROP TABLE test_bytearray;
 # Uninstall the extension

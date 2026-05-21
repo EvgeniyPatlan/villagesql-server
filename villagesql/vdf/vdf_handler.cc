@@ -282,8 +282,30 @@ static void marshal_args_typed(const vef_signature_t *sig, uint value_count,
                                InvalueType *invalues) {
   for (unsigned int i = 0; i < value_count; i++) {
     Item *arg_item = args[i];
-    vef_type_id param_type =
-        (i < sig->param_count) ? sig->params[i].id : VEF_TYPE_STRING;
+    vef_type_id param_type;
+    if (sig->params != nullptr && i < sig->param_count) {
+      param_type = sig->params[i].id;
+    } else {
+      // Varargs: no per-slot signature, so infer the type from the Item.
+      // ValidateAndConvertVDFArguments already rejects arg-count mismatches
+      // for fixed-arity functions, so this branch only fires for varargs.
+      auto *tc = arg_item->get_type_context();
+      if (tc != nullptr) {
+        param_type = VEF_TYPE_CUSTOM;
+      } else {
+        switch (arg_item->result_type()) {
+          case REAL_RESULT:
+            param_type = VEF_TYPE_REAL;
+            break;
+          case INT_RESULT:
+            param_type = VEF_TYPE_INT;
+            break;
+          default:
+            param_type = VEF_TYPE_STRING;
+            break;
+        }
+      }
+    }
     invalues[i].type = param_type;
 
     switch (param_type) {

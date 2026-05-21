@@ -143,16 +143,29 @@ using ParamsToStringsFunc = void (*)(const P &,
 // FuncBuilder
 // =============================================================================
 
-template <auto Func, size_t NumParams>
+// Selects between fixed-arity and varargs builders. A builder starts in
+// kUnset; .param(TYPE) (or .param() zero-arity) transitions to kFixed,
+// .varargs() transitions to kVarargs. The two are mutually exclusive,
+// enforced by static_assert.
+enum class ParamMode { kUnset, kFixed, kVarargs };
+
+template <auto Func, size_t NumParams, ParamMode Mode = ParamMode::kUnset>
 class FuncBuilder {
  public:
-  constexpr FuncBuilder<Func, NumParams> &returns(const char *t) {
+  constexpr FuncBuilder<Func, NumParams, Mode> &returns(const char *t) {
     return_type_ = t;
     return *this;
   }
 
-  constexpr FuncBuilder<Func, NumParams + 1> param(const char *t) const {
-    FuncBuilder<Func, NumParams + 1> next;
+  // Add a typed parameter. Once called, no further .varargs() is allowed.
+  constexpr FuncBuilder<Func, NumParams + 1, ParamMode::kFixed> param(
+      const char *t) const {
+    static_assert(Mode != ParamMode::kVarargs,
+                  ".param(TYPE) and .varargs() are mutually exclusive");
+    static_assert(Mode != ParamMode::kFixed || NumParams > 0,
+                  ".param(TYPE) and .param() (zero-arity) are mutually "
+                  "exclusive");
+    FuncBuilder<Func, NumParams + 1, ParamMode::kFixed> next;
     next.name_ = name_;
     next.return_type_ = return_type_;
     next.buffer_size_ = buffer_size_;
@@ -166,7 +179,45 @@ class FuncBuilder {
     return next;
   }
 
-  constexpr FuncBuilder<Func, NumParams> &buffer_size(size_t s) {
+  // Explicitly declare zero-arity. Useful for functions that read only
+  // session state or return a constant. Mutually exclusive with .param(TYPE)
+  // and .varargs().
+  constexpr FuncBuilder<Func, 0, ParamMode::kFixed> param() const {
+    static_assert(NumParams == 0,
+                  ".param() (zero-arity) and .param(TYPE) are mutually "
+                  "exclusive");
+    static_assert(Mode != ParamMode::kVarargs,
+                  ".param() (zero-arity) and .varargs() are mutually "
+                  "exclusive");
+    FuncBuilder<Func, 0, ParamMode::kFixed> next;
+    next.name_ = name_;
+    next.return_type_ = return_type_;
+    next.buffer_size_ = buffer_size_;
+    next.prerun_ = prerun_;
+    next.postrun_ = postrun_;
+    next.deterministic_ = deterministic_;
+    return next;
+  }
+
+  // Declare a varargs VDF. The function signature must be
+  //   void(vsql::VarArgs, ResultWrapper)
+  // The prerun hook is responsible for validating argument count and types.
+  // Mutually exclusive with .param() / .param(TYPE).
+  constexpr FuncBuilder<Func, 0, ParamMode::kVarargs> varargs() const {
+    static_assert(Mode != ParamMode::kFixed,
+                  ".varargs() is mutually exclusive with .param() and "
+                  ".param(TYPE)");
+    FuncBuilder<Func, 0, ParamMode::kVarargs> next;
+    next.name_ = name_;
+    next.return_type_ = return_type_;
+    next.buffer_size_ = buffer_size_;
+    next.prerun_ = prerun_;
+    next.postrun_ = postrun_;
+    next.deterministic_ = deterministic_;
+    return next;
+  }
+
+  constexpr FuncBuilder<Func, NumParams, Mode> &buffer_size(size_t s) {
     buffer_size_ = s;
     return *this;
   }
@@ -174,19 +225,19 @@ class FuncBuilder {
   // Marks the function as deterministic: identical inputs always produce
   // identical outputs. The optimizer may cache or elide calls for
   // constant-folding and query rewriting. Defaults to false.
-  constexpr FuncBuilder<Func, NumParams> &deterministic(bool d = true) {
+  constexpr FuncBuilder<Func, NumParams, Mode> &deterministic(bool d = true) {
     deterministic_ = d;
     return *this;
   }
 
   template <vef_prerun_func_t Hook>
-  constexpr FuncBuilder<Func, NumParams> &prerun() {
+  constexpr FuncBuilder<Func, NumParams, Mode> &prerun() {
     prerun_ = Hook;
     return *this;
   }
 
   template <vef_postrun_func_t Hook>
-  constexpr FuncBuilder<Func, NumParams> &postrun() {
+  constexpr FuncBuilder<Func, NumParams, Mode> &postrun() {
     postrun_ = Hook;
     return *this;
   }
@@ -194,6 +245,11 @@ class FuncBuilder {
   constexpr detail::StaticFuncDesc<NumParams> build() const {
     static_assert(NumParams <= kMaxParams,
                   "Too many parameters (max is kMaxParams)");
+    static_assert(Mode != ParamMode::kUnset,
+                  "vsql make_func: arity must be declared explicitly. Call "
+                  ".param(TYPE) for each typed argument, .param() for a "
+                  "zero-arity function, or .varargs() for a variadic "
+                  "function, before .build()");
 
     using AllParams = typename detail::FuncParamTypes<decltype(Func)>::type;
     using ReturnType = typename detail::FuncReturnType<decltype(Func)>::type;
@@ -201,7 +257,8 @@ class FuncBuilder {
     static_assert(std::is_void_v<ReturnType>,
                   "make_func: C++ function must return void and set the SQL "
                   "result through the final typed result wrapper parameter");
-    static_assert(std::tuple_size_v<AllParams> == NumParams + 1,
+    static_assert(Mode == ParamMode::kVarargs ||
+                      std::tuple_size_v<AllParams> == NumParams + 1,
                   "make_func: C++ function must have one typed result wrapper "
                   "after the declared SQL parameters; check the number of "
                   ".param(...) calls");
@@ -217,6 +274,10 @@ class FuncBuilder {
         "CustomResult, or CustomResultWith<P>");
 
     detail::FuncWithMetadata meta{};
+    if constexpr (Mode == ParamMode::kVarargs) {
+      meta.f = &detail::VarArgsWrapper<Func>::invoke;
+      meta.is_varargs = true;
+    }
     meta.prerun = prerun_;
     meta.postrun = postrun_;
     meta.return_type = detail::to_vef_type(return_type_);
@@ -260,7 +321,7 @@ class FuncBuilder {
   vef_postrun_func_t postrun_;
   bool deterministic_;
 
-  template <auto F, size_t M>
+  template <auto F, size_t M, ParamMode N>
   friend class FuncBuilder;
 
   template <auto F>

@@ -74,7 +74,8 @@ struct ExtensionBuilder {
     auto new_funcs = std::tuple_cat(funcs_, std::make_tuple(f));
     return ExtensionBuilder<decltype(new_funcs), TypeTuple,
                             RequiredCapabilityTuple>{
-        new_funcs, types_, required_capabilities_, min_protocol_};
+        new_funcs, types_, required_capabilities_,
+        require_atleast_min(f.required_protocol())};
   }
 
   // Accepts a TypeObject (from vsql::make_type().build()) that carries embedded
