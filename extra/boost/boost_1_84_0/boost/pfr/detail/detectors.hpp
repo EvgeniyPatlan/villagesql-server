@@ -16,7 +16,7 @@ namespace boost {
 namespace pfr {
 namespace detail {
 ///////////////////// `value` is true if Detector<Tleft, Tright> does not
-///compile (SFINAE)
+/// compile (SFINAE)
 struct can_not_apply {};
 
 template <template <class, class> class Detector, class Tleft, class Tright>

@@ -1625,10 +1625,6 @@ INCLUDE_DIRECTORIES(
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_SOURCE_DIR}/libs
   )
-# SDK headers are NOT on the server's -I path.  Server code must include
-# them via their explicit "villagesql/sdk/include/villagesql/..." path,
-# so it's evident at the include site that the file comes from the SDK
-# tree (and to keep server code from quietly relying on SDK internals).
 
 IF(WITH_LTO)
   IF(APPLE)

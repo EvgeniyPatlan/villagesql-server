@@ -53,7 +53,7 @@ template <class T>
 constexpr auto flat_array_of_type_ids() noexcept;
 
 ///////////////////// All the stuff for representing Type as integer and
-///converting integer back to type
+/// converting integer back to type
 namespace typeid_conversions {
 
 ///////////////////// Helper constants and typedefs
@@ -165,7 +165,7 @@ constexpr auto id_to_type(
     size_t_<Index>, if_extension<Index, native_ref_type> = nullptr) noexcept;
 
 ///////////////////// Definitions of type_to_id and id_to_type for fundamental
-///types
+/// types
 /// @cond
 #define BOOST_MAGIC_GET_REGISTER_TYPE(Type, Index)                            \
   constexpr std::size_t type_to_id(identity<Type>) noexcept { return Index; } \
@@ -205,7 +205,7 @@ constexpr std::size_t tuple_end_tag = 25;
 #undef BOOST_MAGIC_GET_REGISTER_TYPE
 
 ///////////////////// Definitions of type_to_id and id_to_type for types with
-///extensions and nested types
+/// extensions and nested types
 template <class Type>
 constexpr std::size_t type_to_id(identity<Type *>) noexcept {
   constexpr auto unptr = typeid_conversions::type_to_id(identity<Type>{});
@@ -345,7 +345,7 @@ constexpr auto id_to_type(size_t_<Index>,
 }  // namespace typeid_conversions
 
 ///////////////////// Structure that remembers types as integers on a `constexpr
-///operator Type()` call
+/// operator Type()` call
 struct ubiq_val {
   std::size_t *ref_;
 
@@ -365,7 +365,7 @@ struct ubiq_val {
 };
 
 ///////////////////// Structure that remembers size of the type on a `constexpr
-///operator Type()` call
+/// operator Type()` call
 struct ubiq_sizes {
   std::size_t &ref_;
 
@@ -377,7 +377,7 @@ struct ubiq_sizes {
 };
 
 ///////////////////// Returns array of (offsets without accounting alignments).
-///Required for keeping places for nested type ids
+/// Required for keeping places for nested type ids
 template <class T, std::size_t N, std::size_t... I>
 constexpr size_array<N> get_type_offsets() noexcept {
   typedef size_array<N> array_t;
@@ -393,7 +393,7 @@ constexpr size_array<N> get_type_offsets() noexcept {
 }
 
 ///////////////////// Returns array of typeids and zeros if constructor of a
-///type accepts sizeof...(I) parameters
+/// type accepts sizeof...(I) parameters
 template <class T, std::size_t N, std::size_t... I>
 constexpr void *flat_type_to_array_of_type_ids(
     std::size_t *types, std::index_sequence<I...>) noexcept {
