@@ -134,21 +134,21 @@ std::optional<ValidatedRegistration> parse_extension_registration(
   }
 
   // Wire column storage implementations to types via the storage capability
-  // extension descriptor. The descriptor lives in the extension_data field of
-  // the vsql::preview::column_store capability entry.
+  // extension descriptor. The descriptor lives in the capability_config field
+  // of the vsql::preview::column_store capability entry.
   if (reg != nullptr && ext_reg.negotiated_protocol >= VEF_PROTOCOL_2 &&
       reg->required_capability_count > 0) {
     for (unsigned int i = 0; i < reg->required_capability_count; i++) {
       const vef_required_capability_t &cap = reg->required_capabilities[i];
       if (cap.name == nullptr ||
           strcmp(cap.name, VEF_PREVIEW_COLUMN_STORE_NAME) != 0 ||
-          cap.extension_data == nullptr) {
+          cap.capability_config == nullptr) {
         continue;
       }
 
       const auto *ext_desc =
           static_cast<const vef_preview_column_store_ext_desc_t *>(
-              cap.extension_data);
+              cap.capability_config);
 
       if (ext_desc->version != VEF_COLUMN_STORE_INTF_VERSION) {
         error_out = "column_store capability has unsupported version " +
