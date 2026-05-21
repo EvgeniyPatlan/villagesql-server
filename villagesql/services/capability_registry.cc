@@ -143,7 +143,7 @@ void register_builtin_capabilities() {
                        .vtable_hash = VEF_PREVIEW_KEYRING_VTABLE_VERSION});
   register_capability(VEF_PREVIEW_STORAGE_NAME,
                       {.vtable = preview_storage_vtable(),
-                       .vtable_hash = VEF_PREVIEW_STORAGE_VTABLE_VERSION});
+                       .vtable_hash = VEF_STORAGE_SE_INTF_VERSION});
   register_capability(
       VEF_PREVIEW_THREAD_WORKER_NAME,
       {.vtable = preview_thread_worker_vtable(),
@@ -155,8 +155,8 @@ void register_builtin_capabilities() {
   register_capability(
       VEF_PREVIEW_COLUMN_STORE_NAME,
       {.vtable = preview_column_store_vtable(),
-       .vtable_hash = VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION,
-       .capability_config_hash = VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION});
+       .vtable_hash = VEF_COLUMN_STORE_INTF_VERSION,
+       .capability_config_hash = VEF_COLUMN_STORE_INTF_VERSION});
   register_capability(VEF_PREVIEW_SQL_QUERY_NAME,
                       {.vtable = preview_sql_query_vtable(),
                        .vtable_hash = VEF_PREVIEW_SQL_QUERY_VTABLE_VERSION});

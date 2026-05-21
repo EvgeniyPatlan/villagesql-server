@@ -21,7 +21,7 @@ namespace villagesql::services {
 namespace {
 
 vef_preview_column_store_t g_column_store_vtable{
-    VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION};
+    VEF_COLUMN_STORE_INTF_VERSION};
 
 }  // namespace
 

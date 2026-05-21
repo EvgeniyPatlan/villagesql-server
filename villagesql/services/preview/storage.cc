@@ -21,7 +21,7 @@ namespace villagesql::services {
 namespace {
 
 vef_preview_storage_t g_storage_vtable{
-    VEF_PREVIEW_STORAGE_VTABLE_VERSION,
+    VEF_STORAGE_SE_INTF_VERSION,
     vef_storage_mtr_start,
     vef_storage_mtr_commit,
     vef_storage_segment_create,

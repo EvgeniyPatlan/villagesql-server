@@ -36,7 +36,7 @@
 
 #include <villagesql/abi/preview/storage.h>
 
-static_assert(std::string_view(VEF_PREVIEW_STORAGE_VTABLE_VERSION) == "ver-1",
+static_assert(std::string_view(VEF_STORAGE_SE_INTF_VERSION) == "ver-1",
               "This C++ wrapper supports ABI ver-1 only");
 
 namespace vsql::preview_storage {

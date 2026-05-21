@@ -458,7 +458,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageWiredToType) {
   const vef_type_storage_intf_t *storages[] = {&si};
 
   vef_preview_column_store_ext_desc_t ext_desc = {};
-  ext_desc.version = VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION;
+  ext_desc.version = VEF_COLUMN_STORE_INTF_VERSION;
   ext_desc.type_storage_count = 1;
   ext_desc.type_storages = storages;
 
@@ -494,7 +494,7 @@ TEST_F(ValidateExtensionRegistrationTest,
   const vef_type_storage_intf_t *storages[] = {&si};
 
   vef_preview_column_store_ext_desc_t ext_desc = {};
-  ext_desc.version = VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION;
+  ext_desc.version = VEF_COLUMN_STORE_INTF_VERSION;
   ext_desc.type_storage_count = 1;
   ext_desc.type_storages = storages;
 
@@ -528,7 +528,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageUnknownTypeFails) {
   const vef_type_storage_intf_t *storages[] = {&si};
 
   vef_preview_column_store_ext_desc_t ext_desc = {};
-  ext_desc.version = VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION;
+  ext_desc.version = VEF_COLUMN_STORE_INTF_VERSION;
   ext_desc.type_storage_count = 1;
   ext_desc.type_storages = storages;
 
@@ -562,7 +562,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageMissingFunctionFails) {
   const vef_type_storage_intf_t *storages[] = {&si};
 
   vef_preview_column_store_ext_desc_t ext_desc = {};
-  ext_desc.version = VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION;
+  ext_desc.version = VEF_COLUMN_STORE_INTF_VERSION;
   ext_desc.type_storage_count = 1;
   ext_desc.type_storages = storages;
 
@@ -593,7 +593,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageNullDescriptorFails) {
   const vef_type_storage_intf_t *storages[] = {nullptr};
 
   vef_preview_column_store_ext_desc_t ext_desc = {};
-  ext_desc.version = VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION;
+  ext_desc.version = VEF_COLUMN_STORE_INTF_VERSION;
   ext_desc.type_storage_count = 1;
   ext_desc.type_storages = storages;
 
@@ -658,7 +658,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageDuplicateTypeFails) {
   const vef_type_storage_intf_t *storages[] = {&si1, &si2};
 
   vef_preview_column_store_ext_desc_t ext_desc = {};
-  ext_desc.version = VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION;
+  ext_desc.version = VEF_COLUMN_STORE_INTF_VERSION;
   ext_desc.type_storage_count = 2;
   ext_desc.type_storages = storages;
 

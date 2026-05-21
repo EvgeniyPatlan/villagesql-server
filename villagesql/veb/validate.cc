@@ -152,12 +152,12 @@ std::optional<ValidatedRegistration> parse_extension_registration(
 
       if (ext_desc->version == nullptr ||
           strcmp(ext_desc->version,
-                 VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION) != 0) {
+                 VEF_COLUMN_STORE_INTF_VERSION) != 0) {
         error_out = std::string(
                         "column_store capability has unsupported version \"") +
                     (ext_desc->version != nullptr ? ext_desc->version : "") +
                     "\" (expected \"" +
-                    VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION + "\")";
+                    VEF_COLUMN_STORE_INTF_VERSION + "\")";
         LogVSQL(ERROR_LEVEL, "Extension '%s': %s", extension_name.c_str(),
                 error_out.c_str());
         return std::nullopt;

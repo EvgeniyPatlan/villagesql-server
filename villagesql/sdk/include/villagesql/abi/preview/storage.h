@@ -261,24 +261,24 @@ typedef struct {
 
 // Version tag for the vef_preview_storage_t vtable struct.  See
 // ping.h for the rationale.
-#define VEF_PREVIEW_STORAGE_VTABLE_VERSION "ver-1"
+#define VEF_STORAGE_SE_INTF_VERSION "ver-1"
 
 // ABI change rules:
 // 1. Functions:
 //     A. Modify existing functions (signature, behavior, ownership): NEVER
-//     B. Add new functions: Bump VEF_PREVIEW_STORAGE_VTABLE_VERSION
+//     B. Add new functions: Bump VEF_STORAGE_SE_INTF_VERSION
 //
 // 2. Structures/Enums:
 //     A. Modify, remove, reorder existing fields: NEVER
 //     B. Add new fields at the end only (with size/version guarding):
-//        Bump VEF_PREVIEW_STORAGE_VTABLE_VERSION
+//        Bump VEF_STORAGE_SE_INTF_VERSION
 //
 // 3. Constants:
 //     A. Constants appearing in this file affects ABI-visible memory layout,
 //        buffer size, on-disk format, or extension-visible limit.
 //
 //     B. If a constant must be changed:
-//        Bump VEF_PREVIEW_STORAGE_VTABLE_VERSION and document the break.
+//        Bump VEF_STORAGE_SE_INTF_VERSION and document the break.
 //
 
 // Constants defining the on-page storage format used by the storage engine.
@@ -568,7 +568,7 @@ typedef struct {
 
 // Version tag for the column_store vtable + extension-descriptor
 // structs (locked together).  See ping.h for the rationale.
-#define VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION "ver-1"
+#define VEF_COLUMN_STORE_INTF_VERSION "ver-1"
 
 // Extension descriptor for vsql::preview::column_store.
 // Pass as vef_required_capability_t.capability_config.
@@ -578,7 +578,7 @@ typedef struct {
 // capability_config naming used by
 // vef_required_capability_t.capability_config.
 typedef struct {
-  // Must be set to VEF_PREVIEW_COLUMN_STORE_VTABLE_VERSION.
+  // Must be set to VEF_COLUMN_STORE_INTF_VERSION.
   const char *version;
 
   uint32_t type_storage_count;
