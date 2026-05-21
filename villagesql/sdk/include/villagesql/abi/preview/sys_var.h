@@ -41,10 +41,10 @@ extern "C" {
 // rationale on empty pins.
 #define VEF_PREVIEW_SYS_VAR_ABI_HASH_MAC "verhash-001-375f8c0b6db2d67e"
 #define VEF_PREVIEW_SYS_VAR_ABI_HASH_LINUX_X86 "verhash-001-375f8c0b6db2d67e"
-#define VEF_PREVIEW_SYS_VAR_ABI_HASH_LINUX_ARM ""
+#define VEF_PREVIEW_SYS_VAR_ABI_HASH_LINUX_ARM "verhash-001-375f8c0b6db2d67e"
 #define VEF_SYS_VAR_DESC_LIST_ABI_HASH_MAC "verhash-001-657770e1f19751ff"
 #define VEF_SYS_VAR_DESC_LIST_ABI_HASH_LINUX_X86 "verhash-001-657770e1f19751ff"
-#define VEF_SYS_VAR_DESC_LIST_ABI_HASH_LINUX_ARM ""
+#define VEF_SYS_VAR_DESC_LIST_ABI_HASH_LINUX_ARM "verhash-001-657770e1f19751ff"
 
 // Capability ABI version compiled into this SDK snapshot.
 #define VEF_PREVIEW_SYS_VAR_ABI_VERSION 1

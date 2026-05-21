@@ -596,13 +596,16 @@ typedef struct {
 // structural hashes and paste them in.  See sql_query.h for the
 // rationale on empty pins.
 #define VEF_PREVIEW_COLUMN_STORE_ABI_HASH_MAC "verhash-001-e3cbaf4b1fcbabf1"
-#define VEF_PREVIEW_COLUMN_STORE_ABI_HASH_LINUX_X86 "verhash-001-e3cbaf4b1fcbabf1"
-#define VEF_PREVIEW_COLUMN_STORE_ABI_HASH_LINUX_ARM ""
+#define VEF_PREVIEW_COLUMN_STORE_ABI_HASH_LINUX_X86 \
+  "verhash-001-e3cbaf4b1fcbabf1"
+#define VEF_PREVIEW_COLUMN_STORE_ABI_HASH_LINUX_ARM \
+  "verhash-001-e3cbaf4b1fcbabf1"
 #define VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_MAC \
   "verhash-001-f2d5986766533861"
 #define VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_LINUX_X86 \
   "verhash-001-42e69dae47a81440"
-#define VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_LINUX_ARM ""
+#define VEF_PREVIEW_COLUMN_STORE_EXT_DESC_ABI_HASH_LINUX_ARM \
+  "verhash-001-42e69dae47a81440"
 
 // Extension descriptor for vsql::preview::column_store.
 // Pass as vef_required_capability_t.capability_config.
