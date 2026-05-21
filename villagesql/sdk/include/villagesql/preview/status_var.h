@@ -21,6 +21,7 @@
 
 #include <villagesql/abi/preview/status_var.h>
 #include <villagesql/abi/types.h>
+#include <villagesql/detail/capability_base.h>
 #include <villagesql/detail/capability_traits.h>
 
 namespace vsql::preview_status_var {
@@ -69,7 +70,8 @@ struct StatusVarDescriptor {
 // `descriptor_list` in the on_populate callback to register the variables
 // with MySQL.
 template <size_t N>
-class StatusVarCapability {
+class StatusVarCapability
+    : public ::vsql::detail::CapabilityBase<StatusVarCapability<N>> {
  public:
   explicit StatusVarCapability(StatusVarDescriptor const (&descs)[N]) {
     for (size_t i = 0; i < N; ++i) {
@@ -141,6 +143,6 @@ auto make_capability(StatusVarDescriptor const (&descs)[N]) {
 
 }  // namespace vsql::preview_status_var
 
-#include <villagesql/preview/status_var_register.h>
+#include <villagesql/preview/detail/status_var_register.h>
 
 #endif  // VILLAGESQL_PREVIEW_STATUS_VAR_H

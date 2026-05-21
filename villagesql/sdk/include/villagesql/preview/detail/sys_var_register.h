@@ -13,17 +13,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-#ifndef VILLAGESQL_PREVIEW_SYS_VAR_REGISTER_H
-#define VILLAGESQL_PREVIEW_SYS_VAR_REGISTER_H
+#ifndef VILLAGESQL_PREVIEW_DETAIL_SYS_VAR_REGISTER_H
+#define VILLAGESQL_PREVIEW_DETAIL_SYS_VAR_REGISTER_H
 
 #include <villagesql/abi/preview/sys_var.h>
 #include <villagesql/detail/capability_traits.h>
+#include <villagesql/preview/sys_var.h>
 
 namespace vsql::detail {
 
 template <size_t N>
 struct CapabilityTraits<::vsql::preview_sys_var::SysVarCapability<N>> {
   static constexpr const char *kName = VEF_PREVIEW_SYS_VAR_NAME;
+  static constexpr const char *kCppTypeName =
+      "vsql::preview_sys_var::SysVarCapability";
   static constexpr uint32_t kAbiVersion = VEF_PREVIEW_SYS_VAR_ABI_VERSION;
   using AbiType = vef_preview_sys_var_t;
 
@@ -42,4 +45,4 @@ struct CapabilityTraits<::vsql::preview_sys_var::SysVarCapability<N>> {
 
 }  // namespace vsql::detail
 
-#endif  // VILLAGESQL_PREVIEW_SYS_VAR_REGISTER_H
+#endif  // VILLAGESQL_PREVIEW_DETAIL_SYS_VAR_REGISTER_H

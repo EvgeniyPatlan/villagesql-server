@@ -13,17 +13,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-#ifndef VILLAGESQL_PREVIEW_STATUS_VAR_REGISTER_H
-#define VILLAGESQL_PREVIEW_STATUS_VAR_REGISTER_H
+#ifndef VILLAGESQL_PREVIEW_DETAIL_STATUS_VAR_REGISTER_H
+#define VILLAGESQL_PREVIEW_DETAIL_STATUS_VAR_REGISTER_H
 
 #include <villagesql/abi/preview/status_var.h>
 #include <villagesql/detail/capability_traits.h>
+#include <villagesql/preview/status_var.h>
 
 namespace vsql::detail {
 
 template <size_t N>
 struct CapabilityTraits<::vsql::preview_status_var::StatusVarCapability<N>> {
   static constexpr const char *kName = VEF_PREVIEW_STATUS_VAR_NAME;
+  static constexpr const char *kCppTypeName =
+      "vsql::preview_status_var::StatusVarCapability";
   static constexpr uint32_t kAbiVersion = VEF_PREVIEW_STATUS_VAR_ABI_VERSION;
   using AbiType = vef_preview_status_var_t;
   using DescriptorType = vef_status_var_descriptor_list_t;
@@ -44,4 +47,4 @@ struct CapabilityTraits<::vsql::preview_status_var::StatusVarCapability<N>> {
 
 }  // namespace vsql::detail
 
-#endif  // VILLAGESQL_PREVIEW_STATUS_VAR_REGISTER_H
+#endif  // VILLAGESQL_PREVIEW_DETAIL_STATUS_VAR_REGISTER_H

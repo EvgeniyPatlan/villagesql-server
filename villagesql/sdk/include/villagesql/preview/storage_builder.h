@@ -34,6 +34,7 @@
 #include <type_traits>
 
 #include <villagesql/abi/preview/storage.h>
+#include <villagesql/detail/capability_base.h>
 #include <villagesql/detail/capability_traits.h>
 #include <villagesql/preview/storage_api.h>
 
@@ -66,8 +67,11 @@ struct TypeStorageDescriptor {
 // `static auto`) so that the server can write the vtable pointer into it
 // at registration time.
 
-class StorageCapability {
+class StorageCapability
+    : public ::vsql::detail::CapabilityBase<StorageCapability> {
  public:
+  StorageCapability() {}
+
   static constexpr const char *kName = VEF_PREVIEW_STORAGE_NAME;
   static constexpr uint32_t kAbiVersion = VEF_STORAGE_SE_INTF_VERSION_1;
 };
@@ -97,15 +101,18 @@ class StorageCapability {
 // array remains valid when the server reads the extension descriptor.
 
 template <size_t N = 0>
-class ColumnStoreCapability {
+class ColumnStoreCapability
+    : public std::conditional_t<
+          (N > 0), ::vsql::detail::CapabilityBase<ColumnStoreCapability<N>>,
+          std::false_type> {
  public:
   static constexpr const char *kName = VEF_PREVIEW_COLUMN_STORE_NAME;
   static constexpr uint32_t kAbiVersion = VEF_COLUMN_STORE_INTF_VERSION_1;
 
-  constexpr ColumnStoreCapability() : ptrs_{} {}
+  ColumnStoreCapability() : ptrs_{} {}
 
   // Append a type storage descriptor. Returns ColumnStoreCapability<N+1>.
-  constexpr ColumnStoreCapability<N + 1> column_store(
+  ColumnStoreCapability<N + 1> column_store(
       const TypeStorageDescriptor &d) const {
     return ColumnStoreCapability<N + 1>(*this, &d.intf);
   }
@@ -130,8 +137,8 @@ class ColumnStoreCapability {
   // Constructor used by column_store() to build ColumnStoreCapability<N> from
   // ColumnStoreCapability<N-1> plus one new descriptor pointer.
   template <size_t M>
-  constexpr ColumnStoreCapability(const ColumnStoreCapability<M> &base,
-                                  const vef_type_storage_intf_t *new_ptr)
+  ColumnStoreCapability(const ColumnStoreCapability<M> &base,
+                        const vef_type_storage_intf_t *new_ptr)
       : ptrs_{} {
     static_assert(M + 1 == N, "internal construction size mismatch");
     for (size_t i = 0; i < M; i++) ptrs_[i] = base.ptrs_[i];
@@ -493,39 +500,6 @@ constexpr StorageBuilder<UserCtx> make_column_store(const TypeObj &type) {
 
 }  // namespace vsql::preview_storage_builder
 
-namespace vsql::detail {
-
-template <>
-struct CapabilityTraits<::vsql::preview_storage_builder::StorageCapability> {
-  static constexpr const char *kName = VEF_PREVIEW_STORAGE_NAME;
-  static constexpr uint32_t kAbiVersion = VEF_STORAGE_SE_INTF_VERSION_1;
-  using AbiType = vef_preview_storage_t;
-
-  static void *vtable_destination(
-      ::vsql::preview_storage_builder::StorageCapability * /*p*/) noexcept {
-    return static_cast<void *>(&::vsql::preview_storage::detail::g_abi);
-  }
-};
-
-template <size_t N>
-struct CapabilityTraits<
-    ::vsql::preview_storage_builder::ColumnStoreCapability<N>> {
-  static constexpr const char *kName = VEF_PREVIEW_COLUMN_STORE_NAME;
-  static constexpr uint32_t kAbiVersion = VEF_COLUMN_STORE_INTF_VERSION_1;
-  using AbiType = vef_preview_column_store_t;
-  using DescriptorType = vef_preview_column_store_ext_desc_t;
-
-  static void *vtable_destination(
-      ::vsql::preview_storage_builder::ColumnStoreCapability<N> *p) noexcept {
-    return static_cast<void *>(&p->vtable_);
-  }
-
-  static const void *extension_data(
-      ::vsql::preview_storage_builder::ColumnStoreCapability<N> *p) noexcept {
-    return p->extension_desc();
-  }
-};
-
-}  // namespace vsql::detail
+#include <villagesql/preview/detail/storage_builder_register.h>
 
 #endif  // VILLAGESQL_PREVIEW_STORAGE_BUILDER_H

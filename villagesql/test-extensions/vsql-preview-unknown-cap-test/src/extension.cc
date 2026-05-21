@@ -21,6 +21,7 @@
 // registered" error before any user-visible code runs, so the extension
 // exposes no VDFs.
 
+#include <villagesql/detail/capability_base.h>
 #include <villagesql/vsql.h>
 
 using namespace vsql;
@@ -31,7 +32,9 @@ struct NonexistentAbi {
   void (*fn)();
 };
 
-struct NonexistentCap {
+struct NonexistentCap : public ::vsql::detail::CapabilityBase<NonexistentCap> {
+  NonexistentCap() {}
+
   const NonexistentAbi *abi = nullptr;
 };
 
@@ -40,6 +43,7 @@ namespace vsql::detail {
 template <>
 struct CapabilityTraits<NonexistentCap> {
   static constexpr const char *kName = "vsql::nonexistent";
+  static constexpr const char *kCppTypeName = "NonexistentCap";
   static constexpr uint32_t kAbiVersion = 1;
   using AbiType = NonexistentAbi;
 

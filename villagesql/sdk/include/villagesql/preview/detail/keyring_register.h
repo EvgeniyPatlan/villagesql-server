@@ -13,27 +13,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-#ifndef VILLAGESQL_PREVIEW_PING_REGISTER_H
-#define VILLAGESQL_PREVIEW_PING_REGISTER_H
+#ifndef VILLAGESQL_PREVIEW_DETAIL_KEYRING_REGISTER_H
+#define VILLAGESQL_PREVIEW_DETAIL_KEYRING_REGISTER_H
 
-#include <villagesql/abi/preview/ping.h>
+#include <villagesql/abi/preview/keyring.h>
 #include <villagesql/detail/capability_traits.h>
-#include <villagesql/preview/ping.h>
+#include <villagesql/preview/keyring.h>
 
 namespace vsql::detail {
 
 template <>
-struct CapabilityTraits<::vsql::preview_ping::PingCapability> {
-  static constexpr const char *kName = VEF_PREVIEW_PING_NAME;
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_PING_ABI_VERSION;
-  using AbiType = vef_preview_ping_t;
+struct CapabilityTraits<::vsql::preview_keyring::KeyringCapability> {
+  static constexpr const char *kName = VEF_PREVIEW_KEYRING_NAME;
+  static constexpr const char *kCppTypeName =
+      "vsql::preview_keyring::KeyringCapability";
+  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_KEYRING_ABI_VERSION;
+  using AbiType = vef_preview_keyring_t;
 
   static constexpr void *vtable_destination(
-      ::vsql::preview_ping::PingCapability *p) noexcept {
+      ::vsql::preview_keyring::KeyringCapability *p) noexcept {
     return static_cast<void *>(&p->abi_);
   }
 };
 
 }  // namespace vsql::detail
 
-#endif  // VILLAGESQL_PREVIEW_PING_REGISTER_H
+#endif  // VILLAGESQL_PREVIEW_DETAIL_KEYRING_REGISTER_H

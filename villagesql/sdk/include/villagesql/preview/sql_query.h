@@ -21,6 +21,7 @@
 
 #include <villagesql/abi/preview/sql_query.h>
 #include <villagesql/abi/preview/thread_worker.h>
+#include <villagesql/detail/capability_base.h>
 #include <villagesql/detail/capability_traits.h>
 
 namespace vsql::preview_sql_query {
@@ -75,7 +76,8 @@ class SqlQuery;
 //       make_extension()
 //           .with(g_worker_cap)
 //           .with(g_sql_query_cap))
-class SqlQueryCapability {
+class SqlQueryCapability
+    : public ::vsql::detail::CapabilityBase<SqlQueryCapability> {
  public:
   // Open a SQL session bound to the given background thread handle.
   // Returns an invalid Session (operator bool == false) on failure.
@@ -93,21 +95,7 @@ class SqlQueryCapability {
 
 }  // namespace vsql::preview_sql_query
 
-namespace vsql::detail {
-
-template <>
-struct CapabilityTraits<::vsql::preview_sql_query::SqlQueryCapability> {
-  static constexpr const char *kName = VEF_PREVIEW_SQL_QUERY_NAME;
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_SQL_QUERY_ABI_VERSION;
-  using AbiType = vef_preview_sql_query_t;
-
-  static constexpr void *vtable_destination(
-      ::vsql::preview_sql_query::SqlQueryCapability *p) noexcept {
-    return static_cast<void *>(&p->abi_);
-  }
-};
-
-}  // namespace vsql::detail
+#include <villagesql/preview/detail/sql_query_register.h>
 
 namespace vsql::preview_sql_query {
 
