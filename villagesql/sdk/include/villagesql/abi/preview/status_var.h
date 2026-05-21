@@ -40,10 +40,10 @@ extern "C" {
 // structural hashes and paste them in.  See sql_query.h for the
 // rationale on empty pins.
 #define VEF_PREVIEW_STATUS_VAR_ABI_HASH_MAC "verhash-001-e3cbaf4b1fcbabf1"
-#define VEF_PREVIEW_STATUS_VAR_ABI_HASH_LINUX_X86 ""
+#define VEF_PREVIEW_STATUS_VAR_ABI_HASH_LINUX_X86 "verhash-001-e3cbaf4b1fcbabf1"
 #define VEF_PREVIEW_STATUS_VAR_ABI_HASH_LINUX_ARM ""
 #define VEF_STATUS_VAR_DESC_LIST_ABI_HASH_MAC "verhash-001-671bc475551c7a80"
-#define VEF_STATUS_VAR_DESC_LIST_ABI_HASH_LINUX_X86 ""
+#define VEF_STATUS_VAR_DESC_LIST_ABI_HASH_LINUX_X86 "verhash-001-671bc475551c7a80"
 #define VEF_STATUS_VAR_DESC_LIST_ABI_HASH_LINUX_ARM ""
 
 // Capability ABI version compiled into this SDK snapshot.

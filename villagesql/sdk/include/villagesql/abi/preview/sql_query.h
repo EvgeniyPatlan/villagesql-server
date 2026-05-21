@@ -53,7 +53,7 @@ extern "C" {
 // not a real pin, so until these are filled in, only extensions
 // built against an SDK with the same empty placeholder will load.
 #define VEF_PREVIEW_SQL_QUERY_ABI_HASH_MAC "verhash-001-edf651be211d9b9e"
-#define VEF_PREVIEW_SQL_QUERY_ABI_HASH_LINUX_X86 ""
+#define VEF_PREVIEW_SQL_QUERY_ABI_HASH_LINUX_X86 "verhash-001-edf651be211d9b9e"
 #define VEF_PREVIEW_SQL_QUERY_ABI_HASH_LINUX_ARM ""
 
 // Forward declaration — defined in abi/preview/thread_worker.h.
