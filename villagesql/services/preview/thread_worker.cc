@@ -336,10 +336,11 @@ static void on_enabled_change(const char *var_name, bool new_val) {
 
 bool on_populate_thread_worker(const PopulateContext &ctx,
                                std::string &error_message) {
-  if (ctx.capability_config == nullptr || ctx.extension_name.empty()) return false;
+  if (ctx.capability_config == nullptr || ctx.extension_name.empty())
+    return false;
 
-  auto *desc =
-      static_cast<const vef_thread_worker_descriptor_t *>(ctx.capability_config);
+  auto *desc = static_cast<const vef_thread_worker_descriptor_t *>(
+      ctx.capability_config);
 
   auto state = std::make_unique<WorkerState>();
   state->descriptor = desc;
@@ -373,8 +374,8 @@ bool on_populate_thread_worker(const PopulateContext &ctx,
 void on_depopulate_thread_worker(const DepopulateContext &ctx) {
   if (ctx.capability_config == nullptr) return;
 
-  auto *desc =
-      static_cast<const vef_thread_worker_descriptor_t *>(ctx.capability_config);
+  auto *desc = static_cast<const vef_thread_worker_descriptor_t *>(
+      ctx.capability_config);
 
   WorkerState *state = nullptr;
   {

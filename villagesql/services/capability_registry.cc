@@ -80,9 +80,9 @@ struct CapabilityVersion {
   const char *vtable_hash;
   // Fingerprint of the descriptor struct type for capabilities that take
   // one (e.g. thread_worker).  nullptr for capabilities without a
-  // descriptor.  Comparison with vef_required_capability_t::capability_config_hash
-  // is by strcmp, treating nullptr as a sentinel that only matches another
-  // nullptr.
+  // descriptor.  Comparison with
+  // vef_required_capability_t::capability_config_hash is by strcmp, treating
+  // nullptr as a sentinel that only matches another nullptr.
   const char *capability_config_hash;
   // Optional. Called after the hash match succeeds for each extension that
   // requires this capability. Returns true on error (sets error_message),
@@ -116,15 +116,17 @@ bool capability_config_hash_matches(const char *a, const char *b) {
 
 // Look up the specific (name, vtable_hash, capability_config_hash)
 // triple.  Returns nullptr when no matching version is registered.
-const CapabilityVersion *find_capability_version(const char *name,
-                                                 const char *vtable_hash,
-                                                 const char *capability_config_hash) {
+const CapabilityVersion *find_capability_version(
+    const char *name, const char *vtable_hash,
+    const char *capability_config_hash) {
   if (name == nullptr || vtable_hash == nullptr) return nullptr;
   auto it = g_registry.find(name);
   if (it == g_registry.end()) return nullptr;
   for (const auto &v : it->second) {
     if (std::strcmp(v.vtable_hash, vtable_hash) != 0) continue;
-    if (!capability_config_hash_matches(v.capability_config_hash, capability_config_hash)) continue;
+    if (!capability_config_hash_matches(v.capability_config_hash,
+                                        capability_config_hash))
+      continue;
     return &v;
   }
   return nullptr;
@@ -135,8 +137,8 @@ const CapabilityVersion *find_capability_version(const char *name,
 void register_capability(std::string name, CapabilityRegistration reg) {
   if (reg.on_server_startup != nullptr) reg.on_server_startup();
   g_registry[std::move(name)].push_back({reg.vtable, reg.vtable_hash,
-                                         reg.capability_config_hash, reg.on_populate,
-                                         reg.on_depopulate});
+                                         reg.capability_config_hash,
+                                         reg.on_populate, reg.on_depopulate});
 }
 
 void unregister_capability(const std::string &name) { g_registry.erase(name); }
@@ -167,13 +169,13 @@ void register_builtin_capabilities() {
   // of the given ABI type, plus an evaluation that yields the literal
   // for the current build target.  A stale literal fails compilation
   // with a diagnostic naming the type and target.
-  register_capability(VEF_PREVIEW_PING_NAME,
-                      {.vtable = preview_ping_vtable(),
-                       .vtable_hash = VEF_PIN_VERIFY(
-                           vef_preview_ping_t, VEF_PREVIEW_PING_ABI_VERSION,
-                           VEF_PREVIEW_PING_ABI_HASH_MAC,
-                           VEF_PREVIEW_PING_ABI_HASH_LINUX_X86,
-                           VEF_PREVIEW_PING_ABI_HASH_LINUX_ARM)});
+  register_capability(
+      VEF_PREVIEW_PING_NAME,
+      {.vtable = preview_ping_vtable(),
+       .vtable_hash = VEF_PIN_VERIFY(
+           vef_preview_ping_t, VEF_PREVIEW_PING_ABI_VERSION,
+           VEF_PREVIEW_PING_ABI_HASH_MAC, VEF_PREVIEW_PING_ABI_HASH_LINUX_X86,
+           VEF_PREVIEW_PING_ABI_HASH_LINUX_ARM)});
   register_capability(
       VEF_PREVIEW_KEYRING_NAME,
       {.vtable = preview_keyring_vtable(),
@@ -182,14 +184,13 @@ void register_builtin_capabilities() {
                                      VEF_PREVIEW_KEYRING_ABI_HASH_MAC,
                                      VEF_PREVIEW_KEYRING_ABI_HASH_LINUX_X86,
                                      VEF_PREVIEW_KEYRING_ABI_HASH_LINUX_ARM)});
-  register_capability(
-      VEF_PREVIEW_STORAGE_NAME,
-      {.vtable = preview_storage_vtable(),
-       .vtable_hash = VEF_PIN_VERIFY(vef_preview_storage_t,
-                                     VEF_STORAGE_SE_INTF_VERSION,
-                                     VEF_PREVIEW_STORAGE_ABI_HASH_MAC,
-                                     VEF_PREVIEW_STORAGE_ABI_HASH_LINUX_X86,
-                                     VEF_PREVIEW_STORAGE_ABI_HASH_LINUX_ARM)});
+  register_capability(VEF_PREVIEW_STORAGE_NAME,
+                      {.vtable = preview_storage_vtable(),
+                       .vtable_hash = VEF_PIN_VERIFY(
+                           vef_preview_storage_t, VEF_STORAGE_SE_INTF_VERSION,
+                           VEF_PREVIEW_STORAGE_ABI_HASH_MAC,
+                           VEF_PREVIEW_STORAGE_ABI_HASH_LINUX_X86,
+                           VEF_PREVIEW_STORAGE_ABI_HASH_LINUX_ARM)});
   register_capability(
       VEF_PREVIEW_THREAD_WORKER_NAME,
       {.vtable = preview_thread_worker_vtable(),
@@ -238,12 +239,11 @@ void register_builtin_capabilities() {
                                      VEF_PREVIEW_STATUS_VAR_ABI_HASH_MAC,
                                      VEF_PREVIEW_STATUS_VAR_ABI_HASH_LINUX_X86,
                                      VEF_PREVIEW_STATUS_VAR_ABI_HASH_LINUX_ARM),
-       .capability_config_hash =
-           VEF_PIN_VERIFY(vef_status_var_descriptor_list_t,
-                          VEF_PREVIEW_STATUS_VAR_ABI_VERSION,
-                          VEF_STATUS_VAR_DESC_LIST_ABI_HASH_MAC,
-                          VEF_STATUS_VAR_DESC_LIST_ABI_HASH_LINUX_X86,
-                          VEF_STATUS_VAR_DESC_LIST_ABI_HASH_LINUX_ARM),
+       .capability_config_hash = VEF_PIN_VERIFY(
+           vef_status_var_descriptor_list_t, VEF_PREVIEW_STATUS_VAR_ABI_VERSION,
+           VEF_STATUS_VAR_DESC_LIST_ABI_HASH_MAC,
+           VEF_STATUS_VAR_DESC_LIST_ABI_HASH_LINUX_X86,
+           VEF_STATUS_VAR_DESC_LIST_ABI_HASH_LINUX_ARM),
        .on_populate = on_populate_status_var,
        .on_depopulate = on_depopulate_status_var});
   // Sys var: on_populate registers the extension's system variables
@@ -304,21 +304,23 @@ bool populate_capabilities(const PopulateContext &ctx,
           std::string("required capability not registered: ") + req.name;
       return true;
     }
-    const CapabilityVersion *entry =
-        find_capability_version(req.name, req.vtable_hash, req.capability_config_hash);
+    const CapabilityVersion *entry = find_capability_version(
+        req.name, req.vtable_hash, req.capability_config_hash);
     if (entry == nullptr) {
-      error_message = std::string("no matching ABI version for capability '") +
-                      req.name + "' (extension requires " + req.vtable_hash +
-                      (req.capability_config_hash != nullptr
-                           ? std::string(" + descriptor ") + req.capability_config_hash
-                           : std::string()) +
-                      ")";
+      error_message =
+          std::string("no matching ABI version for capability '") + req.name +
+          "' (extension requires " + req.vtable_hash +
+          (req.capability_config_hash != nullptr
+               ? std::string(" + descriptor ") + req.capability_config_hash
+               : std::string()) +
+          ")";
       return true;
     }
     *req.vtable_dest = entry->vtable;
     if (entry->on_populate != nullptr) {
-      // ctx carries shared fields (reason, thd, extension_name); capability_config
-      // is capability-specific and comes from the per-capability req entry.
+      // ctx carries shared fields (reason, thd, extension_name);
+      // capability_config is capability-specific and comes from the
+      // per-capability req entry.
       PopulateContext cap_ctx = ctx;
       cap_ctx.capability_config = req.capability_config;
       if (entry->on_populate(cap_ctx, error_message)) return true;
@@ -339,10 +341,11 @@ void depopulate_capabilities(const DepopulateContext &ctx,
     const vef_required_capability_t &req = reg->required_capabilities[i];
     if (req.name == nullptr || req.vtable_hash == nullptr) continue;
 
-    const CapabilityVersion *entry =
-        find_capability_version(req.name, req.vtable_hash, req.capability_config_hash);
+    const CapabilityVersion *entry = find_capability_version(
+        req.name, req.vtable_hash, req.capability_config_hash);
     if (entry == nullptr || entry->on_depopulate == nullptr) continue;
-    // Same as populate: ctx carries shared fields, capability_config is per-cap.
+    // Same as populate: ctx carries shared fields, capability_config is
+    // per-cap.
     DepopulateContext cap_ctx = ctx;
     cap_ctx.capability_config = req.capability_config;
     entry->on_depopulate(cap_ctx);

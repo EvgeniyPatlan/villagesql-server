@@ -93,9 +93,10 @@ typedef struct {
 
 // Preview capability: "vsql::preview::thread_worker"
 //
-// The extension sets capability_config = &descriptor in vef_required_capability_t.
-// The server registers a control sys var on the extension's behalf at load
-// time. The var name is descriptor->var_name if set, otherwise
+// The extension sets capability_config = &descriptor in
+// vef_required_capability_t. The server registers a control sys var on the
+// extension's behalf at load time. The var name is descriptor->var_name if set,
+// otherwise
 // "{suffix}_enabled". Setting it ON starts the background thread; OFF stops it.
 //
 // Capability name: VEF_PREVIEW_THREAD_WORKER_NAME
@@ -117,12 +118,16 @@ typedef struct {
 // uint64_t / long-double / similar divergence), but pins are declared
 // per platform so future drift is caught individually.
 #define VEF_PREVIEW_THREAD_WORKER_ABI_HASH_MAC "verhash-001-e3cbaf4b1fcbabf1"
-#define VEF_PREVIEW_THREAD_WORKER_ABI_HASH_LINUX_X86 "verhash-001-e3cbaf4b1fcbabf1"
-#define VEF_PREVIEW_THREAD_WORKER_ABI_HASH_LINUX_ARM "verhash-001-e3cbaf4b1fcbabf1"
+#define VEF_PREVIEW_THREAD_WORKER_ABI_HASH_LINUX_X86 \
+  "verhash-001-e3cbaf4b1fcbabf1"
+#define VEF_PREVIEW_THREAD_WORKER_ABI_HASH_LINUX_ARM \
+  "verhash-001-e3cbaf4b1fcbabf1"
 
 #define VEF_THREAD_WORKER_DESCRIPTOR_ABI_HASH_MAC "verhash-001-00f31518f917775f"
-#define VEF_THREAD_WORKER_DESCRIPTOR_ABI_HASH_LINUX_X86 "verhash-001-00f31518f917775f"
-#define VEF_THREAD_WORKER_DESCRIPTOR_ABI_HASH_LINUX_ARM "verhash-001-00f31518f917775f"
+#define VEF_THREAD_WORKER_DESCRIPTOR_ABI_HASH_LINUX_X86 \
+  "verhash-001-00f31518f917775f"
+#define VEF_THREAD_WORKER_DESCRIPTOR_ABI_HASH_LINUX_ARM \
+  "verhash-001-00f31518f917775f"
 
 #ifdef __cplusplus
 }

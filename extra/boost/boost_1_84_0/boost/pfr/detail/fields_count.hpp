@@ -45,7 +45,7 @@ struct ubiq_lref_constructor {
 };
 
 ///////////////////// Structure that can be converted to rvalue reference to
-///anything
+/// anything
 struct ubiq_rref_constructor {
   std::size_t ignore;
   template <class Type>
@@ -208,7 +208,7 @@ using multi_element_range = std::false_type;
 using one_element_range = std::true_type;
 
 ///////////////////// Non greedy fields count search. Templates instantiation
-///depth is log(sizeof(T)), templates instantiation count is log(sizeof(T)).
+/// depth is log(sizeof(T)), templates instantiation count is log(sizeof(T)).
 template <class T, std::size_t Begin, std::size_t Middle>
 constexpr std::size_t detect_fields_count(detail::one_element_range,
                                           long) noexcept {
@@ -238,8 +238,8 @@ constexpr std::size_t detect_fields_count(detail::multi_element_range,
 }
 
 ///////////////////// Greedy search. Templates instantiation depth is
-///log(sizeof(T)), templates instantiation count is log(sizeof(T))*T in worst
-///case.
+/// log(sizeof(T)), templates instantiation count is log(sizeof(T))*T in worst
+/// case.
 template <class T, std::size_t N>
 constexpr auto detect_fields_count_greedy_remember(long) noexcept
     -> detail::enable_if_constructible_helper_t<T, N> {

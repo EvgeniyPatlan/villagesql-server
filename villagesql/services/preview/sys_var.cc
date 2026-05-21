@@ -310,15 +310,15 @@ bool on_populate_sys_var(const PopulateContext &ctx,
         std::vector<std::string> to_unreg;
         {
           std::lock_guard<std::mutex> lock(g_sys_vars_mutex);
-          auto it =
-              std::remove_if(g_sys_vars.begin(), g_sys_vars.end(),
-                             [&](const RegisteredSysVar &rv) {
-                               if (rv.capability_config == ctx.capability_config) {
-                                 to_unreg.push_back(rv.var_name);
-                                 return true;
-                               }
-                               return false;
-                             });
+          auto it = std::remove_if(
+              g_sys_vars.begin(), g_sys_vars.end(),
+              [&](const RegisteredSysVar &rv) {
+                if (rv.capability_config == ctx.capability_config) {
+                  to_unreg.push_back(rv.var_name);
+                  return true;
+                }
+                return false;
+              });
           g_sys_vars.erase(it, g_sys_vars.end());
         }
         my_service<SERVICE_TYPE(component_sys_variable_unregister)> unreg_svc(
@@ -353,16 +353,15 @@ void on_depopulate_sys_var(const DepopulateContext &ctx) {
   std::string extension_name;
   {
     std::lock_guard<std::mutex> lock(g_sys_vars_mutex);
-    auto it = std::remove_if(g_sys_vars.begin(), g_sys_vars.end(),
-                             [&](const RegisteredSysVar &v) {
-                               if (v.capability_config == ctx.capability_config) {
-                                 if (extension_name.empty())
-                                   extension_name = v.extension_name;
-                                 var_names.push_back(v.var_name);
-                                 return true;
-                               }
-                               return false;
-                             });
+    auto it = std::remove_if(
+        g_sys_vars.begin(), g_sys_vars.end(), [&](const RegisteredSysVar &v) {
+          if (v.capability_config == ctx.capability_config) {
+            if (extension_name.empty()) extension_name = v.extension_name;
+            var_names.push_back(v.var_name);
+            return true;
+          }
+          return false;
+        });
     g_sys_vars.erase(it, g_sys_vars.end());
   }
 

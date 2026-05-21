@@ -62,8 +62,8 @@ vef_preview_status_var_t *preview_status_var_vtable() {
 
 bool on_populate_status_var(const PopulateContext &ctx,
                             std::string &error_message) {
-  const auto *list =
-      static_cast<const vef_status_var_descriptor_list_t *>(ctx.capability_config);
+  const auto *list = static_cast<const vef_status_var_descriptor_list_t *>(
+      ctx.capability_config);
   if (list == nullptr || list->var_count == 0) return false;
 
   SERVICE_TYPE(registry) *registry = mysql_plugin_registry_acquire();

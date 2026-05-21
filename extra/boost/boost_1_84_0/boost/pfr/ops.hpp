@@ -51,7 +51,7 @@ using enable_comp_base_t =
     std::enable_if_t<!not_appliable<Detector, T const &, U const &>::value,
                      bool>;
 ///////////////////// std::enable_if_t like functions that enable only if types
-///do not support operation
+/// do not support operation
 
 template <class T, class U>
 using enable_not_eq_comp_t = enable_not_comp_base_t<comp_eq_detector, T, U>;
@@ -71,7 +71,7 @@ using enable_not_hashable_t =
     std::enable_if_t<not_appliable<hash_detector, const T &, const T &>::value,
                      std::size_t>;
 ///////////////////// std::enable_if_t like functions that enable only if types
-///do support operation
+/// do support operation
 
 template <class T, class U>
 using enable_eq_comp_t = enable_comp_base_t<comp_eq_detector, T, U>;

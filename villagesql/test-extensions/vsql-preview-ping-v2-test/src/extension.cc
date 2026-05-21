@@ -65,8 +65,7 @@ struct CapabilityTraits<PingV2Capability> {
   // guaranteed not to match the server's pinned vef_preview_ping_t
   // fingerprint, so INSTALL fires the "no matching ABI version" path
   // which is what this test exercises.
-  static constexpr const char *kVtableHash =
-      "verhash-002-0000000000000000";
+  static constexpr const char *kVtableHash = "verhash-002-0000000000000000";
 
   static constexpr void *vtable_destination(PingV2Capability *p) noexcept {
     return static_cast<void *>(&p->abi);

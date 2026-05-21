@@ -142,10 +142,10 @@ void check_pin(const char *type_name, const char *define_name,
 // `#mac` etc. stringify the macro *name* (not its expanded value), so
 // we can embed it in the failure message; the bare names in VEF_PIN
 // are expanded as usual to feed the literal selector.
-#define VEF_CHECK_PIN(Type, version, mac, x86, arm)                       \
-  check_pin<Type, (version)>(                                             \
-      #Type,                                                              \
-      ::villagesql_unittest::current_target_define_name(#mac, #x86, #arm),\
+#define VEF_CHECK_PIN(Type, version, mac, x86, arm)                        \
+  check_pin<Type, (version)>(                                              \
+      #Type,                                                               \
+      ::villagesql_unittest::current_target_define_name(#mac, #x86, #arm), \
       VEF_PIN(mac, x86, arm))
 
 }  // namespace
@@ -226,8 +226,7 @@ TEST(AbiPinLiterals, SysVar) {
                 VEF_PREVIEW_SYS_VAR_ABI_HASH_MAC,
                 VEF_PREVIEW_SYS_VAR_ABI_HASH_LINUX_X86,
                 VEF_PREVIEW_SYS_VAR_ABI_HASH_LINUX_ARM);
-  VEF_CHECK_PIN(vef_sys_var_descriptor_list_t,
-                VEF_PREVIEW_SYS_VAR_ABI_VERSION,
+  VEF_CHECK_PIN(vef_sys_var_descriptor_list_t, VEF_PREVIEW_SYS_VAR_ABI_VERSION,
                 VEF_SYS_VAR_DESC_LIST_ABI_HASH_MAC,
                 VEF_SYS_VAR_DESC_LIST_ABI_HASH_LINUX_X86,
                 VEF_SYS_VAR_DESC_LIST_ABI_HASH_LINUX_ARM);

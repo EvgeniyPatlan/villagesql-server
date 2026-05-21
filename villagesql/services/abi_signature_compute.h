@@ -466,44 +466,41 @@ constexpr bool pin_matches(const char (&lit)[N]) {
 // literal for use on the wire.  Run the abi_pin_literals gunit test
 // on the target to obtain the current hash for pasting.
 #if defined(__APPLE__)
-#define VEF_PIN_VERIFY(T, version, mac_lit, x86_lit, arm_lit)                \
-  ([] {                                                                      \
-    static_assert(                                                           \
-        ::villagesql::detail::pin_matches<T, (version)>(mac_lit),            \
-        "ABI pin mismatch for " #T                                           \
-        " on mac -- "                                                        \
-        "run abi_pin_literals-t for the current verhash");                   \
-    (void)(x86_lit);                                                         \
-    (void)(arm_lit);                                                         \
-    return mac_lit;                                                          \
+#define VEF_PIN_VERIFY(T, version, mac_lit, x86_lit, arm_lit)               \
+  ([] {                                                                     \
+    static_assert(::villagesql::detail::pin_matches<T, (version)>(mac_lit), \
+                  "ABI pin mismatch for " #T                                \
+                  " on mac -- "                                             \
+                  "run abi_pin_literals-t for the current verhash");        \
+    (void)(x86_lit);                                                        \
+    (void)(arm_lit);                                                        \
+    return mac_lit;                                                         \
   }())
 #elif defined(__linux__) && defined(__x86_64__)
-#define VEF_PIN_VERIFY(T, version, mac_lit, x86_lit, arm_lit)                \
-  ([] {                                                                      \
-    static_assert(                                                           \
-        ::villagesql::detail::pin_matches<T, (version)>(x86_lit),            \
-        "ABI pin mismatch for " #T                                           \
-        " on linux_x86 -- "                                                  \
-        "run abi_pin_literals-t for the current verhash");                   \
-    (void)(mac_lit);                                                         \
-    (void)(arm_lit);                                                         \
-    return x86_lit;                                                          \
+#define VEF_PIN_VERIFY(T, version, mac_lit, x86_lit, arm_lit)               \
+  ([] {                                                                     \
+    static_assert(::villagesql::detail::pin_matches<T, (version)>(x86_lit), \
+                  "ABI pin mismatch for " #T                                \
+                  " on linux_x86 -- "                                       \
+                  "run abi_pin_literals-t for the current verhash");        \
+    (void)(mac_lit);                                                        \
+    (void)(arm_lit);                                                        \
+    return x86_lit;                                                         \
   }())
 #elif defined(__linux__) && defined(__aarch64__)
-#define VEF_PIN_VERIFY(T, version, mac_lit, x86_lit, arm_lit)                \
-  ([] {                                                                      \
-    static_assert(                                                           \
-        ::villagesql::detail::pin_matches<T, (version)>(arm_lit),            \
-        "ABI pin mismatch for " #T                                           \
-        " on linux_arm -- "                                                  \
-        "run abi_pin_literals-t for the current verhash");                   \
-    (void)(mac_lit);                                                         \
-    (void)(x86_lit);                                                         \
-    return arm_lit;                                                          \
+#define VEF_PIN_VERIFY(T, version, mac_lit, x86_lit, arm_lit)               \
+  ([] {                                                                     \
+    static_assert(::villagesql::detail::pin_matches<T, (version)>(arm_lit), \
+                  "ABI pin mismatch for " #T                                \
+                  " on linux_arm -- "                                       \
+                  "run abi_pin_literals-t for the current verhash");        \
+    (void)(mac_lit);                                                        \
+    (void)(x86_lit);                                                        \
+    return arm_lit;                                                         \
   }())
 #else
-#define VEF_PIN_VERIFY(T, version, mac_lit, x86_lit, arm_lit)                \
-  ((void)(version), (void)(mac_lit), (void)(x86_lit), (void)(arm_lit),       \
+#define VEF_PIN_VERIFY(T, version, mac_lit, x86_lit, arm_lit)          \
+  ((void)(version), (void)(mac_lit), (void)(x86_lit), (void)(arm_lit), \
    (const char *)"")
 #endif
 
