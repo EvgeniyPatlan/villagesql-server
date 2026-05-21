@@ -79,10 +79,10 @@ class AbiSignatureTest : public ::testing::Test {};
 
 TEST_F(AbiSignatureTest, FingerprintIsConstexprAndHashPrefixed) {
   constexpr auto fp = abi_signature_hash<vef_preview_keyring_t>();
-  static_assert(fp.chars[0] == 'h' && fp.chars[4] == '-',
-                "fingerprint should begin with the 'hash-' scheme tag");
-  EXPECT_EQ(fp.view().substr(0, 5), std::string_view("hash-"));
-  EXPECT_EQ(fp.view().size(), 21u);
+  static_assert(fp.chars[0] == 'v' && fp.chars[7] == '-',
+                "fingerprint should begin with the 'verhash-' scheme tag");
+  EXPECT_EQ(fp.view().substr(0, 8), std::string_view("verhash-"));
+  EXPECT_EQ(fp.view().size(), 28u);
 }
 
 TEST_F(AbiSignatureTest, StructHashDiffersFromLeafHash) {

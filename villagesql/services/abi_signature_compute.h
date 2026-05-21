@@ -46,7 +46,7 @@
 //          PFR-enumerated AbiStructFields<T>::field_hash().
 //   2. The resulting std::size_t is rendered into an AbiFingerprint
 //      (from abi_signature_literals.h), which is a fixed-width string
-//      of the form "hash-XXXXXXXXXXXXXXXX".
+//      of the form "verhash-NNN-XXXXXXXXXXXXXXXX".
 //
 // Why kind tags instead of sizeof alone: on LP64 platforms `long` and
 // `long long` have identical sizeof but are distinct types; same for

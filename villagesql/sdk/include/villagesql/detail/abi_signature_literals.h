@@ -30,8 +30,9 @@
 // pin literal against the structurally-computed hash at server
 // compile time.
 //
-// The pin literal format is "hash-XXXXXXXXXXXXXXXX" (5-char tag +
-// 16 lowercase hex digits, NUL-terminated -> 22 bytes including NUL).
+// The pin literal format is "verhash-NNN-XXXXXXXXXXXXXXXX" (8-char tag +
+// 3-digit zero-padded version + "-" + 16 lowercase hex digits,
+// NUL-terminated -> 29 bytes including NUL).
 // The empty string "" is the sentinel for "no pin available" -- used
 // transiently for capabilities whose per-target literals have not
 // been recorded yet (run the abi_pin_literals gunit test to get

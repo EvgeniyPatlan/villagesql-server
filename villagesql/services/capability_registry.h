@@ -57,7 +57,7 @@ struct CapabilityRegistration {
   // Required: server-side vtable pointer.
   void *vtable = nullptr;
   // Required: structural fingerprint of the vtable type, of the form
-  // "hash-XXXXXXXXXXXXXXXX".  Typically the result of a VEF_PIN(T)
+  // "verhash-NNN-XXXXXXXXXXXXXXXX".  Typically the result of a VEF_PIN(T)
   // chain (see villagesql/detail/abi_signature_literals.h) so the per-target
   // pinned literal is what gets registered.
   const char *vtable_hash = nullptr;

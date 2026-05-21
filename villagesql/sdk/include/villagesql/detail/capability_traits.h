@@ -29,7 +29,7 @@ namespace vsql::detail {
 //       wrote in source rather than the ABI string.
 //   static constexpr const char* kVtableHash;
 //       The pinned per-target structural fingerprint of the capability's
-//       C ABI vtable struct (form "hash-XXXXXXXXXXXXXXXX"), produced by
+//       C ABI vtable struct (form "verhash-NNN-XXXXXXXXXXXXXXXX"), produced by
 //       a VEF_PIN(mac_lit, x86_lit, arm_lit) selector.  Sent on the
 //       wire and matched by strcmp against the server's registry.
 //   using CapabilityConfigType = ...;  (optional, present iff the

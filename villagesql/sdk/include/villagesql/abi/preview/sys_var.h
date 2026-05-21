@@ -39,10 +39,10 @@ extern "C" {
 // abi_pin_literals gunit test on each target to obtain the current
 // structural hashes and paste them in.  See sql_query.h for the
 // rationale on empty pins.
-#define VEF_PREVIEW_SYS_VAR_ABI_HASH_MAC ""
+#define VEF_PREVIEW_SYS_VAR_ABI_HASH_MAC "verhash-001-375f8c0b6db2d67e"
 #define VEF_PREVIEW_SYS_VAR_ABI_HASH_LINUX_X86 ""
 #define VEF_PREVIEW_SYS_VAR_ABI_HASH_LINUX_ARM ""
-#define VEF_SYS_VAR_DESC_LIST_ABI_HASH_MAC ""
+#define VEF_SYS_VAR_DESC_LIST_ABI_HASH_MAC "verhash-001-657770e1f19751ff"
 #define VEF_SYS_VAR_DESC_LIST_ABI_HASH_LINUX_X86 ""
 #define VEF_SYS_VAR_DESC_LIST_ABI_HASH_LINUX_ARM ""
 

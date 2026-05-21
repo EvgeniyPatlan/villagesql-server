@@ -757,15 +757,15 @@ typedef struct {
   // from a core file.
   //
   // Compile-time structural fingerprint of the ABI struct type, of the form
-  // "hash-XXXXXXXXXXXXXXXX".  The server's capability registry holds one or
-  // more (vtable, fingerprint) entries per capability name; the server picks
+  // "verhash-NNN-XXXXXXXXXXXXXXXX".  The server's capability registry holds one
+  // or more (vtable, fingerprint) entries per capability name; the server picks
   // the entry whose fingerprint matches this field, allowing a single
   // capability to ship multiple ABI versions simultaneously.  Must point to
   // a string literal (or otherwise static-lifetime storage).
   const char *vtable_hash;
   // Compile-time structural fingerprint of the capability_config struct
   // type pointed to by capability_config, of the same
-  // "hash-XXXXXXXXXXXXXXXX" form as vtable_hash.  NULL when
+  // "verhash-NNN-XXXXXXXXXXXXXXXX" form as vtable_hash.  NULL when
   // capability_config is NULL (capability has no config).  Same matching
   // semantics as vtable_hash: the server's registered config fingerprint
   // must equal this for the capability version to match.

@@ -74,8 +74,8 @@ namespace {
 // if the capability has a descriptor).
 struct CapabilityVersion {
   void *vtable;
-  // Static-lifetime string of the form "hash-XXXXXXXXXXXXXXXX" identifying
-  // the exact ABI struct shape this entry serves.  Comparison with
+  // Static-lifetime string of the form "verhash-NNN-XXXXXXXXXXXXXXXX"
+  // identifying the exact ABI struct shape this entry serves.  Comparison with
   // vef_required_capability_t::vtable_hash is by strcmp.
   const char *vtable_hash;
   // Fingerprint of the descriptor struct type for capabilities that take
