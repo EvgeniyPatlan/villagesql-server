@@ -243,7 +243,9 @@ class SysVarCapability
   }
 
   // Read by the server's on_populate callback. Public so CapabilityTraits
-  // can return its address as extension_data.
+  // can return its address as capability_config.
+  // TODO(villagesql-beta): rename `descriptor_list` to `cc` to match the
+  // capability_config naming.
   vef_sys_var_descriptor_list_t descriptor_list{};
 
  private:

@@ -27,9 +27,9 @@ struct CapabilityTraits<::vsql::preview_status_var::StatusVarCapability<N>> {
   static constexpr const char *kName = VEF_PREVIEW_STATUS_VAR_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_status_var::StatusVarCapability";
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_STATUS_VAR_ABI_VERSION;
-  using AbiType = vef_preview_status_var_t;
-  using DescriptorType = vef_status_var_descriptor_list_t;
+  using CapabilityConfigType = vef_status_var_descriptor_list_t;
+  static constexpr const char *kVtableHash = "ver-1";
+  static constexpr const char *kCapabilityConfigHash = "ver-1";
 
   static constexpr void *vtable_destination(
       ::vsql::preview_status_var::StatusVarCapability<N> *p) noexcept {
@@ -38,8 +38,8 @@ struct CapabilityTraits<::vsql::preview_status_var::StatusVarCapability<N>> {
 
   // Returns a pointer to the descriptor list so the server's on_populate
   // callback can reach the variable descriptors. The server receives this
-  // as extension_data in the CapabilityValue callbacks.
-  static constexpr const void *extension_data(
+  // as capability_config in the populate context.
+  static constexpr const void *capability_config(
       ::vsql::preview_status_var::StatusVarCapability<N> *p) noexcept {
     return static_cast<const void *>(&p->descriptor_list);
   }

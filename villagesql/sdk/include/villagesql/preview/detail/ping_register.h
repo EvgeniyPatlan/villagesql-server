@@ -27,8 +27,7 @@ struct CapabilityTraits<::vsql::preview_ping::PingCapability> {
   static constexpr const char *kName = VEF_PREVIEW_PING_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_ping::PingCapability";
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_PING_ABI_VERSION;
-  using AbiType = vef_preview_ping_t;
+  static constexpr const char *kVtableHash = "ver-1";
 
   static constexpr void *vtable_destination(
       ::vsql::preview_ping::PingCapability *p) noexcept {

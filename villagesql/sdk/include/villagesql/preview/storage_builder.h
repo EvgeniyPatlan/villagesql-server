@@ -38,6 +38,9 @@
 #include <villagesql/detail/capability_traits.h>
 #include <villagesql/preview/storage_api.h>
 
+// vef_storage_arena is a forward-declared server-side handle that
+// extensions only see by pointer.
+
 namespace vsql::preview_storage_builder {
 
 // =============================================================================
@@ -73,7 +76,6 @@ class StorageCapability
   StorageCapability() {}
 
   static constexpr const char *kName = VEF_PREVIEW_STORAGE_NAME;
-  static constexpr uint32_t kAbiVersion = VEF_STORAGE_SE_INTF_VERSION_1;
 };
 
 // =============================================================================
@@ -107,7 +109,6 @@ class ColumnStoreCapability
           std::false_type> {
  public:
   static constexpr const char *kName = VEF_PREVIEW_COLUMN_STORE_NAME;
-  static constexpr uint32_t kAbiVersion = VEF_COLUMN_STORE_INTF_VERSION_1;
 
   ColumnStoreCapability() : ptrs_{} {}
 
@@ -117,7 +118,7 @@ class ColumnStoreCapability
     return ColumnStoreCapability<N + 1>(*this, &d.intf);
   }
 
-  // Returns the extension descriptor passed to the server as extension_data.
+  // Returns the extension descriptor passed to the server as capability_config.
   // Called once at registration time; COLUMN_STORE must be in static storage
   // by then so that ptrs_ has a stable address.
   const vef_preview_column_store_ext_desc_t *extension_desc() {
@@ -146,6 +147,8 @@ class ColumnStoreCapability
   }
 
   const vef_type_storage_intf_t *ptrs_[N > 0 ? N : 1];
+  // TODO(villagesql-beta): rename `ext_desc_` to `cc_` to match the
+  // capability_config naming.
   vef_preview_column_store_ext_desc_t ext_desc_{};
 };
 

@@ -16,9 +16,6 @@
 #include "villagesql/services/preview/ping.h"
 
 #include <atomic>
-#include <string>
-
-#include "villagesql/sdk/include/villagesql/abi/types.h"
 
 namespace villagesql::services {
 
@@ -31,29 +28,5 @@ vef_preview_ping_t g_ping_vtable{VEF_PREVIEW_PING_ABI_VERSION, &vsql_ping};
 }  // namespace
 
 vef_preview_ping_t *preview_ping_vtable() { return &g_ping_vtable; }
-
-// Custom server-side compat check for the ping capability.
-//
-// Intentionally skips the ABI hash check. Because the ping vtable is versioned
-// (version field always first), extensions compiled against a newer ABI
-// (e.g. vef_preview_ping_v2_t with pong) have a different struct hash but can
-// still safely receive a pointer to this server's vtable — they will only
-// access fields up to the server's declared version.
-//
-// Fails if the server's vtable version is less than the extension's declared
-// min_version, meaning the server is too old to satisfy the extension's needs.
-bool preview_ping_compat(const vef_required_capability_t &req, void *vtable,
-                         std::string &error_message) {
-  uint32_t server_version = *static_cast<const uint32_t *>(vtable);
-  if (req.min_version > server_version) {
-    error_message = std::string("capability version too old: ") +
-                    VEF_PREVIEW_PING_NAME +
-                    " (server=" + std::to_string(server_version) +
-                    ", required=" + std::to_string(req.min_version) + ")";
-    return false;
-  }
-  *req.vtable_dest = vtable;
-  return true;
-}
 
 }  // namespace villagesql::services

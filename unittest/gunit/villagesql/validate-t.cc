@@ -464,7 +464,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageWiredToType) {
 
   vef_required_capability_t cap = {};
   cap.name = VEF_PREVIEW_COLUMN_STORE_NAME;
-  cap.extension_data = &ext_desc;
+  cap.capability_config = &ext_desc;
   vef_registration_t reg = {};
   reg.protocol = VEF_PROTOCOL_2;
   reg.deprecated_extension_name = "my_ext";
@@ -500,7 +500,7 @@ TEST_F(ValidateExtensionRegistrationTest,
 
   vef_required_capability_t cap = {};
   cap.name = VEF_PREVIEW_COLUMN_STORE_NAME;
-  cap.extension_data = &ext_desc;
+  cap.capability_config = &ext_desc;
   vef_registration_t reg = {};
   reg.protocol = VEF_PROTOCOL_2;
   reg.deprecated_extension_name = "my_ext";
@@ -534,7 +534,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageUnknownTypeFails) {
 
   vef_required_capability_t cap = {};
   cap.name = VEF_PREVIEW_COLUMN_STORE_NAME;
-  cap.extension_data = &ext_desc;
+  cap.capability_config = &ext_desc;
   vef_registration_t reg = {};
   reg.protocol = VEF_PROTOCOL_2;
   reg.deprecated_extension_name = "my_ext";
@@ -568,7 +568,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageMissingFunctionFails) {
 
   vef_required_capability_t cap = {};
   cap.name = VEF_PREVIEW_COLUMN_STORE_NAME;
-  cap.extension_data = &ext_desc;
+  cap.capability_config = &ext_desc;
   vef_registration_t reg = {};
   reg.protocol = VEF_PROTOCOL_2;
   reg.deprecated_extension_name = "my_ext";
@@ -599,7 +599,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageNullDescriptorFails) {
 
   vef_required_capability_t cap = {};
   cap.name = VEF_PREVIEW_COLUMN_STORE_NAME;
-  cap.extension_data = &ext_desc;
+  cap.capability_config = &ext_desc;
   vef_registration_t reg = {};
   reg.protocol = VEF_PROTOCOL_2;
   reg.deprecated_extension_name = "my_ext";
@@ -631,7 +631,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageVersionMismatchFails) {
 
   vef_required_capability_t cap = {};
   cap.name = VEF_PREVIEW_COLUMN_STORE_NAME;
-  cap.extension_data = &ext_desc;
+  cap.capability_config = &ext_desc;
   vef_registration_t reg = {};
   reg.protocol = VEF_PROTOCOL_2;
   reg.deprecated_extension_name = "my_ext";
@@ -664,7 +664,7 @@ TEST_F(ValidateExtensionRegistrationTest, ColumnStorageDuplicateTypeFails) {
 
   vef_required_capability_t cap = {};
   cap.name = VEF_PREVIEW_COLUMN_STORE_NAME;
-  cap.extension_data = &ext_desc;
+  cap.capability_config = &ext_desc;
   vef_registration_t reg = {};
   reg.protocol = VEF_PROTOCOL_2;
   reg.deprecated_extension_name = "my_ext";
