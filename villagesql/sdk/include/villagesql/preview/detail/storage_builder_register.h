@@ -27,8 +27,7 @@ struct CapabilityTraits<::vsql::preview_storage_builder::StorageCapability> {
   static constexpr const char *kName = VEF_PREVIEW_STORAGE_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_storage_builder::StorageCapability";
-  static constexpr uint32_t kAbiVersion = VEF_STORAGE_SE_INTF_VERSION_1;
-  using AbiType = vef_preview_storage_t;
+  static constexpr const char *kVtableHash = "ver-1";
 
   static void *vtable_destination(
       ::vsql::preview_storage_builder::StorageCapability * /*p*/) noexcept {
@@ -42,16 +41,16 @@ struct CapabilityTraits<
   static constexpr const char *kName = VEF_PREVIEW_COLUMN_STORE_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_storage_builder::ColumnStoreCapability";
-  static constexpr uint32_t kAbiVersion = VEF_COLUMN_STORE_INTF_VERSION_1;
-  using AbiType = vef_preview_column_store_t;
-  using DescriptorType = vef_preview_column_store_ext_desc_t;
+  using CapabilityConfigType = vef_preview_column_store_ext_desc_t;
+  static constexpr const char *kVtableHash = "ver-1";
+  static constexpr const char *kCapabilityConfigHash = "ver-1";
 
   static void *vtable_destination(
       ::vsql::preview_storage_builder::ColumnStoreCapability<N> *p) noexcept {
     return static_cast<void *>(&p->vtable_);
   }
 
-  static const void *extension_data(
+  static const void *capability_config(
       ::vsql::preview_storage_builder::ColumnStoreCapability<N> *p) noexcept {
     return p->extension_desc();
   }

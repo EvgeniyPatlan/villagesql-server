@@ -573,7 +573,7 @@ typedef struct {
 // type_name to a registered type after all types are loaded.
 //
 // Pass a vef_preview_column_store_ext_desc_t as
-// vef_required_capability_t.extension_data when requiring this capability.
+// vef_required_capability_t.capability_config when requiring this capability.
 //
 // Capability name: VEF_PREVIEW_COLUMN_STORE_NAME
 
@@ -583,7 +583,12 @@ typedef struct {
 #define VEF_COLUMN_STORE_INTF_VERSION VEF_COLUMN_STORE_INTF_VERSION_1
 
 // Extension descriptor for vsql::preview::column_store.
-// Pass as vef_required_capability_t.extension_data.
+// Pass as vef_required_capability_t.capability_config.
+//
+// TODO(villagesql-beta): rename vef_preview_column_store_ext_desc_t to
+// vef_preview_column_store_cc_t (capability_config) to match the
+// capability_config naming used by
+// vef_required_capability_t.capability_config.
 typedef struct {
   // Must be set to VEF_COLUMN_STORE_INTF_VERSION.
   uint32_t version;

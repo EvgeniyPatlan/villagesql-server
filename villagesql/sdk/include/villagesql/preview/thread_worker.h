@@ -46,8 +46,10 @@ class ThreadWorkerCapability
                          const char *var_name = nullptr) noexcept;
 
   // One static descriptor per WorkFn instantiation. The constructor
-  // populates it. The trait's extension_data() returns its address so
+  // populates it. The trait's capability_config() returns its address so
   // the wire format carries a pointer to it.
+  // TODO(villagesql-beta): rename `descriptor` to `cc` to match the
+  // capability_config naming.
   static inline vef_thread_worker_descriptor_t descriptor{};
 
  private:

@@ -27,8 +27,7 @@ struct CapabilityTraits<::vsql::preview_keyring::KeyringCapability> {
   static constexpr const char *kName = VEF_PREVIEW_KEYRING_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_keyring::KeyringCapability";
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_KEYRING_ABI_VERSION;
-  using AbiType = vef_preview_keyring_t;
+  static constexpr const char *kVtableHash = "ver-1";
 
   static constexpr void *vtable_destination(
       ::vsql::preview_keyring::KeyringCapability *p) noexcept {

@@ -51,7 +51,7 @@ struct ExtensionStatusVars {
 };
 
 std::mutex g_mutex;
-// Keyed by extension_data pointer so on_depopulate can look up by it.
+// Keyed by capability_config pointer so on_depopulate can look up by it.
 std::unordered_map<const void *, ExtensionStatusVars> g_extensions;
 
 }  // namespace
@@ -62,8 +62,8 @@ vef_preview_status_var_t *preview_status_var_vtable() {
 
 bool on_populate_status_var(const PopulateContext &ctx,
                             std::string &error_message) {
-  const auto *list =
-      static_cast<const vef_status_var_descriptor_list_t *>(ctx.extension_data);
+  const auto *list = static_cast<const vef_status_var_descriptor_list_t *>(
+      ctx.capability_config);
   if (list == nullptr || list->var_count == 0) return false;
 
   SERVICE_TYPE(registry) *registry = mysql_plugin_registry_acquire();
@@ -135,7 +135,7 @@ bool on_populate_status_var(const PopulateContext &ctx,
   mysql_plugin_registry_release(registry);
 
   std::lock_guard<std::mutex> lock(g_mutex);
-  g_extensions.emplace(ctx.extension_data, std::move(entry));
+  g_extensions.emplace(ctx.capability_config, std::move(entry));
   return false;
 }
 
@@ -144,7 +144,7 @@ void on_depopulate_status_var(const DepopulateContext &ctx) {
 
   {
     std::lock_guard<std::mutex> lock(g_mutex);
-    auto it = g_extensions.find(ctx.extension_data);
+    auto it = g_extensions.find(ctx.capability_config);
     if (it == g_extensions.end()) return;
     // Move vars out so we can unregister without holding the lock.
     for (auto &v : it->second.vars) to_unregister.push_back(std::move(v));

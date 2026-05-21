@@ -27,8 +27,9 @@ struct CapabilityTraits<::vsql::preview_sys_var::SysVarCapability<N>> {
   static constexpr const char *kName = VEF_PREVIEW_SYS_VAR_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_sys_var::SysVarCapability";
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_SYS_VAR_ABI_VERSION;
-  using AbiType = vef_preview_sys_var_t;
+  using CapabilityConfigType = vef_sys_var_descriptor_list_t;
+  static constexpr const char *kVtableHash = "ver-1";
+  static constexpr const char *kCapabilityConfigHash = "ver-1";
 
   static constexpr void *vtable_destination(
       ::vsql::preview_sys_var::SysVarCapability<N> *p) noexcept {
@@ -37,7 +38,7 @@ struct CapabilityTraits<::vsql::preview_sys_var::SysVarCapability<N>> {
 
   // Returns a pointer to the descriptor list so the server's on_populate
   // callback can reach the variable descriptors.
-  static constexpr void *extension_data(
+  static constexpr void *capability_config(
       ::vsql::preview_sys_var::SysVarCapability<N> *p) noexcept {
     return static_cast<void *>(&p->descriptor_list);
   }

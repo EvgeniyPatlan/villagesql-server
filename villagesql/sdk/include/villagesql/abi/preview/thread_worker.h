@@ -59,9 +59,13 @@ typedef vef_next_wakeup_t (*vef_work_fn_t)(vef_wakeup_reason_t reason,
                                            void *arg);
 
 // Descriptor filled in by the extension and passed to the server as
-// extension_data in vef_required_capability_t. The server stores it at
+// capability_config in vef_required_capability_t. The server stores it at
 // extension load time and manages the thread entirely — the extension only
 // provides the work function and configuration.
+//
+// TODO(villagesql-beta): rename `descriptor` to `cc` (capability_config) to
+// match vef_required_capability_t.capability_config and the trait/server
+// naming.  This is the type whose instance is passed as capability_config.
 //
 // All pointers must remain valid for the lifetime of the extension.
 typedef struct {
@@ -89,9 +93,10 @@ typedef struct {
 
 // Preview capability: "vsql::preview::thread_worker"
 //
-// The extension sets extension_data = &descriptor in vef_required_capability_t.
-// The server registers a control sys var on the extension's behalf at load
-// time. The var name is descriptor->var_name if set, otherwise
+// The extension sets capability_config = &descriptor in
+// vef_required_capability_t. The server registers a control sys var on the
+// extension's behalf at load time. The var name is descriptor->var_name if set,
+// otherwise
 // "{suffix}_enabled". Setting it ON starts the background thread; OFF stops it.
 //
 // Capability name: VEF_PREVIEW_THREAD_WORKER_NAME

@@ -170,7 +170,7 @@ static std::string registration_to_json(const vef_registration_t *r) {
   // status_vars, etc.) into the JSON by adding a to_json callback to
   // CapabilityRegistration. Each capability provides its own serializer;
   // extension_registration.cc iterates required_capabilities, looks up the
-  // CapabilityRegistration by name, and calls to_json(extension_data, w) if
+  // CapabilityRegistration by name, and calls to_json(capability_config, w) if
   // present. This keeps this file capability-agnostic and automatically
   // includes new capabilities.
 

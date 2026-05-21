@@ -25,24 +25,20 @@ namespace vsql::detail {
 template <auto WorkFn>
 struct CapabilityTraits<
     ::vsql::preview_thread_worker::ThreadWorkerCapability<WorkFn>> {
+  using Cap = ::vsql::preview_thread_worker::ThreadWorkerCapability<WorkFn>;
   static constexpr const char *kName = VEF_PREVIEW_THREAD_WORKER_NAME;
   static constexpr const char *kCppTypeName =
       "vsql::preview_thread_worker::ThreadWorkerCapability";
-  static constexpr uint32_t kAbiVersion = VEF_PREVIEW_THREAD_WORKER_ABI_VERSION;
-  using AbiType = vef_preview_thread_worker_t;
-  using DescriptorType = vef_thread_worker_descriptor_t;
+  using CapabilityConfigType = vef_thread_worker_descriptor_t;
+  static constexpr const char *kVtableHash = "ver-1";
+  static constexpr const char *kCapabilityConfigHash = "ver-1";
 
-  static constexpr void *vtable_destination(
-      ::vsql::preview_thread_worker::ThreadWorkerCapability<WorkFn>
-          *p) noexcept {
+  static constexpr void *vtable_destination(Cap *p) noexcept {
     return static_cast<void *>(&p->abi_);
   }
 
-  static const void *extension_data(
-      ::vsql::preview_thread_worker::ThreadWorkerCapability<WorkFn>
-          * /*p*/) noexcept {
-    return &::vsql::preview_thread_worker::ThreadWorkerCapability<
-        WorkFn>::descriptor;
+  static const void *capability_config(Cap * /*p*/) noexcept {
+    return &Cap::descriptor;
   }
 };
 

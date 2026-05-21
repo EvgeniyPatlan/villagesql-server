@@ -27,14 +27,20 @@ namespace vsql::detail {
 //       only for diagnostic messages from the per-.so CapabilityBase
 //       registry (verify-with check), so authors see the same name they
 //       wrote in source rather than the ABI string.
-//   static constexpr uint32_t kAbiVersion;
-//       The ABI version this extension was compiled against. Sent as
-//       min_version in the wire entry; the server fails the load if its
-//       own vtable version is below this.
-//   using AbiType = ...;
-//       The C ABI struct type (e.g. vef_preview_ping_t). Used to
-//       compute villagesql::detail::abi_type_hash<AbiType>() for the
-//       wire format's mismatch check.
+//   static constexpr const char* kVtableHash;
+//       Version tag for the capability's C ABI vtable struct ("ver-1",
+//       "ver-2", ...).  Sent on the wire and matched by strcmp against
+//       the server's registered version.  Bump the literal whenever the
+//       struct's layout changes in a way the server cannot tolerate.
+//   using CapabilityConfigType = ...;  (optional, present iff the
+//       capability carries a configuration struct)
+//       The C ABI struct type the extension passes as capability_config.
+//       Its presence serves as a SFINAE tag in vef_register.h for
+//       "this capability has a capability_config."
+//   static constexpr const char* kCapabilityConfigHash;  (required if
+//       CapabilityConfigType is defined)
+//       Version tag for the capability_config struct, same form as
+//       kVtableHash.
 //   static constexpr void* vtable_destination(Capability* p);
 //       The address inside *p where the server should write the
 //       capability's vtable pointer at registration time. Returned as
