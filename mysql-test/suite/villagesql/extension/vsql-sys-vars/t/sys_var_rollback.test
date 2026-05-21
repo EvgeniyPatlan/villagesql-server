@@ -7,8 +7,6 @@
 call mtr.add_suppression("Unknown variable type code");
 call mtr.add_suppression("Failed to register system variable");
 
-SET PERSIST vsql_allow_preview_extensions = ON;
-
 --echo # INSTALL EXTENSION should fail because bad_double cannot be registered
 --error ER_VILLAGESQL_GENERIC_ERROR
 INSTALL EXTENSION vsql_sys_var_rollback_test;
@@ -23,6 +21,3 @@ SELECT @@global.vsql_sys_var_rollback_test.bad_double;
 
 --echo # SHOW VARIABLES should list neither variable
 SHOW GLOBAL VARIABLES LIKE 'vsql_sys_var_rollback_test.%';
-
-SET PERSIST vsql_allow_preview_extensions = OFF;
-RESET PERSIST vsql_allow_preview_extensions;

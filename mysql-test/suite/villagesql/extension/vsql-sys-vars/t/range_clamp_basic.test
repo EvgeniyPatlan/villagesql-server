@@ -14,7 +14,6 @@
 # - Setting both to the same value is allowed
 # - Typed on_change callback fires with the new string value
 
-SET PERSIST vsql_allow_preview_extensions = ON;
 INSTALL EXTENSION vsql_range_clamp_test;
 
 --echo # Verify defaults
@@ -54,5 +53,3 @@ SET GLOBAL vsql_range_clamp_test.label = 'world';
 SELECT vsql_range_clamp_test.last_label();
 
 UNINSTALL EXTENSION vsql_range_clamp_test;
-SET PERSIST vsql_allow_preview_extensions = OFF;
-RESET PERSIST vsql_allow_preview_extensions;
