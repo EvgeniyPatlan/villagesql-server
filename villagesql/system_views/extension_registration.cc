@@ -101,11 +101,15 @@ static std::string registration_to_json(const vef_registration_t *r) {
       w.Key("return_type");
       write_type(w, f->signature->return_type);
       w.Key("params");
-      w.StartArray();
-      for (unsigned int j = 0; j < f->signature->param_count; j++) {
-        write_type(w, f->signature->params[j]);
+      if (f->signature->param_count == VEF_PARAM_VARARGS) {
+        w.String("varargs");
+      } else {
+        w.StartArray();
+        for (unsigned int j = 0; j < f->signature->param_count; j++) {
+          write_type(w, f->signature->params[j]);
+        }
+        w.EndArray();
       }
-      w.EndArray();
     }
     if (f->protocol >= VEF_PROTOCOL_2) {
       w.Key("deterministic");

@@ -99,7 +99,9 @@ static auto SYS_VARS = sv::make_capability({
         .on_change<&on_label_change>(),
 });
 
-VEF_GENERATE_ENTRY_POINTS(
-    make_extension()
-        .func(make_func<&last_label_vdf>("last_label").returns(STRING).build())
-        .with(SYS_VARS))
+VEF_GENERATE_ENTRY_POINTS(make_extension()
+                              .func(make_func<&last_label_vdf>("last_label")
+                                        .returns(STRING)
+                                        .param()
+                                        .build())
+                              .with(SYS_VARS))

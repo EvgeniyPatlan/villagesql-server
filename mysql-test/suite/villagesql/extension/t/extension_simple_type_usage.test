@@ -44,6 +44,41 @@ SELECT CONCAT("'", vsql_simple.ba_concat(t1.data, t2.data), "'") as concatenated
 FROM test_bytearray t1, test_bytearray t2
 WHERE t1.id = 1 AND t2.id = 2;
 
+--echo # Test ba_len function (zero-arity, returns a constant)
+SELECT vsql_simple.ba_len() AS len;
+
+--echo # ba_concat (declared with two params) rejects a single-arg call
+--error ER_VILLAGESQL_GENERIC_ERROR
+SELECT vsql_simple.ba_concat(t.data) FROM test_bytearray t WHERE t.id = 1;
+
+--echo # Test ba_concat_all function (varargs, returns STRING)
+SELECT vsql_simple.ba_concat_all(t.data) AS one
+FROM test_bytearray t WHERE t.id = 1;
+SELECT vsql_simple.ba_concat_all(t1.data, t2.data, t3.data) AS three
+FROM test_bytearray t1, test_bytearray t2, test_bytearray t3
+WHERE t1.id = 1 AND t2.id = 2 AND t3.id = 3;
+SELECT CONCAT("'", vsql_simple.ba_concat_all(t1.data, t2.data, t3.data), "'") AS three
+FROM test_bytearray t1, test_bytearray t2, test_bytearray t3
+WHERE t1.id = 1 AND t2.id = 2 AND t3.id = 3;
+
+--echo # ba_concat_all rejects zero arguments via prerun
+--error ER_CANT_INITIALIZE_UDF
+SELECT vsql_simple.ba_concat_all();
+
+--echo # ba_concat_all rejects non-BYTEARRAY arguments via prerun
+--error ER_CANT_INITIALIZE_UDF
+SELECT vsql_simple.ba_concat_all(1);
+
+--echo # ba_concat_all propagates NULL
+SELECT vsql_simple.ba_concat_all(t1.data, NULL) AS with_null
+FROM test_bytearray t1 WHERE t1.id = 1;
+
+--echo # ba_concat_all treats a non-NULL STRING literal as NULL: prerun lets
+--echo # STRING through so NULL literals (typed STRING) work, but cannot
+--echo # distinguish them from real strings, so the body checks is_custom().
+SELECT vsql_simple.ba_concat_all(t1.data, 'abc') AS with_str
+FROM test_bytearray t1 WHERE t1.id = 1;
+
 --echo # Clean up
 DROP TABLE test_bytearray;
 

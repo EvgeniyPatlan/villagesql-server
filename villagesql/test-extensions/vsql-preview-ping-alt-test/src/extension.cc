@@ -27,5 +27,5 @@ static void ping_impl(IntResult out) { out.set(PING.ping()); }
 
 VEF_GENERATE_ENTRY_POINTS(
     make_extension()
-        .func(make_func<&ping_impl>("ping").returns(INT).build())
+        .func(make_func<&ping_impl>("ping").returns(INT).param().build())
         .with(PING))

@@ -265,8 +265,10 @@ static void active_port_vdf(IntResult out) {
   out.set(g_state.active_port.load(std::memory_order_relaxed));
 }
 
-VEF_GENERATE_ENTRY_POINTS(
-    make_extension()
-        .func(make_func<&active_port_vdf>("active_port").returns(INT).build())
-        .with(SQL_QUERY)
-        .with(THREAD_WORKER))
+VEF_GENERATE_ENTRY_POINTS(make_extension()
+                              .func(make_func<&active_port_vdf>("active_port")
+                                        .returns(INT)
+                                        .param()
+                                        .build())
+                              .with(SQL_QUERY)
+                              .with(THREAD_WORKER))

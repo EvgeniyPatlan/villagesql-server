@@ -125,6 +125,56 @@ void ba_concat(CustomArg a, CustomArg b, StringResult out) {
   out.set_length(kBytearrayLen * 2);
 }
 
+// BA_LEN: return the fixed length of a BYTEARRAY (zero-arity constant).
+// Demonstrates .param() (zero-arity) on the func builder.
+void ba_len(IntResult out) { out.set(static_cast<long long>(kBytearrayLen)); }
+
+// BA_CONCAT_ALL: concatenate any number of BYTEARRAY values into a STRING.
+// Demonstrates .varargs() on the func builder paired with a prerun that
+// validates argument types and sizes the result buffer.
+//
+// Prerun: validate that all arguments are BYTEARRAY (or NULL literals,
+// which appear as VEF_TYPE_STRING in the prerun arg-type array) and ask
+// the server to allocate arg_count * kBytearrayLen bytes of result buffer.
+void ba_concat_all_prerun(vef_context_t *, vef_prerun_args_t *args,
+                          vef_prerun_result_t *result) {
+  if (args->arg_count == 0) {
+    result->type = VEF_RESULT_ERROR;
+    snprintf(result->error_msg, VEF_MAX_ERROR_LEN,
+             "ba_concat_all requires at least one argument");
+    return;
+  }
+  for (unsigned int i = 0; i < args->arg_count; i++) {
+    vef_type_id id = args->arg_types[i].id;
+    if (id != VEF_TYPE_CUSTOM && id != VEF_TYPE_STRING) {
+      result->type = VEF_RESULT_ERROR;
+      snprintf(result->error_msg, VEF_MAX_ERROR_LEN,
+               "ba_concat_all: argument %u must be BYTEARRAY", i);
+      return;
+    }
+  }
+  result->result_buffer_size = args->arg_count * kBytearrayLen;
+}
+
+void ba_concat_all(VarArgs args, StringResult out) {
+  auto dst = out.buffer();
+  size_t off = 0;
+  for (auto a : args) {
+    // Prerun accepts VEF_TYPE_STRING so NULL literals (which arrive typed as
+    // STRING) pass type-check, but it cannot distinguish a NULL literal from
+    // a non-NULL string literal like 'abc'. Treat any non-custom argument
+    // here as NULL so we never call as_custom() on a STRING value.
+    if (a.is_null() || !a.is_custom()) {
+      out.set_null();
+      return;
+    }
+    auto bytes = a.as_custom();
+    memcpy(dst.data() + off, bytes.data(), bytes.size());
+    off += bytes.size();
+  }
+  out.set_length(off);
+}
+
 static constexpr const char kBytearrayTypeName[] = "bytearray";
 
 constexpr auto BYTEARRAY = vsql::make_type<kBytearrayTypeName>()
@@ -135,22 +185,29 @@ constexpr auto BYTEARRAY = vsql::make_type<kBytearrayTypeName>()
                                .compare<&bytearray_compare>()
                                .build();
 
-VEF_GENERATE_ENTRY_POINTS(make_extension()
-                              .type(BYTEARRAY)
-                              .func(make_func<&rot13>("rot13")
-                                        .returns(BYTEARRAY)
-                                        .param(BYTEARRAY)
-                                        .build())
-                              .func(make_func<&even_chars>("even_chars")
-                                        .returns(BYTEARRAY)
-                                        .param(BYTEARRAY)
-                                        .build())
-                              .func(make_func<&odd_chars>("odd_chars")
-                                        .returns(BYTEARRAY)
-                                        .param(BYTEARRAY)
-                                        .build())
-                              .func(make_func<&ba_concat>("ba_concat")
-                                        .returns(STRING)
-                                        .param(BYTEARRAY)
-                                        .param(BYTEARRAY)
-                                        .build()))
+VEF_GENERATE_ENTRY_POINTS(
+    make_extension()
+        .type(BYTEARRAY)
+        .func(make_func<&rot13>("rot13")
+                  .returns(BYTEARRAY)
+                  .param(BYTEARRAY)
+                  .build())
+        .func(make_func<&even_chars>("even_chars")
+                  .returns(BYTEARRAY)
+                  .param(BYTEARRAY)
+                  .build())
+        .func(make_func<&odd_chars>("odd_chars")
+                  .returns(BYTEARRAY)
+                  .param(BYTEARRAY)
+                  .build())
+        .func(make_func<&ba_concat>("ba_concat")
+                  .returns(STRING)
+                  .param(BYTEARRAY)
+                  .param(BYTEARRAY)
+                  .build())
+        .func(make_func<&ba_len>("ba_len").returns(INT).param().build())
+        .func(make_func<&ba_concat_all>("ba_concat_all")
+                  .returns(STRING)
+                  .varargs()
+                  .prerun<&ba_concat_all_prerun>()
+                  .build()))
