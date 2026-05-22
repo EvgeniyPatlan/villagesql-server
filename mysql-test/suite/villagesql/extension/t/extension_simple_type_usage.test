@@ -82,6 +82,26 @@ FROM test_bytearray t1 WHERE t1.id = 1;
 --echo # Test ba_call_index (exercises typed prerun/postrun + state-passing VDF)
 SELECT vsql_simple.ba_call_index() as idx FROM test_bytearray ORDER BY id;
 
+--echo # Test counter_add: state-style VDF with an SQL parameter
+--echo # (exercises WrapperTypedState forwarding SQL args alongside State&)
+SELECT vsql_simple.counter_add(10) AS sum FROM test_bytearray ORDER BY id;
+
+--echo # Coexistence: state-style and varargs VDFs in one statement, with their
+--echo # own per-VDF per-statement state. ba_call_index has its own counter,
+--echo # counter_add has its own counter, ba_concat_all is varargs and stateless.
+SELECT vsql_simple.ba_call_index() AS idx,
+       vsql_simple.counter_add(100) AS running,
+       vsql_simple.ba_concat_all(t.data, t.data) AS twice
+FROM test_bytearray t ORDER BY t.id;
+
+--echo # Test ba_concat_all_indexed: varargs VDF reading per-statement state
+--echo # from typed prerun via VarArgs::state<T>(). Combines #551 (set_user_data
+--echo # / state) with #563 (varargs). Output is "N:" prefix plus concatenation.
+SELECT vsql_simple.ba_concat_all_indexed(t1.data, t2.data) AS indexed
+FROM test_bytearray t1, test_bytearray t2
+WHERE t1.id = 1 AND t2.id IN (2, 3)
+ORDER BY t2.id;
+
 --echo # Clean up
 DROP TABLE test_bytearray;
 

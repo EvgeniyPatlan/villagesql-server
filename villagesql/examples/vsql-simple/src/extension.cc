@@ -134,6 +134,60 @@ void ba_call_index_postrun(PostrunArgs args) {
   args.delete_state<CallCounter>();
 }
 
+// COUNTER_ADD: state-style VDF with an SQL parameter. Adds the argument to a
+// per-statement running total and returns the new total. Reuses
+// ba_call_index_prerun/postrun for state allocation — each registration gets
+// its own per-statement CallCounter instance.
+void counter_add(CallCounter &state, IntArg amount, IntResult out) {
+  state.n += amount.value();
+  out.set(state.n);
+}
+
+// BA_CONCAT_ALL_INDEXED: varargs VDF that reads per-statement state via
+// VarArgs::state<T>(). Exercises the combined surface from #551+#563: typed
+// prerun allocates a CallCounter (set_user_data), the varargs body reads it
+// each row via args.state<CallCounter>(), and the typed postrun frees it.
+// Returns "<n>:" prefixed to the concatenated bytearrays.
+void ba_concat_all_indexed_prerun(PrerunArgs args, PrerunResult out) {
+  if (args.size() == 0) {
+    out.error("ba_concat_all_indexed requires at least one argument");
+    return;
+  }
+  for (size_t i = 0; i < args.size(); i++) {
+    auto t = args.type_at(i);
+    if (!t.is_custom() && !t.is_str()) {
+      out.error("ba_concat_all_indexed: argument " + std::to_string(i) +
+                " must be BYTEARRAY");
+      return;
+    }
+  }
+  // Buffer: prefix "NNNN:" (worst case ~20 digits) plus N bytearrays.
+  out.request_buffer_size(32 + args.size() * kBytearrayLen);
+  out.set_user_data(new CallCounter{});
+}
+
+void ba_concat_all_indexed(VarArgs args, StringResult out) {
+  CallCounter *state = args.state<CallCounter>();
+  state->n++;
+  auto dst = out.buffer();
+  size_t off = static_cast<size_t>(snprintf(
+      reinterpret_cast<char *>(dst.data()), dst.size(), "%lld:", state->n));
+  for (auto a : args) {
+    if (a.is_null() || !a.is_custom()) {
+      out.set_null();
+      return;
+    }
+    auto bytes = a.as_custom();
+    memcpy(dst.data() + off, bytes.data(), bytes.size());
+    off += bytes.size();
+  }
+  out.set_length(off);
+}
+
+void ba_concat_all_indexed_postrun(PostrunArgs args) {
+  args.delete_state<CallCounter>();
+}
+
 // BA_CONCAT: concatenate two bytearrays (returns STRING with 16 bytes)
 void ba_concat(CustomArg a, CustomArg b, StringResult out) {
   if (a.is_null() || b.is_null()) {
@@ -229,9 +283,21 @@ VEF_GENERATE_ENTRY_POINTS(
                   .prerun<&ba_call_index_prerun>()
                   .postrun<&ba_call_index_postrun>()
                   .build())
+        .func(make_func<&counter_add>("counter_add")
+                  .returns(INT)
+                  .param(INT)
+                  .prerun<&ba_call_index_prerun>()
+                  .postrun<&ba_call_index_postrun>()
+                  .build())
         .func(make_func<&ba_len>("ba_len").returns(INT).param().build())
         .func(make_func<&ba_concat_all>("ba_concat_all")
                   .returns(STRING)
                   .varargs()
                   .prerun<&ba_concat_all_prerun>()
+                  .build())
+        .func(make_func<&ba_concat_all_indexed>("ba_concat_all_indexed")
+                  .returns(STRING)
+                  .varargs()
+                  .prerun<&ba_concat_all_indexed_prerun>()
+                  .postrun<&ba_concat_all_indexed_postrun>()
                   .build()))
