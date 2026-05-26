@@ -94,6 +94,7 @@
 #include "sql/sql_lex.h"
 #include "sql/sql_list.h"
 #include "sql/sql_resolver.h"  // validate_gc_assignment
+#include "sql/sql_returning.h"
 #include "sql/sql_select.h"    // check_privileges_for_list
 #include "sql/sql_show.h"      // store_create_info
 #include "sql/sql_table.h"     // quick_rm_table
@@ -436,6 +437,7 @@ bool Sql_cmd_insert_base::precheck(THD *thd) {
   */
   ulong privilege = INSERT_ACL | (duplicates == DUP_REPLACE ? DELETE_ACL : 0) |
                     (update_value_list.empty() ? 0 : UPDATE_ACL);
+  if (returning_fields != nullptr) privilege |= SELECT_ACL;
 
   if (check_one_table_access(thd, privilege, lex->query_tables)) return true;
 
@@ -461,6 +463,9 @@ bool Sql_cmd_insert_base::check_privileges(THD *thd) {
     if (check_privileges_for_list(thd, update_value_list, SELECT_ACL))
       return true;
   }
+  if (returning_fields != nullptr &&
+      check_privileges_for_list(thd, *returning_fields, SELECT_ACL))
+    return true;
 
   for (Query_block *sl = lex->unit->first_query_block(); sl;
        sl = sl->next_query_block()) {
@@ -554,6 +559,10 @@ bool Sql_cmd_insert_values::execute_inner(THD *thd) {
           explain_single_table_modification(thd, thd, &plan, query_block);
       return err;
     }
+
+    if (returning_fields != nullptr &&
+        send_returning_metadata(thd, returning_result, *returning_fields))
+      return true;
 
     insert_table->next_number_field = insert_table->found_next_number_field;
 
@@ -655,7 +664,17 @@ bool Sql_cmd_insert_values::execute_inner(THD *thd) {
         continue;
       }
 
+      const COPY_INFO::Statistics stats_before = info.stats;
       if (write_record(thd, insert_table, &info, &update)) {
+        has_error = true;
+        break;
+      }
+      const bool row_changed = info.stats.copied != stats_before.copied ||
+                               info.stats.deleted != stats_before.deleted ||
+                               info.stats.updated != stats_before.updated ||
+                               info.stats.touched != stats_before.touched;
+      if (returning_fields != nullptr && row_changed &&
+          returning_result->send_data(thd, *returning_fields)) {
         has_error = true;
         break;
       }
@@ -763,6 +782,12 @@ bool Sql_cmd_insert_values::execute_inner(THD *thd) {
 
   assert(has_error == thd->get_stmt_da()->is_error());
   if (has_error) return true;
+
+  if (returning_fields != nullptr) {
+    return send_returning_eof(
+        thd, returning_result,
+        info.stats.copied + info.stats.deleted + info.stats.updated);
+  }
 
   if (insert_many_values.size() == 1 &&
       (!(thd->variables.option_bits & OPTION_WARNINGS) ||
@@ -1336,9 +1361,9 @@ bool Sql_cmd_insert_base::prepare_inner(THD *thd) {
     if (lex->sql_command == SQLCOM_REPLACE_SELECT)
       lex->set_stmt_unsafe(LEX::BINLOG_STMT_UNSAFE_REPLACE_SELECT);
 
-    result = new (thd->mem_root)
-        Query_result_insert(table_list, &insert_field_list, &insert_field_list,
-                            &update_field_list, &update_value_list, duplicates);
+    result = new (thd->mem_root) Query_result_insert(
+        table_list, &insert_field_list, &insert_field_list, &update_field_list,
+        &update_value_list, duplicates, returning_fields);
     if (result == nullptr) return true; /* purecov: inspected */
 
     if (unit->is_set_operation()) {
@@ -1439,6 +1464,12 @@ bool Sql_cmd_insert_base::prepare_inner(THD *thd) {
     ctx_state.restore_state(context, table_list);
   }
 
+  if (returning_fields != nullptr) {
+    if (prepare_returning_fields(thd, select, returning_fields,
+                                 &returning_result))
+      return true;
+  }
+
   if (!select_insert && insert_table->part_info) {
     enum partition_info::enum_can_prune can_prune_partitions =
         partition_info::PRUNE_NO;
@@ -1496,6 +1527,9 @@ bool Sql_cmd_insert_base::prepare_inner(THD *thd) {
   }
 
   assert(CountHiddenFields(insert_field_list) == 0);
+  if (returning_fields != nullptr &&
+      returning_result->prepare(thd, *returning_fields, lex->unit))
+    return true; /* purecov: inspected */
   return false;
 }
 
@@ -2283,6 +2317,13 @@ bool Query_result_insert::start_execution(THD *thd) {
     table->file->ha_start_bulk_insert((ha_rows)0);
     bulk_insert_started = true;
   }
+  if (returning_fields != nullptr) {
+    returning_result = new (thd->mem_root) Query_result_send;
+    if (returning_result == nullptr) return true; /* purecov: inspected */
+    if (returning_result->prepare(thd, *returning_fields, unit) ||
+        send_returning_metadata(thd, returning_result, *returning_fields))
+      return true;
+  }
   info.reset_counters();
 
   return false;
@@ -2347,9 +2388,18 @@ bool Query_result_insert::send_data(THD *thd,
     return thd->is_error();
   }
 
+  const COPY_INFO::Statistics stats_before = info.stats;
   error = write_record(thd, table, &info, &update);
 
   DEBUG_SYNC(thd, "create_select_after_write_rows_event");
+
+  const bool row_changed = info.stats.copied != stats_before.copied ||
+                           info.stats.deleted != stats_before.deleted ||
+                           info.stats.updated != stats_before.updated ||
+                           info.stats.touched != stats_before.touched;
+  if (!error && returning_fields != nullptr && row_changed &&
+      returning_result->send_data(thd, *returning_fields))
+    error = true;
 
   if (!error &&
       (table->triggers || info.get_duplicate_handling() == DUP_UPDATE)) {
@@ -2484,7 +2534,11 @@ bool Query_result_insert::send_eof(THD *thd) {
                   ? thd->first_successful_insert_id_in_prev_stmt
                   : (info.stats.copied ? autoinc_value_of_last_inserted_row
                                        : 0));
-  my_ok(thd, row_count, id, buff);
+  if (returning_fields != nullptr) {
+    if (send_returning_eof(thd, returning_result, row_count)) return true;
+  } else {
+    my_ok(thd, row_count, id, buff);
+  }
 
   /*
     If we have inserted into a VIEW, and the base table has

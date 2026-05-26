@@ -2250,6 +2250,7 @@ class Query_block : public Query_term {
   uint hidden_items_from_optimization{0};
 
   bool is_row_count_valid_for_semi_join();
+  bool setup_wild(THD *thd);
 
  private:
   friend class Query_expression;
@@ -2310,7 +2311,6 @@ class Query_block : public Query_term {
   Item *resolve_rollup_item(THD *thd, Item *item);
   bool resolve_rollup(THD *thd);
 
-  bool setup_wild(THD *thd);
   bool setup_order_final(THD *thd);
   bool setup_group(THD *thd);
   void fix_after_pullout(Query_block *parent_query_block,
@@ -3904,6 +3904,7 @@ struct LEX : public Query_tables_list {
   /// @return true if this is an EXPLAIN statement
   bool is_explain() const { return explain_format != nullptr; }
   bool is_explain_analyze = false;
+  bool has_returning_clause = false;
 
   /**
     Whether the currently-running statement should be prepared and executed

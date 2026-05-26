@@ -653,6 +653,8 @@ class Field {
      @c NOT @c NULL field, this member is @c NULL.
   */
   uchar *m_null_ptr;
+  uchar *m_old_value_ptr{nullptr};
+  uchar *m_old_value_null_ptr{nullptr};
 
   /**
     Flag: if the NOT-NULL field can be temporary NULL.
@@ -1781,6 +1783,15 @@ class Field {
   uchar *field_ptr() { return ptr; }
 
   void set_field_ptr(uchar *ptr_arg) { ptr = ptr_arg; }
+  void set_old_value_ptrs(uchar *old_ptr_arg, uchar *old_null_ptr_arg) {
+    m_old_value_ptr = old_ptr_arg;
+    m_old_value_null_ptr = old_null_ptr_arg;
+  }
+  void swap_value_ptrs_with_old_value() {
+    assert(m_old_value_ptr != nullptr);
+    std::swap(ptr, m_old_value_ptr);
+    std::swap(m_null_ptr, m_old_value_null_ptr);
+  }
 
   /**
     Checks whether a string field is part of write_set.
