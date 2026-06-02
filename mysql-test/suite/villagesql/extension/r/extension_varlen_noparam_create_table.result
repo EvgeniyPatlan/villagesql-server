@@ -1,0 +1,54 @@
+# Install the variable-length, non-parameterized test extension.
+INSTALL EXTENSION vsql_varlen_noparam_test;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+vsql_varlen_noparam_test	0.0.1
+# #535: a column of a variable-length type declared WITHOUT parameters
+# must be accepted; the length is decided per value, like VARBINARY.
+CREATE TABLE bitmap_data (
+id INT PRIMARY KEY,
+bitmap vsql_varlen_noparam_test.VARBITMAP
+);
+# Values of DIFFERENT byte lengths coexist in the same column.
+INSERT INTO bitmap_data VALUES (1, 'a');
+INSERT INTO bitmap_data VALUES (2, 'a longer bitmap payload');
+INSERT INTO bitmap_data VALUES (3, '');
+# Each value round-trips at its own length (no padding, no truncation).
+SELECT id,
+CONCAT("'", VARBITMAP::to_string(bitmap), "'") AS bitmap,
+LENGTH(VARBITMAP::to_string(bitmap)) AS len
+FROM bitmap_data ORDER BY id;
+id	bitmap	len
+1	'a'	1
+2	'a longer bitmap payload'	23
+3	''	0
+# The server treats the value as opaque bytes; the extension exposes
+# the per-value element count as a VDF (here: number of stored bytes,
+# a roaring bitmap would return its cardinality instead).
+SELECT id, vsql_varlen_noparam_test.varbitmap_length(bitmap) AS n_bytes
+FROM bitmap_data ORDER BY id;
+id	n_bytes
+1	1
+2	23
+3	0
+# Predicate comparisons use the type's compare across differing lengths.
+SELECT id FROM bitmap_data WHERE bitmap > 'a' ORDER BY id;
+id
+2
+SELECT id FROM bitmap_data WHERE bitmap = 'a' ORDER BY id;
+id
+1
+# UPDATE may grow or shrink the stored value's length.
+UPDATE bitmap_data SET bitmap = 'grew to a substantially longer value' WHERE id = 1;
+UPDATE bitmap_data SET bitmap = 'x' WHERE id = 2;
+SELECT id, LENGTH(VARBITMAP::to_string(bitmap)) AS len
+FROM bitmap_data ORDER BY id;
+id	len
+1	36
+2	1
+3	0
+# Clean up.
+DROP TABLE bitmap_data;
+UNINSTALL EXTENSION vsql_varlen_noparam_test;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION

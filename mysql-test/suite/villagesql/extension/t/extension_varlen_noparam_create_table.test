@@ -1,0 +1,63 @@
+# Acceptance test for issue #535:
+#   "Support variable-length, non-parameterized types"
+#   https://github.com/villagesql/villagesql-server/issues/535
+#
+# A variable-length type whose length is decided per value -- the shape used
+# by community types such as ROARING64 (roaring bitmap) -- can be used as a
+# column type without any length or parameters, and each value keeps its own
+# byte length, like VARBINARY.
+#
+# Fixture: vsql_varlen_noparam_test exposes type VARBITMAP with
+# persisted_length = -1 and max_persisted_length set, and NO
+# params/resolve_params/int_to_params (so a column needs no length spec).
+# Same shape as the community ROARING64 type from the report, plus the
+# required max_persisted_length upper bound.
+#
+# Before #535 this scenario failed at CREATE TABLE with
+#   "field_length (0) != persisted_length (-1) for column bitmap ..."
+# (and crashed a debug server via the make_field() assertion).
+
+--echo # Install the variable-length, non-parameterized test extension.
+INSTALL EXTENSION vsql_varlen_noparam_test;
+
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # #535: a column of a variable-length type declared WITHOUT parameters
+--echo # must be accepted; the length is decided per value, like VARBINARY.
+CREATE TABLE bitmap_data (
+  id INT PRIMARY KEY,
+  bitmap vsql_varlen_noparam_test.VARBITMAP
+);
+
+--echo # Values of DIFFERENT byte lengths coexist in the same column.
+INSERT INTO bitmap_data VALUES (1, 'a');
+INSERT INTO bitmap_data VALUES (2, 'a longer bitmap payload');
+INSERT INTO bitmap_data VALUES (3, '');
+
+--echo # Each value round-trips at its own length (no padding, no truncation).
+SELECT id,
+       CONCAT("'", VARBITMAP::to_string(bitmap), "'") AS bitmap,
+       LENGTH(VARBITMAP::to_string(bitmap)) AS len
+FROM bitmap_data ORDER BY id;
+
+--echo # The server treats the value as opaque bytes; the extension exposes
+--echo # the per-value element count as a VDF (here: number of stored bytes,
+--echo # a roaring bitmap would return its cardinality instead).
+SELECT id, vsql_varlen_noparam_test.varbitmap_length(bitmap) AS n_bytes
+FROM bitmap_data ORDER BY id;
+
+--echo # Predicate comparisons use the type's compare across differing lengths.
+SELECT id FROM bitmap_data WHERE bitmap > 'a' ORDER BY id;
+SELECT id FROM bitmap_data WHERE bitmap = 'a' ORDER BY id;
+
+--echo # UPDATE may grow or shrink the stored value's length.
+UPDATE bitmap_data SET bitmap = 'grew to a substantially longer value' WHERE id = 1;
+UPDATE bitmap_data SET bitmap = 'x' WHERE id = 2;
+
+SELECT id, LENGTH(VARBITMAP::to_string(bitmap)) AS len
+FROM bitmap_data ORDER BY id;
+
+--echo # Clean up.
+DROP TABLE bitmap_data;
+UNINSTALL EXTENSION vsql_varlen_noparam_test;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;

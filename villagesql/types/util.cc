@@ -81,11 +81,11 @@ static const char *ER_INCOMPATIBLE_TYPES =
 static bool CheckFieldLengthMatchesType(const Field *field,
                                         const TypeContext *tc) {
   if (should_assert_if_false(static_cast<int64_t>(field->field_length) ==
-                             tc->persisted_length())) {
+                             tc->field_storage_length())) {
     LogVSQL(ERROR_LEVEL,
-            "field_length (%u) != persisted_length (%" PRId64
+            "field_length (%u) != field_storage_length (%" PRId64
             ") for column %s (type %s)",
-            field->field_length, tc->persisted_length(), field->field_name,
+            field->field_length, tc->field_storage_length(), field->field_name,
             tc->qualified_name().c_str());
     villagesql_error(
         "Internal error: field length mismatch for column %s (type %s); "

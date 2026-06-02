@@ -1,0 +1,11 @@
+call mtr.add_suppression("Type 'BAD_VAR_NO_RESOLVE' .* has persisted_length=-1 .* max_persisted_length");
+# The invalid variable-length type is not installed.
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+# INSTALL is rejected: a persisted_length=-1 type must set
+# max_persisted_length, and this one does not.
+INSTALL EXTENSION vsql_bad_var_no_resolve_test;
+ERROR HY000: Failed to install extension 'vsql_bad_var_no_resolve_test': type 'BAD_VAR_NO_RESOLVE' failed validation
+# The extension was therefore not installed.
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION

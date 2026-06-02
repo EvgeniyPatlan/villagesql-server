@@ -1,0 +1,7 @@
+{
+  "name": "vsql_varlen_noparam_test",
+  "version": "0.0.1",
+  "description": "Variable-length type (VARBITMAP) that passes registration (has resolve_params) but, when a column is declared without parameters, leaves persisted_length=-1 and fails at CREATE TABLE. Reproduces issue #535.",
+  "author": "VillageSQL Community",
+  "license": "GPL-2.0"
+}

@@ -1,0 +1,28 @@
+# Negative registration test related to issue #535:
+#   "Support variable-length, non-parameterized types"
+#   https://github.com/villagesql/villagesql-server/issues/535
+#
+# A variable-length type (persisted_length = -1) whose length is decided per
+# value -- the shape used by community types such as ROARING64 (roaring
+# bitmap) -- is supported, but it MUST declare max_persisted_length, which
+# bounds the backing field. A type that declares persisted_length = -1 without
+# max_persisted_length is invalid and must be rejected at INSTALL EXTENSION
+# time during type-registration validation.
+#
+# vsql_bad_var_no_resolve_test exposes exactly this invalid shape: type
+# BAD_VAR_NO_RESOLVE has persisted_length = -1, no resolve_params, and no
+# max_persisted_length.
+
+# The rejection is also written to the server error log at ERROR level.
+call mtr.add_suppression("Type 'BAD_VAR_NO_RESOLVE' .* has persisted_length=-1 .* max_persisted_length");
+
+--echo # The invalid variable-length type is not installed.
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+
+--echo # INSTALL is rejected: a persisted_length=-1 type must set
+--echo # max_persisted_length, and this one does not.
+--error ER_VILLAGESQL_GENERIC_ERROR
+INSTALL EXTENSION vsql_bad_var_no_resolve_test;
+
+--echo # The extension was therefore not installed.
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
