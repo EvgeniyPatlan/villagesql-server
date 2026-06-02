@@ -86,11 +86,9 @@ constexpr auto VARBITMAP = vsql::make_type<kVarbitmapTypeName>()
 
 using namespace vsql;
 
-VEF_GENERATE_ENTRY_POINTS(
-    make_extension()
-        .type(VARBITMAP)
-        .func(make_func<&varbitmap_length>("varbitmap_length")
-                  .returns(INT)
-                  .param(VARBITMAP)
-                  .deterministic()
-                  .build()))
+VEF_GENERATE_ENTRY_POINTS(make_extension().type(VARBITMAP).func(
+    make_func<&varbitmap_length>("varbitmap_length")
+        .returns(INT)
+        .param(VARBITMAP)
+        .deterministic()
+        .build()))
