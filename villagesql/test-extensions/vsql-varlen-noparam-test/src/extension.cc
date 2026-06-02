@@ -36,7 +36,10 @@ constexpr int64_t kVarbitmapMaxLen = 1024;
 // STRING -> binary: store the input bytes verbatim; length = input length.
 void varbitmap_from_string(std::string_view from, vsql::CustomResult out) {
   auto buf = out.buffer();
-  if (from.size() > buf.size()) return;
+  if (from.size() > buf.size()) {
+    out.warning("VARBITMAP: value exceeds max length");
+    return;
+  }
   if (!from.empty()) memcpy(buf.data(), from.data(), from.size());
   out.set_length(from.size());
 }
