@@ -47,6 +47,20 @@ id	len
 1	36
 2	1
 3	0
+# A CUSTOM-returning VDF (the type's from_string) sizes its result buffer
+# from the type's max_persisted_length, not the default 256-byte buffer.
+# Round-trip a 500-byte value through from_string: it must keep its full
+# length rather than being silently dropped for exceeding 256 bytes.
+SELECT LENGTH(VARBITMAP::to_string(VARBITMAP::from_string(REPEAT('x', 500)))) AS len;
+len
+500
+# The same value stored via an explicit from_string in INSERT keeps its
+# full 500-byte length on read-back.
+INSERT INTO bitmap_data VALUES (4, VARBITMAP::from_string(REPEAT('z', 500)));
+SELECT id, LENGTH(VARBITMAP::to_string(bitmap)) AS len
+FROM bitmap_data WHERE id = 4;
+id	len
+4	500
 # Clean up.
 DROP TABLE bitmap_data;
 UNINSTALL EXTENSION vsql_varlen_noparam_test;

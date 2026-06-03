@@ -57,6 +57,18 @@ UPDATE bitmap_data SET bitmap = 'x' WHERE id = 2;
 SELECT id, LENGTH(VARBITMAP::to_string(bitmap)) AS len
 FROM bitmap_data ORDER BY id;
 
+--echo # A CUSTOM-returning VDF (the type's from_string) sizes its result buffer
+--echo # from the type's max_persisted_length, not the default 256-byte buffer.
+--echo # Round-trip a 500-byte value through from_string: it must keep its full
+--echo # length rather than being silently dropped for exceeding 256 bytes.
+SELECT LENGTH(VARBITMAP::to_string(VARBITMAP::from_string(REPEAT('x', 500)))) AS len;
+
+--echo # The same value stored via an explicit from_string in INSERT keeps its
+--echo # full 500-byte length on read-back.
+INSERT INTO bitmap_data VALUES (4, VARBITMAP::from_string(REPEAT('z', 500)));
+SELECT id, LENGTH(VARBITMAP::to_string(bitmap)) AS len
+FROM bitmap_data WHERE id = 4;
+
 --echo # Clean up.
 DROP TABLE bitmap_data;
 UNINSTALL EXTENSION vsql_varlen_noparam_test;
