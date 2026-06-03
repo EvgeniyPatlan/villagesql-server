@@ -1,0 +1,44 @@
+# Install the extension that registers the parameterized type PVEC.
+INSTALL EXTENSION vsql_test_only;
+# The integer shorthand PVEC(N) goes through int_to_params: N is
+# validated and stored as a type parameter; resolve_params then sizes the
+# column to N*2 bytes. Columns of different N coexist in one table.
+CREATE TABLE vectors (
+id INT PRIMARY KEY,
+v3 PVEC(3),
+v5 PVEC(5)
+);
+# Each value is parsed by from_string against its column's resolved
+# dimension and round-trips through to_string.
+INSERT INTO vectors VALUES (1, '[1,2,3]', '[10,20,30,40,50]');
+INSERT INTO vectors VALUES (2, '[-1,0,1]', '[0,0,0,0,0]');
+SELECT id, v3, v5 FROM vectors ORDER BY id;
+id	v3	v5
+1	[1,2,3]	[10,20,30,40,50]
+2	[-1,0,1]	[0,0,0,0,0]
+# The explicit canonical parameter form is equivalent to the shorthand.
+CREATE TABLE vectors_kv (id INT PRIMARY KEY, v PVEC('dimension=3'));
+INSERT INTO vectors_kv VALUES (1, '[7,8,9]');
+SELECT id, v FROM vectors_kv ORDER BY id;
+id	v
+1	[7,8,9]
+DROP TABLE vectors_kv;
+# A non-positive dimension is rejected by the parser before int_to_params.
+CREATE TABLE bad_zero (id INT, v PVEC(0));
+ERROR 42000: Invalid length '0' for type 'vsql_test_only.PVEC' near 'PVEC(0))' at line 1
+# A positive but out-of-range dimension reaches int_to_params, which
+# rejects it with the extension's own message.
+CREATE TABLE bad_big (id INT, v PVEC(300));
+ERROR 42000: PVEC dimension must be 1..256, got 300 near 'PVEC(300))' at line 1
+# from_string enforces the resolved dimension: a wrong element count for
+# the column's N (here 2 elements into PVEC(3)) is rejected.
+INSERT INTO vectors VALUES (3, '[1,2]', '[1,2,3,4,5]');
+ERROR HY000: Incorrect PVEC value: '[1,2]' for column 'v3' at row 1
+# The rejected row was not inserted; the table is unchanged.
+SELECT id, v3, v5 FROM vectors ORDER BY id;
+id	v3	v5
+1	[1,2,3]	[10,20,30,40,50]
+2	[-1,0,1]	[0,0,0,0,0]
+# Clean up.
+DROP TABLE vectors;
+UNINSTALL EXTENSION vsql_test_only;
