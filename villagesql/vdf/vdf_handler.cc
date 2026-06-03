@@ -274,7 +274,8 @@ bool vdf_handler::fix_fields(THD *thd [[maybe_unused]],
     // have grown the buffer further; keep the max.
     if (m_return_type_context != nullptr) {
       const int64_t storage = m_return_type_context->field_storage_length();
-      if (storage > 0 && static_cast<size_t>(storage) > m_result_buffer_size) {
+      assert(storage > 0);
+      if (static_cast<size_t>(storage) > m_result_buffer_size) {
         m_result_buffer_size = static_cast<size_t>(storage);
         m_result_buffer =
             pointer_cast<char *>((*THR_MALLOC)->Alloc(m_result_buffer_size));
