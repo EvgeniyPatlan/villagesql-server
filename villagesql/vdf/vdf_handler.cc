@@ -261,17 +261,15 @@ bool vdf_handler::fix_fields(THD *thd [[maybe_unused]],
     m_return_type_context = func->get_type_context();
 
     // CUSTOM-returning VDFs (e.g. the type's from_string / encode VDF) emit
-    // output that fits the resolved return type's backing field. For a
+    // output that fits the resolved return type's field. For a
     // fixed-length or parameter-resolved type that is persisted_length, unknown
     // until SetVDFReturnTypeContext above resolves it from return_params; for a
     // variable-length type without parameters (persisted_length == -1) it is
     // the type's max_persisted_length upper bound. field_buffer_length()
     // returns the right one. Grow the buffer to fit so that, for example,
-    // SVECTOR::from_string('[…1024 floats…]') has room to encode a wide vector,
-    // and a variable-length VARBITMAP::from_string(...) can produce a value up
-    // to its max length rather than the default 256 bytes. Mirrors the
-    // input-side growth done above for STRING-returning VDFs. prerun may still
-    // have grown the buffer further; keep the max.
+    // SVECTOR::from_string('[…1024 floats…]') has room to encode a wide vector.
+    // Mirrors the input-side growth done above for STRING-returning VDFs.
+    // prerun may still have grown the buffer further; keep the max.
     if (m_return_type_context != nullptr) {
       const int64_t buffer_len = m_return_type_context->field_buffer_length();
       assert(buffer_len > 0);
