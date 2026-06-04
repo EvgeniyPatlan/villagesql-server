@@ -35,3 +35,4 @@ vsql_add_test_extension(vsql-sys-var-rollback-test     vsql_sys_var_rollback_tes
 vsql_add_test_extension(vsql-noop-test                 vsql_noop_test)
 vsql_add_test_extension(vsql-bad-var-no-resolve-test   vsql_bad_var_no_resolve_test)
 vsql_add_test_extension(vsql-varlen-noparam-test       vsql_varlen_noparam_test)
+vsql_add_test_extension(vsql-varvec-test               vsql_varvec_test)

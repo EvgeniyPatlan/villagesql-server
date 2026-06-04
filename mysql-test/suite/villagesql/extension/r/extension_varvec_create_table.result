@@ -1,0 +1,48 @@
+# Install the variable-length, non-parameterized vector extension.
+INSTALL EXTENSION vsql_varvec_test;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+vsql_varvec_test	0.0.1
+# A column of a variable-length type declared WITHOUT parameters; the
+# length is decided per value.
+CREATE TABLE vecs (
+id INT PRIMARY KEY,
+v vsql_varvec_test.VARVEC
+);
+# Vectors of DIFFERENT element counts coexist in the same column.
+INSERT INTO vecs VALUES (1, '[1,2,3]');
+INSERT INTO vecs VALUES (2, '[10,20]');
+INSERT INTO vecs VALUES (3, '[-5,0,5,100,-100]');
+INSERT INTO vecs VALUES (4, '[]');
+# Each value round-trips at its own length; the element count is derived
+# from the stored byte length, not from a type parameter.
+SELECT id, v, vsql_varvec_test.varvec_dim(v) AS n_elems
+FROM vecs ORDER BY id;
+id	v	n_elems
+1	[1,2,3]	3
+2	[10,20]	2
+3	[-5,0,5,100,-100]	5
+4	[]	0
+# Predicate comparisons use the type's element-wise compare across
+# vectors of differing lengths.
+SELECT id FROM vecs WHERE v > '[1,2,3]' ORDER BY id;
+id
+2
+SELECT id FROM vecs WHERE v = '[10,20]' ORDER BY id;
+id
+2
+# UPDATE may grow or shrink the vector's length.
+UPDATE vecs SET v = '[7,7,7,7]' WHERE id = 2;
+SELECT id, v, vsql_varvec_test.varvec_dim(v) AS n_elems
+FROM vecs WHERE id = 2;
+id	v	n_elems
+2	[7,7,7,7]	4
+# The type is variable-length and parameterless (no int_to_params), so a
+# length specification is rejected.
+CREATE TABLE bad (id INT, v vsql_varvec_test.VARVEC(3));
+ERROR 42000: Type 'vsql_varvec_test.VARVEC' does not accept a length specification near 'vsql_varvec_test.VARVEC(3))' at line 1
+# Clean up.
+DROP TABLE vecs;
+UNINSTALL EXTENSION vsql_varvec_test;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
