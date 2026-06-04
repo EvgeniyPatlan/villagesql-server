@@ -92,10 +92,9 @@ class PT_custom_type : public PT_type {
     // descriptor's max_persisted_length upper bound.
     if (nullptr == length_spec) {
       int64_t len = type_context->field_buffer_length();
-      if (len > 0) {
-        snprintf(length_buffer, sizeof(length_buffer), "%" PRId64, len);
-        length_spec = length_buffer;
-      }
+      assert(len > 0);
+      snprintf(length_buffer, sizeof(length_buffer), "%" PRId64, len);
+      length_spec = length_buffer;
     }
   }
 
