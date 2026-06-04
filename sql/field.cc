@@ -9637,7 +9637,7 @@ Field *make_field(const Create_field &create_field, TABLE_SHARE *share,
     // types (persisted_length == -1) keep their length per value and are backed
     // by a field sized to the type's max_persisted_length upper bound.
     assert(static_cast<int64_t>(f->field_length) ==
-           create_field.custom_type_context->field_storage_length());
+           create_field.custom_type_context->field_buffer_length());
   }
   return f;
 }

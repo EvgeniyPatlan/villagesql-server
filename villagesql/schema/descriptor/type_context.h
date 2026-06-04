@@ -287,7 +287,7 @@ class TypeContext {
   // == -1 (its length is decided per value, like a roaring bitmap); such a
   // type is backed by a variable-length field sized to the descriptor's
   // max_persisted_length upper bound.
-  int64_t field_storage_length() const {
+  int64_t field_buffer_length() const {
     return persisted_length_ < 0 ? descriptor_->max_persisted_length()
                                  : persisted_length_;
   }

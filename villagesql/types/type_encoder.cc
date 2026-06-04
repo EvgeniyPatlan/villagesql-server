@@ -33,7 +33,7 @@ TypeEncoder::TypeEncoder(const TypeContext *tc, MEM_ROOT &mem_root)
       // Fixed-length types encode into persisted_length bytes; variable-length
       // types (persisted_length == -1) encode into a buffer sized to the type's
       // max_persisted_length upper bound and set the actual length per value.
-      buffer_size_(static_cast<size_t>(tc->field_storage_length())) {
+      buffer_size_(static_cast<size_t>(tc->field_buffer_length())) {
   assert(tc != nullptr);
   assert(buffer_size_ > 0);
 
