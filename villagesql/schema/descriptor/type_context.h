@@ -284,8 +284,8 @@ class TypeContext {
   // Declared length of the backing field for this type instantiation.
   // Fixed-length and parameter-resolved types store exactly persisted_length
   // bytes. A variable-length type without parameters keeps persisted_length
-  // == -1 (its length is decided per value, like a roaring bitmap); such a
-  // type is backed by a variable-length field sized to the descriptor's
+  // == -1 (its length is decided per value, like a TARRAY or VARCHAR type);
+  // such a type is backed by a variable-length field sized to the descriptor's
   // max_persisted_length upper bound.
   int64_t field_buffer_length() const {
     return persisted_length_ < 0 ? descriptor_->max_persisted_length()
