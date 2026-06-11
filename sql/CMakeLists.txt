@@ -24,12 +24,6 @@
 
 ADD_WSHADOW_WARNING()
 
-# Too many error: empty paragraph passed to '@throws'
-IF(MY_COMPILER_IS_CLANG AND (APPLE OR
-      CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19))
-  DISABLE_DOCUMENTATION_WARNINGS()
-ENDIF()
-
 # Lots of warnings about -Walloc-size-larger-than= from my_malloc.cc
 # but it is basically impossible to trace the actual origin.
 IF(FPROFILE_GENERATE OR FPROFILE_USE OR
@@ -118,6 +112,10 @@ ADD_CUSTOM_COMMAND(
   DEPENDS gen_keyword_list
 )
 
+IF(WITH_LOG_DIAGNOSTIC)
+  ADD_DEFINITIONS(-DHAVE_LOG_DIAGNOSTIC)
+ENDIF()
+
 ADD_DEFINITIONS(-DMYSQL_SERVER)
 ADD_SUBDIRECTORY(server_component)
 ADD_SUBDIRECTORY(protobuf)
@@ -180,8 +178,13 @@ SET(DD_SOURCES
   dd/impl/system_views/innodb_foreign_cols.cc
   dd/impl/system_views/innodb_fields.cc
   dd/impl/system_views/innodb_tablespaces_brief.cc
+  dd/impl/system_views/json_duality_view_columns.cc
+  dd/impl/system_views/json_duality_view_links.cc
+  dd/impl/system_views/json_duality_view_tables.cc
+  dd/impl/system_views/json_duality_views.cc
   dd/impl/system_views/key_column_usage.cc
   dd/impl/system_views/keywords.cc
+  dd/impl/system_views/libraries.cc
   dd/impl/system_views/parameters.cc
   dd/impl/system_views/partitions.cc
   dd/impl/system_views/referential_constraints.cc
@@ -189,6 +192,7 @@ SET(DD_SOURCES
   dd/impl/system_views/role_column_grants.cc
   dd/impl/system_views/role_routine_grants.cc
   dd/impl/system_views/role_table_grants.cc
+  dd/impl/system_views/routine_libraries.cc
   dd/impl/system_views/routines.cc
   dd/impl/system_views/schemata.cc
   dd/impl/system_views/schemata_extensions.cc
@@ -254,6 +258,7 @@ SET(DD_SOURCES
   dd/impl/types/function_impl.cc
   dd/impl/types/index_element_impl.cc
   dd/impl/types/index_impl.cc
+  dd/impl/types/library_impl.cc
   dd/impl/types/object_table_impl.cc
   dd/impl/types/object_table_definition_impl.cc
   dd/impl/types/parameter_impl.cc
@@ -362,6 +367,7 @@ SET(SQL_SHARED_SOURCES
   auth/role_tables.cc
   auth/sha2_password_common.cc
   auth/sha2_password.cc
+  ../vector-common/vector_conversion.cc
   ssl_wrapper_service.cc
   bootstrap.cc
   check_stack.cc
@@ -375,6 +381,7 @@ SET(SQL_SHARED_SOURCES
   debug_sync.cc
   default_values.cc
   derror.cc
+  engine_combination_tracker.cc
   error_handler.cc
   field.cc
   field_conv.cc
@@ -383,6 +390,7 @@ SET(SQL_SHARED_SOURCES
   aggregate_check.cc
   gstream.cc
   handler.cc
+  hash.cc
   histograms/equi_height.cc
   histograms/equi_height_bucket.cc
   histograms/histogram.cc
@@ -391,6 +399,7 @@ SET(SQL_SHARED_SOURCES
   histograms/value_map.cc
   hostname_cache.cc
   init.cc
+  lib_glue/gtids.cc
   log_resource.cc
   item.cc
   item_buff.cc
@@ -418,10 +427,18 @@ SET(SQL_SHARED_SOURCES
   iterators/ref_row_iterators.cc
   iterators/sorting_iterator.cc
   iterators/window_iterators.cc
+  json_duality_view/content_tree.cc
+  json_duality_view/ddl.cc
+  json_duality_view/dml.cc
+  json_duality_view/i_s.cc
+  json_duality_view/option_usage.cc
+  json_duality_view/ostream_utils.cc
+  json_duality_view/utils.cc
   join_optimizer/access_path.cc
   join_optimizer/build_interesting_orders.cc
   join_optimizer/common_subexpression_elimination.cc
   join_optimizer/cost_model.cc
+  join_optimizer/derived_keys.cc
   join_optimizer/estimate_selectivity.cc
   join_optimizer/explain_access_path.cc
   join_optimizer/finalize_plan.cc
@@ -431,11 +448,12 @@ SET(SQL_SHARED_SOURCES
   join_optimizer/join_optimizer.cc
   join_optimizer/make_join_hypergraph.cc
   join_optimizer/online_cycle_finder.cc
+  join_optimizer/optimizer_trace.cc
   join_optimizer/overflow_bitset.cc
   join_optimizer/print_utils.cc
   join_optimizer/relational_expression.cc
   join_optimizer/replace_item.cc
-  json_schema.cc
+  join_optimizer/secondary_statistics.cc
   key.cc
   key_spec.cc
   keycaches.cc
@@ -457,6 +475,7 @@ SET(SQL_SHARED_SOURCES
   opt_explain_traditional.cc
   opt_explain_json.cc
   opt_hints.cc
+  opt_option_usage.cc
   opt_statistics.cc
   opt_sum.cc
   opt_trace.cc
@@ -512,6 +531,7 @@ SET(SQL_SHARED_SOURCES
   statement/statement_runnable.cc
   statement/utils.cc
   rpl_group_replication.cc
+  rpl_opt_tracker.cc
   rpl_transaction_ctx.cc
   rpl_transaction_write_set_ctx.cc
   rpl_write_set_handler.cc
@@ -525,6 +545,7 @@ SET(SQL_SHARED_SOURCES
   sp_cache.cc
   sp_head.cc
   sp_instr.cc
+  sp_instr_inline.cc
   sp_pcontext.cc
   sp_rcontext.cc
   spatial.cc
@@ -542,6 +563,7 @@ SET(SQL_SHARED_SOURCES
   sql_class.cc
   sql_component.cc
   sql_const_folding.cc
+  sql_cmd_ddl.cc
   sql_cmd_ddl_table.cc
   sql_cmd_srs.cc
   sql_connect.cc
@@ -556,6 +578,7 @@ SET(SQL_SHARED_SOURCES
   sql_error.cc
   sql_exception_handler.cc
   sql_executor.cc
+  sql_foreign_key_constraint.cc
   sql_get_diagnostics.cc
   sql_gipk.cc
   sql_handler.cc
@@ -569,6 +592,7 @@ SET(SQL_SHARED_SOURCES
   sql_load.cc
   sql_locale.cc
   sql_manager.cc
+  sql_masking_policy.cc
   sql_optimizer.cc
   sql_parse.cc
   sql_partition.cc
@@ -643,7 +667,7 @@ SET(SQL_SHARED_SOURCES
   reference_caching_setup.cc
   sql_event_tracking_to_audit_event_mapping.cc
   command_mapping.cc
-  )
+)
 
 IF(BUILD_IS_SINGLE_CONFIG)
   GET_PROPERTY(CWD_DEFINITIONS DIRECTORY PROPERTY COMPILE_DEFINITIONS)
@@ -773,6 +797,7 @@ SET(SQL_SOURCE
   ${SQL_SHARED_SOURCES}
   ${SQL_HEADERS}
   ../libmysql/errmsg.cc
+  ../mysys/charset.cc
   ../sql-common/client.cc
   ../sql-common/client_plugin.cc
   ../sql-common/client_authentication.cc
@@ -787,8 +812,10 @@ SET(SQL_SOURCE
   ../sql-common/my_decimal.cc
   ../sql-common/json_diff.cc
   ../sql-common/json_dom.cc
+  ../sql-common/json_hash.cc
   ../sql-common/json_error_handler.cc
   ../sql-common/json_path.cc
+  ../sql-common/json_schema.cc
   ../sql-common/json_syntax_check.cc
   command_service.cc
   conn_handler/channel_info.cc
@@ -813,12 +840,6 @@ SET(SQL_SOURCE
   aggregated_stats_buffer.cc
   aggregated_stats.cc
   )
-
-IF ((NOT WITHOUT_MYSQL_NATIVE_PASSWORD)
-  OR (WITHOUT_MYSQL_NATIVE_PASSWORD EQUAL 0))
-  LIST(APPEND SQL_SOURCE ../sql-common/mysql_native_authentication_client.cc)
-ENDIF()
-
 
 IF(NOT HAVE_SETNS)
   LIST(REMOVE_ITEM SQL_SOURCE ../sql-common/net_ns.cc)
@@ -890,7 +911,7 @@ IF(MY_COMPILER_IS_GNU_OR_CLANG)
                       COMPILE_FLAGS "-Wno-unused-but-set-variable")
   ENDIF()
   # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=98753
-  IF(MY_COMPILER_IS_GNU AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 11)
+  IF(MY_COMPILER_IS_GNU)
     ADD_COMPILE_FLAGS(
       ${CMAKE_CURRENT_BINARY_DIR}/sql_yacc.cc
       ${CMAKE_CURRENT_BINARY_DIR}/sql_hints.yy.cc
@@ -925,16 +946,31 @@ ADD_DEPENDENCIES(sql_main GenDigestServerSource)
 ADD_DEPENDENCIES(sql_main GenBootstrapPriv)
 ADD_DEPENDENCIES(sql_main GenSysSchema)
 
-MYSQL_ADD_PLUGIN(mysql_native_password
-  auth/mysql_native_password.cc
-  LINK_LIBRARIES extra::boost
-  SYSTEM_INCLUDE_DIRECTORIES "${RAPIDJSON_INCLUDE_DIR}"
-  STATIC_ONLY DEFAULT)
+IF(DEFINED WITH_HYPERGRAPH_OPTIMIZER)
+  IF(WITH_HYPERGRAPH_OPTIMIZER)
+    TARGET_COMPILE_DEFINITIONS(sql_main PRIVATE
+      WITH_HYPERGRAPH_OPTIMIZER=1)
+  ENDIF()
+ENDIF()
+IF(ENABLE_HYPERGRAPH_OPTIMIZER)
+  TARGET_COMPILE_DEFINITIONS(sql_main PRIVATE
+    ENABLE_HYPERGRAPH_OPTIMIZER=1)
+ENDIF()
+
+IF(DEFINED WITH_SHOW_PARSE_TREE)
+  IF(WITH_SHOW_PARSE_TREE)
+    TARGET_COMPILE_DEFINITIONS(sql_main PRIVATE
+      WITH_SHOW_PARSE_TREE=1)
+  ENDIF()
+ELSEIF(WITH_SHOW_PARSE_TREE_DEFAULT STREQUAL "default")
+  TARGET_COMPILE_DEFINITIONS(sql_main PRIVATE
+    $<$<CONFIG:Debug>:WITH_SHOW_PARSE_TREE=1>)
+ENDIF()
 
 TARGET_LINK_LIBRARIES(sql_main extra::unordered_dense)
 
 TARGET_LINK_LIBRARIES(sql_main ${MYSQLD_STATIC_PLUGIN_LIBS}
-  mysql_server_component_services mysys strings vio
+  mysql_server_component_services mysys library_mysys strings vio
   mysql_binlog_event ${LIBWRAP} ${LIBDL} OpenSSL::SSL OpenSSL::Crypto
   extra::rapidjson extra::boost)
 
@@ -1000,6 +1036,7 @@ SET(BINLOG_SOURCE
   binlog/decompressing_event_object_istream.cc
   binlog/services/iterator/file_storage.cc
   binlog.cc
+  binlog_index.cc
   binlog_istream.cc
   binlog_ostream.cc
   binlog_reader.cc
@@ -1029,7 +1066,6 @@ SET(BINLOG_SOURCE
   rpl_trx_tracking.cc
   rpl_utility.cc
   sql_binlog.cc
-  stream_cipher.cc
   )
 ADD_LIBRARY(binlog STATIC ${BINLOG_SOURCE})
 TARGET_LINK_LIBRARIES(binlog mysql_binlog_event)
@@ -1051,6 +1087,12 @@ SET (RPL_REPLICA_SRCS
   dynamic_ids.cc
   binlog/log_sanitizer.cc
   changestreams/apply/commit_order_queue.cc
+  changestreams/apply/metrics/applier_metrics_stub.cc
+  changestreams/apply/metrics/time_based_metric_stub.cc
+  changestreams/apply/metrics/dummy_worker_metrics.cc
+  changestreams/apply/metrics/applier_metrics.cc
+  changestreams/apply/metrics/time_based_metric.cc
+  changestreams/apply/metrics/mta_worker_metrics.cc
   changestreams/apply/replication_thread_status.cc
   rpl_applier_reader.cc
   rpl_async_conn_failover.cc
@@ -1101,13 +1143,6 @@ IF(WIN32)
     ADD_COMPILE_FLAGS(mysqld.cc COMPILE_FLAGS " -Wno-microsoft-cast")
     ADD_COMPILE_FLAGS(log_event.cc COMPILE_FLAGS " -Wno-microsoft-template")
   ENDIF()
-ENDIF()
-
-# Includes code generated by protobuf, and version 3.12 will generate extra ';'.
-MY_CHECK_CXX_COMPILER_WARNING("-Wextra-semi" HAS_WARN_FLAG)
-IF(HAS_WARN_FLAG)
-  TARGET_COMPILE_OPTIONS(rpl_replica PRIVATE "${HAS_WARN_FLAG}")
-  ADD_COMPILE_FLAGS(mysqld.cc COMPILE_FLAGS ${HAS_WARN_FLAG})
 ENDIF()
 
 # All these libraries depend on each other.
@@ -1173,12 +1208,12 @@ IF(WITH_LTO OR CMAKE_COMPILER_FLAG_WITH_LTO)
   # and several other boost files.
   MY_CHECK_CXX_COMPILER_WARNING("error=maybe-uninitialized" HAS_WARN_FLAG)
   IF(HAS_WARN_FLAG)
-    MY_TARGET_LINK_OPTIONS(mysqld "${HAS_WARN_FLAG}")
+    TARGET_LINK_OPTIONS(mysqld PRIVATE ${HAS_WARN_FLAG})
   ENDIF()
   # The linker claims that unmasked_server_id is uninitialized.
   MY_CHECK_CXX_COMPILER_WARNING("error=uninitialized" HAS_WARN_FLAG)
   IF(HAS_WARN_FLAG)
-    MY_TARGET_LINK_OPTIONS(mysqld "${HAS_WARN_FLAG}")
+    TARGET_LINK_OPTIONS(mysqld PRIVATE ${HAS_WARN_FLAG})
   ENDIF()
 ENDIF()
 
@@ -1189,6 +1224,7 @@ ENDIF()
 
 IF(UNIX_INSTALL_RPATH_ORIGIN_PRIV_LIBDIR
     OR LINUX_INSTALL_RPATH_ORIGIN
+    OR ADD_INSTALL_RPATH_FOR_ICU
     OR TARGET my_tcmalloc
     )
   # Because of INSTALL_DEBUG_TARGET which does INSTALL(FILES ...)
@@ -1202,7 +1238,7 @@ IF(UNIX_INSTALL_RPATH_ORIGIN_PRIV_LIBDIR
 
   # Insert absolute INSTALL_RPATH.
   # This is done in order to support setuid executables, needed by:
-  # https://dev.mysql.com/doc/refman/8.0/en/resource-groups.html
+  # https://dev.mysql.com/doc/refman/en/resource-groups.html
   IF(INSTALL_LAYOUT STREQUAL "DEB" OR INSTALL_LAYOUT STREQUAL "RPM")
     ADD_INSTALL_RPATH(mysqld "${CMAKE_INSTALL_PREFIX}/${INSTALL_PRIV_LIBDIR}")
   ENDIF()
@@ -1303,7 +1339,7 @@ ELSE()
 ENDIF()
 
 # bison should be REQUIRED, but we have to support source tarball build.
-# https://dev.mysql.com/doc/refman/8.0/en/source-installation.html
+# https://dev.mysql.com/doc/refman/en/source-installation.html
 OPTION(USE_BISON_RESULTS_FROM_MAKE_DIST
   "Use bison results from source distribution tarball"
   ${USE_BISON_RESULTS_FROM_MAKE_DIST_DEFAULT}

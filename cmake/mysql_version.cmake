@@ -32,7 +32,7 @@ INCLUDE(vsql_version)
 #
 
 SET(SHARED_LIB_MAJOR_VERSION "24")
-SET(SHARED_LIB_MINOR_VERSION "0")
+SET(SHARED_LIB_MINOR_VERSION "1")
 SET(PROTOCOL_VERSION "10")
 
 # Generate "something" to trigger cmake rerun when MYSQL_VERSION changes
@@ -80,21 +80,26 @@ MACRO(GET_MYSQL_VERSION)
     MESSAGE(FATAL_ERROR "MYSQL_VERSION_MATURITY can be set to INNOVATION or LTS.")
   ENDIF()
 
-  # TODO(villagesql-ga): figure out our strategy for LTS and numbering.
-  ## Versions like 8.0.x, 8.4.x, and x.7.y (x > 8) should be LTS
-  # IF ((MAJOR_VERSION EQUAL "8" AND MINOR_VERSION EQUAL "0" AND PATCH_VERSION GREATER "34") OR
-  #     (MAJOR_VERSION EQUAL "8" AND MINOR_VERSION EQUAL "4") OR
-  #     (MAJOR_VERSION GREATER "8" AND MINOR_VERSION EQUAL "7"))
-  #   IF (NOT MYSQL_VERSION_MATURITY STREQUAL "\"LTS\"")
-  #     MESSAGE(FATAL_ERROR "Version ${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION} should "
-  #                         "be an LTS release.")
-  #   ENDIF()
-  # ELSE()
-  #   IF (NOT MYSQL_VERSION_MATURITY STREQUAL "\"INNOVATION\"")
-  #     MESSAGE(FATAL_ERROR "Version ${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION} should "
-  #                         "be an innovation release.")
-  #   ENDIF()
-  # ENDIF()
+  # Re-enabled during the 9.7 merge: MYSQL_VERSION tracks the upstream MySQL
+  # base (currently 9.7.0/LTS), not VillageSQL's own version (which lives in
+  # VSQL_VERSION / villagesql/include/version.h.in), so the upstream maturity
+  # rule applies and passes.
+  # Versions like 8.0.x, 8.4.x, and x.7.y (x > 8) should be LTS
+  IF ((MAJOR_VERSION EQUAL "8" AND MINOR_VERSION EQUAL "0" AND PATCH_VERSION GREATER "34") OR
+      (MAJOR_VERSION EQUAL "8" AND MINOR_VERSION EQUAL "4") OR
+      (MAJOR_VERSION GREATER "8" AND MINOR_VERSION EQUAL "7"))
+    IF (NOT MYSQL_VERSION_MATURITY STREQUAL "\"LTS\"")
+      MESSAGE(FATAL_ERROR "Version ${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION} should "
+                          "be an LTS release.")
+    ENDIF()
+    SET(MYSQL_VERSION_MATURITY_IS_LTS 1)
+  ELSE()
+    IF (NOT MYSQL_VERSION_MATURITY STREQUAL "\"INNOVATION\"")
+      MESSAGE(FATAL_ERROR "Version ${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION} should "
+                          "be an innovation release.")
+    ENDIF()
+    SET(MYSQL_VERSION_MATURITY_IS_LTS 0)
+  ENDIF()
 
   SET(VERSION
     "${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}${EXTRA_VERSION}")

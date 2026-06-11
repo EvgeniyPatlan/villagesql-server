@@ -122,18 +122,7 @@ static void set_mi_settings(Master_info *mi,
           ? opt_mts_replica_parallel_workers
           : channel_info->channel_mts_parallel_workers;
 
-  if (channel_info->channel_mts_parallel_type == RPL_SERVICE_SERVER_DEFAULT) {
-    if (mts_parallel_option == MTS_PARALLEL_TYPE_DB_NAME)
-      mi->rli->channel_mts_submode = MTS_PARALLEL_TYPE_DB_NAME;
-    else
-      mi->rli->channel_mts_submode = MTS_PARALLEL_TYPE_LOGICAL_CLOCK;
-  } else {
-    if (channel_info->channel_mts_parallel_type ==
-        CHANNEL_MTS_PARALLEL_TYPE_DB_NAME)
-      mi->rli->channel_mts_submode = MTS_PARALLEL_TYPE_DB_NAME;
-    else
-      mi->rli->channel_mts_submode = MTS_PARALLEL_TYPE_LOGICAL_CLOCK;
-  }
+  mi->rli->channel_mts_submode = MTS_PARALLEL_TYPE_LOGICAL_CLOCK;
 
   mi->rli->checkpoint_group =
       (channel_info->channel_mta_checkpoint_group == RPL_SERVICE_SERVER_DEFAULT)
@@ -509,7 +498,9 @@ int channel_start(const char *channel, Channel_connection_info *connection_info,
       wait for the thread to start
     */
     while (thread_start_id == mi->slave_run_id) {
-      mysql_cond_wait(&mi->start_cond, &mi->run_lock);
+      struct timespec abstime;
+      set_timespec(&abstime, 1);
+      mysql_cond_timedwait(&mi->start_cond, &mi->run_lock, &abstime);
     }
     mysql_mutex_unlock(&mi->run_lock);
 

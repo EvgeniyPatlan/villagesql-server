@@ -205,6 +205,18 @@ enum enum_sql_command {
   SQLCOM_CREATE_SRS,
   SQLCOM_DROP_SRS,
   SQLCOM_SHOW_PARSE_TREE,
+  // TODO(villagesql-rebase): new upstream commands must be inserted here, before
+  // SQLCOM_MYSQL_COUNT, to keep the MySQL-native block contiguous. Do NOT place
+  // them after the VSQL block. sql/command_mapping.cc must also gain a matching
+  // name (its constructor asserts every command 0..SQLCOM_MYSQL_COUNT is named).
+  SQLCOM_CREATE_LIBRARY,
+  SQLCOM_DROP_LIBRARY,
+  SQLCOM_SHOW_CREATE_LIBRARY,
+  SQLCOM_ALTER_LIBRARY,
+  SQLCOM_SHOW_STATUS_LIBRARY,
+  SQLCOM_CREATE_MASKING_POLICY,
+  SQLCOM_DROP_MASKING_POLICY,
+  SQLCOM_SHOW_CREATE_MASKING_POLICY,
   // Count of contiguous MySQL-native commands. Must stay at the end of the
   // MySQL command block, before SQLCOM_VSQL_FIRST.
   SQLCOM_MYSQL_COUNT,

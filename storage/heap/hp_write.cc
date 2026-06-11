@@ -23,10 +23,10 @@
 
 /* Write a record to heap-databas */
 
-#include <errno.h>
 #include <fcntl.h>
-#include <stddef.h>
 #include <sys/types.h>
+#include <cerrno>
+#include <cstddef>
 
 #include "my_dbug.h"
 #include "my_inttypes.h"

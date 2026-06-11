@@ -91,7 +91,6 @@
 #include "mysql/psi/mysql_memory.h"
 #include "mysql/service_mysql_alloc.h"
 #include "mysql/strings/int2str.h"
-#include "mysql_native_authentication_client.h"
 #include "mysql_version.h"
 #include "mysqld_error.h"
 #include "strmake.h"
@@ -139,7 +138,9 @@
 #include "mysql_com_server.h"
 #include "sql/client_settings.h"
 #include "sql/server_component/mysql_command_services_imp.h"
+#include "sql/srv_session.h"
 /* mysql_command_service_extn */
+#include "sql/mysqld.h"  // srv_registry
 #else
 #include "libmysql/client_settings.h"
 #endif
@@ -3375,6 +3376,141 @@ void mysql_extension_bind_free(MYSQL_EXTENSION *ext) {
   memset(&ext->bind_info, 0, sizeof(ext->bind_info));
 }
 
+#ifdef MYSQL_SERVER
+/**
+  Release services.
+
+  @param[in] consumer_refs A valid mysql_command_consumer_refs object.
+  @param[in] mcs_ext       A valid mysql_command_service_extn object.
+  @param[in] srv_registry  Registry service pointer.
+*/
+static void release_services(mysql_command_consumer_refs *consumer_refs,
+                             mysql_command_service_extn *mcs_ext,
+                             mysql_service_registry_t *srv_registry) {
+  if (consumer_refs) {
+    if (consumer_refs->factory_srv) {
+      /* This service call is used to free the memory, the allocation
+         was happened through factory_srv->start() service api. */
+      consumer_refs->factory_srv->end(
+          reinterpret_cast<SRV_CTX_H>(mcs_ext->consumer_srv_data));
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(mysql_text_consumer_factory_v1) *>(
+              consumer_refs->factory_srv)));
+    }
+    if (consumer_refs->metadata_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(mysql_text_consumer_metadata_v1) *>(
+              consumer_refs->metadata_srv)));
+    if (consumer_refs->row_factory_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(
+              mysql_text_consumer_row_factory_v1) *>(
+              consumer_refs->row_factory_srv)));
+    if (consumer_refs->error_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(mysql_text_consumer_error_v1) *>(
+              consumer_refs->error_srv)));
+    if (consumer_refs->get_null_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(mysql_text_consumer_get_null_v1) *>(
+              consumer_refs->get_null_srv)));
+    if (consumer_refs->get_integer_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(
+              mysql_text_consumer_get_integer_v1) *>(
+              consumer_refs->get_integer_srv)));
+    if (consumer_refs->get_longlong_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(
+              mysql_text_consumer_get_longlong_v1) *>(
+              consumer_refs->get_longlong_srv)));
+    if (consumer_refs->get_decimal_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(
+              mysql_text_consumer_get_decimal_v1) *>(
+              consumer_refs->get_decimal_srv)));
+    if (consumer_refs->get_double_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(
+              mysql_text_consumer_get_double_v1) *>(
+              consumer_refs->get_double_srv)));
+    if (consumer_refs->get_date_time_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(
+              mysql_text_consumer_get_date_time_v1) *>(
+              consumer_refs->get_date_time_srv)));
+    if (consumer_refs->get_string_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(
+              mysql_text_consumer_get_string_v1) *>(
+              consumer_refs->get_string_srv)));
+    if (consumer_refs->client_capabilities_srv)
+      srv_registry->release(reinterpret_cast<my_h_service>(
+          const_cast<SERVICE_TYPE_NO_CONST(
+              mysql_text_consumer_client_capabilities_v1) *>(
+              consumer_refs->client_capabilities_srv)));
+  }
+}
+
+/**
+  Free the command service extension.
+
+  This function releases consumer services and closes/detaches the backend
+  session as appropriate, then frees 'ext->mcs_extn'.
+  Safe to call even if some fields are null/partially initialized. No-op if
+  'ext' or 'ext->mcs_extn' is null.
+
+  @param[in,out] ext  The MYSQL_EXTENSION owning the command service state.
+                      On return, any consumer services are released, cleans up
+                      the backend session (detached sessions are detached/
+                      closed, THD-associated sessions are left to their owner),
+                      and 'ext->mcs_extn' is freed and set to nullptr. The 'ext'
+                      object itself is not freed.
+*/
+static void mysql_command_service_extn_free(MYSQL_EXTENSION *ext) {
+  if (!ext || !ext->mcs_extn) return;
+
+  auto *mcs_ext = reinterpret_cast<mysql_command_service_extn *>(ext->mcs_extn);
+
+  // Release consumer services acquired earlier
+  if (mcs_ext->command_consumer_services) {
+    auto *consumer_refs = reinterpret_cast<mysql_command_consumer_refs *>(
+        mcs_ext->command_consumer_services);
+    bool no_lock_registry = mcs_ext->no_lock_registry;
+
+    if (consumer_refs) {
+      no_lock_registry
+          ? release_services(consumer_refs, mcs_ext, srv_registry_no_lock)
+          : release_services(consumer_refs, mcs_ext, srv_registry);
+      delete consumer_refs;
+      consumer_refs = nullptr;
+
+      // avoid dangling ptr
+      mcs_ext->command_consumer_services = nullptr;
+    }
+  }
+
+  // Close session
+  if (mcs_ext->session_svc) {
+    if (!mcs_ext->is_thd_associated) {
+      // Detached session: detach then close
+      srv_session_detach(mcs_ext->session_svc);
+      srv_session_close(mcs_ext->session_svc);
+    } else {
+      // Locally created/owned session: delete it
+      delete mcs_ext->session_svc;
+    }
+    // THD-associated session: do not detach/close here (owner will close it)
+    mcs_ext->session_svc = nullptr;
+  }
+
+  // Reset var, free ext storage, and set ptr to nullptr
+  mcs_ext->is_thd_associated = false;
+  my_free(mcs_ext);
+  ext->mcs_extn = nullptr;
+}
+#endif
+
 void mysql_extension_free(MYSQL_EXTENSION *ext) {
   if (!ext) return;
   if (ext->trace_data) my_free(ext->trace_data);
@@ -3401,7 +3537,7 @@ void mysql_extension_free(MYSQL_EXTENSION *ext) {
     ext->mysql_async_context = nullptr;
   }
 #ifdef MYSQL_SERVER
-  if (ext->mcs_extn) my_free(ext->mcs_extn);
+  mysql_command_service_extn_free(ext);
 #endif
   // free state change related resources.
   free_state_change_info(ext);
@@ -4066,14 +4202,10 @@ extern "C" auth_plugin_t win_auth_client_plugin;
 
 #if defined(CLIENT_PROTOCOL_TRACING) && defined(TEST_TRACE_PLUGIN) && \
     !defined(NDEBUG)
-extern auth_plugin_t test_trace_plugin;
+extern "C" auth_plugin_t test_trace_plugin;
 #endif
 
 struct st_mysql_client_plugin *mysql_client_builtins[] = {
-#if !defined(WITHOUT_MYSQL_NATIVE_PASSWORD) || \
-    WITHOUT_MYSQL_NATIVE_PASSWORD == 0
-    (struct st_mysql_client_plugin *)&native_password_client_plugin,
-#endif
     (struct st_mysql_client_plugin *)&clear_password_client_plugin,
     (struct st_mysql_client_plugin *)&sha256_password_client_plugin,
     (struct st_mysql_client_plugin *)&caching_sha2_password_client_plugin,
@@ -5517,6 +5649,7 @@ void mpvio_info(Vio *vio, MYSQL_PLUGIN_VIO_INFO *info) {
       info->socket = (int)vio_fd(vio);
       return;
     case VIO_TYPE_SSL: {
+      info->is_tls_established = true;
       struct sockaddr addr;
       socklen_t addrlen = sizeof(addr);
       if (getsockname(vio_fd(vio), &addr, &addrlen)) return;
@@ -5752,13 +5885,34 @@ static mysql_state_machine_status authsm_begin_plugin_auth(
       ctx->auth_plugin = client_plugin;
     } else {
       /*
-        If everything else fail we use the built in plugin: caching sha if the
-        server is new enough or native if not.
-      */
-      ctx->auth_plugin = (mysql->server_capabilities & CLIENT_PLUGIN_AUTH)
-                             ? &caching_sha2_password_client_plugin
-                             : &native_password_client_plugin;
-      ctx->auth_plugin_name = ctx->auth_plugin->name;
+       * before we go here, the following happens:
+       * a. in csm_parse_handshake(),
+       *    if server has CLIENT_PLUGIN_AUTH,
+       *    ctx->scramble_plugin is taken from Server Greetings
+       *    otherwise it is set to "mysql_native_password"
+       * b. ctx->scramble_plugin is passed as data_plugin arg
+       *    into run_plugin_auth()
+       * c. run_plugin_auth() assigns data_plugin arg to ctx->data_plugin
+       *
+       * and we have to find/load the plugin indicated
+       */
+      if (mysql->server_capabilities & CLIENT_PLUGIN_AUTH) {
+        // what is a scenario we could get here ?
+        // maybe new plugin (not existing now) which is a default
+        // on server and it is unknown to client
+        ctx->auth_plugin = &caching_sha2_password_client_plugin;
+        ctx->auth_plugin_name = ctx->auth_plugin->name;
+      } else if (ctx->data_plugin &&
+                 (client_plugin = (auth_plugin_t *)mysql_client_find_plugin(
+                      mysql, ctx->data_plugin,
+                      MYSQL_CLIENT_AUTHENTICATION_PLUGIN))) {
+        ctx->auth_plugin_name = ctx->data_plugin;
+        ctx->auth_plugin = client_plugin;
+      } else {
+        // some abnormal case, we should not get here
+        assert(ctx->auth_plugin_name);
+        assert(ctx->auth_plugin);
+      }
     }
   }
 
@@ -6997,6 +7151,9 @@ static mysql_state_machine_status csm_parse_handshake(
         ctx->scramble_plugin = const_cast<char *>("");
       }
     } else {
+      /**
+        old server with no CLIENT_PLUGIN_AUTH support, so assume native auth
+      */
       ctx->scramble_data_len = (int)(pkt_end - ctx->scramble_data);
       ctx->scramble_plugin = MYSQL_NATIVE_PASSWORD_PLUGIN_NAME;
     }
@@ -9531,9 +9688,7 @@ const char *STDCALL mysql_sqlstate(MYSQL *mysql) {
   </li>
   <li>
   Client side requires nothing from the server. But the server generates
-  and sends a 20-byte
-  @ref page_protocol_connection_phase_authentication_methods_native_password_authentication
-  compatible scramble.
+  and sends a 20-byte mysql_native_password compatible scramble.
   </li>
   <li>
   Client side sends the password in clear text to the server
@@ -9551,8 +9706,7 @@ const char *STDCALL mysql_sqlstate(MYSQL *mysql) {
   sending @ref page_protocol_connection_phase_packets_protocol_handshake
   and that one has a placeholder for authentication plugin dependent data the
   server does fill that space with a scramble should it come to pass that
-  it will back down to
-  @ref page_protocol_connection_phase_authentication_methods_native_password_authentication.
+  it will back down to mysql_native_password.
   This is also why it's OK no to specifically read this in
   @ref clear_password_auth_client since it's already read as a part of
   the initial exchange.
@@ -9583,6 +9737,8 @@ const char *fieldtype2str(enum enum_field_types type) {
       return "BIT";
     case MYSQL_TYPE_BLOB:
       return "BLOB";
+    case MYSQL_TYPE_VECTOR:
+      return "VECTOR";
     case MYSQL_TYPE_BOOL:
       return "BOOLEAN";
     case MYSQL_TYPE_DATE:

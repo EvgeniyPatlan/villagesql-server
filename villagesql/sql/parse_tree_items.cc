@@ -91,7 +91,8 @@ static void emit_type_method_error(std::string_view ext_name,
       MYF(0), type_name.c_str(), method_name.c_str());
 }
 
-bool try_itemize_custom_vdf(Parse_context *pc, const LEX_STRING &extension_name,
+bool try_itemize_custom_vdf(Parse_context *pc, const POS &pos,
+                            const LEX_STRING &extension_name,
                             const LEX_STRING &func, PT_item_list *opt_expr_list,
                             Item **res, bool *error) {
   *error = false;
@@ -125,7 +126,7 @@ bool try_itemize_custom_vdf(Parse_context *pc, const LEX_STRING &extension_name,
   }
 
   // Create UDF item using the wrapper
-  *res = Create_udf_func::s_singleton.create(pc->thd, udf, opt_expr_list);
+  *res = Create_udf_func::s_singleton.create(pc->thd, pos, udf, opt_expr_list);
   if (*res == nullptr || (*res)->itemize(pc, res)) {
     *error = true;
     return true;  // Handled, but with error
@@ -134,7 +135,8 @@ bool try_itemize_custom_vdf(Parse_context *pc, const LEX_STRING &extension_name,
   return true;  // Successfully handled as VDF
 }
 
-bool try_itemize_unqualified_vdf(Parse_context *pc, const LEX_STRING &func,
+bool try_itemize_unqualified_vdf(Parse_context *pc, const POS &pos,
+                                 const LEX_STRING &func,
                                  PT_item_list *opt_expr_list, Item **res,
                                  bool *error) {
   *error = false;
@@ -177,7 +179,7 @@ bool try_itemize_unqualified_vdf(Parse_context *pc, const LEX_STRING &func,
     return true;  // Handled, but with allocation error
   }
 
-  *res = Create_udf_func::s_singleton.create(pc->thd, udf, opt_expr_list);
+  *res = Create_udf_func::s_singleton.create(pc->thd, pos, udf, opt_expr_list);
   if (*res == nullptr || (*res)->itemize(pc, res)) {
     *error = true;
     return true;  // Handled, but with error

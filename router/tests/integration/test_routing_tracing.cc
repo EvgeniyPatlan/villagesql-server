@@ -42,7 +42,9 @@
 #include <gtest/gtest-param-test.h>
 #include <gtest/gtest.h>
 
+#ifdef RAPIDJSON_NO_SIZETYPEDEFINE
 #include "my_rapidjson_size_t.h"
+#endif
 
 #include <rapidjson/error/en.h>
 #include <rapidjson/pointer.h>
@@ -297,9 +299,8 @@ class SharedRouter {
     std::vector<std::string> dests;
     dests.reserve(servers.size());
 
-    for (const auto &s : servers) {
-      dests.push_back(s->server_host() + ":" +
-                      std::to_string(s->server_port()));
+    for (const auto &srv : servers) {
+      dests.push_back(srv->classic_tcp_destination().str());
     }
 
     return dests;
@@ -541,7 +542,13 @@ class TestEnv : public ::testing::Environment {
         if (s->mysqld_failed_to_start()) {
           GTEST_SKIP() << "mysql-server failed to start.";
         }
-        s->setup_mysqld_accounts();
+
+        auto cli_res = s->admin_cli();
+        ASSERT_NO_ERROR(cli_res);
+
+        auto cli = std::move(*cli_res);
+
+        SharedServer::setup_mysqld_accounts(cli);
       }
     }
   }
@@ -1682,7 +1689,7 @@ TEST_P(TracingCommandTest,
 
   auto account = test_param.needs_super_privs
                      ? SharedServer::admin_account()
-                     : SharedServer::native_empty_password_account();
+                     : SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -1783,7 +1790,7 @@ TEST_P(TracingCommandTest,
 
   auto account = test_param.needs_super_privs
                      ? SharedServer::admin_account()
-                     : SharedServer::native_empty_password_account();
+                     : SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -1865,7 +1872,7 @@ TEST_P(TracingCommandTest,
 
   auto account = test_param.needs_super_privs
                      ? SharedServer::admin_account()
-                     : SharedServer::native_empty_password_account();
+                     : SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -1951,7 +1958,7 @@ TEST_P(TracingTest, classic_protocol_router_set_trace_disable) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2015,7 +2022,7 @@ TEST_P(TracingTest, classic_protocol_query_query_attribute_enable) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2093,7 +2100,7 @@ TEST_P(TracingTest, classic_protocol_query_query_attribute_disable) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2165,7 +2172,7 @@ TEST_P(TracingTest, classic_protocol_query_query_attribute_invalid_value) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2227,7 +2234,7 @@ TEST_P(TracingTest, classic_protocol_query_query_attribute_precedence) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2290,7 +2297,7 @@ TEST_P(TracingTest, classic_protocol_query_query_attribute_overwrite) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2380,7 +2387,7 @@ TEST_P(TracingTest, classic_protocol_query_query_attribute_unknown) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2443,7 +2450,7 @@ TEST_P(TracingTest, classic_protocol_query_query_attribute_character_set) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2517,7 +2524,7 @@ TEST_P(TracingTest, classic_protocol_reset_connection_ok) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2719,7 +2726,7 @@ TEST_P(TracingTest, classic_protocol_router_multi_statements) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2752,7 +2759,7 @@ TEST_P(TracingTest, classic_protocol_router_set_trace_ok) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2801,7 +2808,7 @@ TEST_P(TracingTest, classic_protocol_router_set_trace_failed) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2855,7 +2862,7 @@ TEST_P(TracingTest, classic_protocol_router_set_trace_via_prepare) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);
@@ -2884,7 +2891,7 @@ TEST_P(TracingTest, classic_protocol_router_set_failed) {
   SCOPED_TRACE("// connecting to server");
   MysqlClient cli;
 
-  auto account = SharedServer::native_empty_password_account();
+  auto account = SharedServer::caching_sha2_empty_password_account();
 
   cli.username(account.username);
   cli.password(account.password);

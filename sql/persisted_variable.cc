@@ -986,7 +986,7 @@ bool Persisted_variables_cache::set_persisted_options(
   const std::vector<std::string> priv_list = {
       "ENCRYPTION_KEY_ADMIN", "ROLE_ADMIN",          "SYSTEM_VARIABLES_ADMIN",
       "AUDIT_ADMIN",          "TELEMETRY_LOG_ADMIN", "CONNECTION_ADMIN"};
-  const ulong static_priv_list = (SUPER_ACL | FILE_ACL);
+  const Access_bitmask static_priv_list = (SUPER_ACL | FILE_ACL);
   Sctx_ptr<Security_context> ctx;
   /*
     if persisted_globals_load is set to false or --no-defaults is set
@@ -2113,8 +2113,11 @@ bool Persisted_variables_cache::append_read_only_variables(
 
   auto result = decrypt_sensitive_variables();
   if (result == return_status::ERROR) {
-    LogErr(ERROR_LEVEL, ER_CANNOT_INTERPRET_PERSISTED_SENSITIVE_VARIABLES);
-    return true;
+    if (!opt_persist_sensitive_variables_in_plaintext) {
+      LogErr(ERROR_LEVEL, ER_CANNOT_INTERPRET_PERSISTED_SENSITIVE_VARIABLES);
+      return true;
+    }
+    LogErr(WARNING_LEVEL, ER_CANNOT_INTERPRET_PERSISTED_SENSITIVE_VARIABLES);
   }
 
   /* create a set of values sorted by timestamp */

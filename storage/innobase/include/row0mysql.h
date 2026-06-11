@@ -513,10 +513,12 @@ constexpr uint32_t ROW_PREBUILT_FREED = 26423527;
 handle used within MySQL; these are used to save CPU time. */
 
 struct row_prebuilt_t {
-  ulint magic_n;               /*!< this magic number is set to
-                               ROW_PREBUILT_ALLOCATED when created,
-                               or ROW_PREBUILT_FREED when the
-                               struct has been freed */
+  ulint magic_n; /*!< this magic number is set to
+                 ROW_PREBUILT_ALLOCATED when created,
+                 or ROW_PREBUILT_FREED when the
+                 struct has been freed */
+  space_id_t space_id() const { return table->space; }
+
   dict_table_t *table;         /*!< Innobase table handle */
   dict_index_t *index;         /*!< current index for a search, if
                                any */
@@ -641,27 +643,6 @@ struct row_prebuilt_t {
   not all control paths lead to setting this field to true in case a matching
   row is visited. */
   bool m_stop_tuple_found;
-
- private:
-  /** Set to true iff we are inside read_range_first() or read_range_next() */
-  bool m_is_reading_range;
-
- public:
-  bool is_reading_range() const { return m_is_reading_range; }
-
-  class row_is_reading_range_guard_t : private ut::bool_scope_guard_t {
-   public:
-    explicit row_is_reading_range_guard_t(row_prebuilt_t &prebuilt)
-        : ut::bool_scope_guard_t(prebuilt.m_is_reading_range) {}
-  };
-
-  row_is_reading_range_guard_t get_is_reading_range_guard() {
-    /* We implement row_is_reading_range_guard_t as a simple bool_scope_guard_t
-    because we trust that scopes are never nested and thus we don't need to
-    count their "openings" and "closings", so we assert that.*/
-    ut_ad(!m_is_reading_range);
-    return row_is_reading_range_guard_t(*this);
-  }
 
   byte row_id[DATA_ROW_ID_LEN];
   /*!< if the clustered index was
@@ -833,11 +814,15 @@ struct row_prebuilt_t {
   table index tree. In this case, it could be split, but no shrink. */
   bool m_temp_tree_modified;
 
+  bool has_gcol() const { return m_mysql_table->has_gcol(); }
+
   /** The MySQL table object */
   TABLE *m_mysql_table;
 
   /** The MySQL handler object. */
   ha_innobase *m_mysql_handler;
+
+  THD *m_thd;
 
   /** limit value to avoid fts result overflow */
   ulonglong m_fts_limit;
@@ -910,9 +895,8 @@ struct row_prebuilt_t {
   /** @return true iff the operation can skip concurrency ticket. */
   bool skip_concurrency_ticket() const;
 
-  /** It is unsafe to copy this struct, and moving it would be non-trivial,
-  because we want to keep in sync with row_is_reading_range_guard_t. Therefore
-  it is much safer/easier to just forbid such operations.  */
+  /** It is unsafe to copy this struct, and we don't need to move it.
+  Therefore it is much safer/easier to just forbid such operations. */
   row_prebuilt_t(row_prebuilt_t const &) = delete;
   row_prebuilt_t &operator=(row_prebuilt_t const &) = delete;
   row_prebuilt_t &operator=(row_prebuilt_t &&) = delete;
@@ -951,6 +935,21 @@ dfield_t *innobase_get_computed_value(
     mem_heap_t **local_heap, mem_heap_t *heap, THD *thd, TABLE *mysql_table,
     const dict_field_t *ifield = nullptr,
     const dict_table_t *old_table = nullptr, upd_t *row_update = nullptr);
+
+/** This is similar to the function innobase_get_computed_value(), but for
+stored generated columns (gcol).
+@param[in,out] row    data tuple object.
+@param[in]     col        stored gcol
+@param[in]     table      table on which the stored gcol is defined
+@param[in,out] heap      heap used for evaluating gcol
+@param[in]     thd    MySQL thread handle
+@param[in]     mysql_table  MySQL table object.
+@return the field filled with computed value or nullptr on failure */
+dfield_t *innobase_compute_stored_gcol(const dtuple_t *row,
+                                       const dict_s_col_t &col,
+                                       const dict_table_t *table,
+                                       mem_heap_t *heap, THD *thd,
+                                       TABLE *mysql_table);
 
 /** Parse out multi-values from a MySQL record
 @param[in]      mysql_table     MySQL table structure

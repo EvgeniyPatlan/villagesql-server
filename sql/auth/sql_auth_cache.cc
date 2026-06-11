@@ -25,6 +25,7 @@
 
 #include <stdarg.h>
 #include <boost/graph/properties.hpp>
+#include <chrono>
 #include <memory>
 #include <new>
 
@@ -100,6 +101,7 @@ using std::make_unique;
 using std::min;
 using std::string;
 using std::unique_ptr;
+using namespace std::chrono_literals;
 
 PSI_mutex_key key_LOCK_acl_cache_flush;
 PSI_mutex_info all_acl_cache_mutexes[] = {
@@ -134,7 +136,6 @@ Prealloced_array<ACL_USER, ACL_PREALLOC_SIZE> *acl_users = nullptr;
 Prealloced_array<ACL_PROXY_USER, ACL_PREALLOC_SIZE> *acl_proxy_users = nullptr;
 Prealloced_array<ACL_DB, ACL_PREALLOC_SIZE> *acl_dbs = nullptr;
 Prealloced_array<ACL_HOST_AND_IP, ACL_PREALLOC_SIZE> *acl_wild_hosts = nullptr;
-Db_access_map acl_db_map;
 Default_roles *g_default_roles = nullptr;
 std::vector<Role_id> *g_mandatory_roles = nullptr;
 
@@ -143,7 +144,8 @@ unique_ptr<
     column_priv_hash;
 unique_ptr<
     malloc_unordered_multimap<string, unique_ptr_destroy_only<GRANT_NAME>>>
-    proc_priv_hash, func_priv_hash;
+    proc_priv_hash, func_priv_hash, library_priv_hash;
+
 malloc_unordered_map<std::string, unique_ptr_my_free<acl_entry>> db_cache{
     key_memory_acl_cache};
 collation_unordered_map<std::string, ACL_USER *> *acl_check_hosts = nullptr;
@@ -168,6 +170,28 @@ bool validate_user_plugins = true;
 
 #define IP_ADDR_STRLEN (3 + 1 + 3 + 1 + 3 + 1 + 3)
 #define ACL_KEY_LENGTH (IP_ADDR_STRLEN + 1 + NAME_LEN + 1 + USERNAME_LENGTH + 1)
+
+/**
+ * Returns a non-owning raw pointer of either func_priv_hash, proc_priv_hash or
+ * library_priv_hash.
+ */
+malloc_unordered_multimap<std::string, unique_ptr_destroy_only<GRANT_NAME>>
+    *get_routine_priv_hash(Acl_type type) {
+  if (type == Acl_type::FUNCTION) {
+    assert(func_priv_hash);
+    return func_priv_hash.get();
+  }
+  if (type == Acl_type::PROCEDURE) {
+    assert(proc_priv_hash);
+    return proc_priv_hash.get();
+  }
+  if (type == Acl_type::LIBRARY) {
+    assert(library_priv_hash);
+    return library_priv_hash.get();
+  }
+  assert(false);  // TABLE is not a routine
+  return nullptr;
+}
 
 /** Helper: Set user name */
 static void set_username(char **user, const char *user_arg, MEM_ROOT *mem) {
@@ -1042,10 +1066,8 @@ bool GRANT_TABLE::init(TABLE *col_privs) {
     error =
         col_privs->file->ha_index_read_map(col_privs->record[0], (uchar *)key,
                                            (key_part_map)15, HA_READ_KEY_EXACT);
-    assert(col_privs->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-           error != HA_ERR_LOCK_DEADLOCK);
-    assert(col_privs->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-           error != HA_ERR_LOCK_WAIT_TIMEOUT);
+    assert(error != HA_ERR_LOCK_DEADLOCK);
+    assert(error != HA_ERR_LOCK_WAIT_TIMEOUT);
     DBUG_EXECUTE_IF("wl7158_grant_table_2", error = HA_ERR_LOCK_DEADLOCK;);
     if (error) {
       bool ret = false;
@@ -1080,10 +1102,8 @@ bool GRANT_TABLE::init(TABLE *col_privs) {
                            unique_ptr_destroy_only<GRANT_COLUMN>(mem_check));
 
       error = col_privs->file->ha_index_next(col_privs->record[0]);
-      assert(col_privs->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-             error != HA_ERR_LOCK_DEADLOCK);
-      assert(col_privs->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-             error != HA_ERR_LOCK_WAIT_TIMEOUT);
+      assert(error != HA_ERR_LOCK_DEADLOCK);
+      assert(error != HA_ERR_LOCK_WAIT_TIMEOUT);
       DBUG_EXECUTE_IF("wl7158_grant_table_3", error = HA_ERR_LOCK_DEADLOCK;);
       if (error && error != HA_ERR_END_OF_FILE) {
         acl_print_ha_error(error);
@@ -1566,7 +1586,7 @@ bool acl_getroot(THD *thd, Security_context *sctx, const char *user,
     get_default_roles(authid, default_roles);
     List_of_auth_id_refs::iterator it = default_roles.begin();
     for (; it != default_roles.end(); ++it) {
-      if (sctx->activate_role(it->first, it->second)) {
+      if (sctx->activate_role(it->first, it->second, false)) {
         sctx->clear_active_roles();
         break;
       }
@@ -2444,12 +2464,6 @@ void acl_insert_proxy_user(ACL_PROXY_USER *new_value) {
   acl_proxy_users->insert(upper_bound, *new_value);
 }
 
-struct Free_grant_table {
-  void operator()(GRANT_TABLE *grant_table) const {
-    grant_table->~GRANT_TABLE();
-  }
-};
-
 /* Free grant array if possible */
 
 void grant_free(void) {
@@ -2457,6 +2471,7 @@ void grant_free(void) {
   column_priv_hash.reset();
   proc_priv_hash.reset();
   func_priv_hash.reset();
+  library_priv_hash.reset();
   memex.Clear();
 }
 
@@ -2529,6 +2544,10 @@ static bool grant_load_procs_priv(TABLE *p_table) {
       new malloc_unordered_multimap<string,
                                     unique_ptr_destroy_only<GRANT_NAME>>(
           key_memory_acl_memex));
+  library_priv_hash.reset(
+      new malloc_unordered_multimap<string,
+                                    unique_ptr_destroy_only<GRANT_NAME>>(
+          key_memory_acl_memex));
   error = p_table->file->ha_index_init(0, true);
   DBUG_EXECUTE_IF("wl7158_grant_load_proc_1", p_table->file->ha_index_end();
                   error = HA_ERR_LOCK_DEADLOCK;);
@@ -2539,10 +2558,8 @@ static bool grant_load_procs_priv(TABLE *p_table) {
   p_table->use_all_columns();
 
   error = p_table->file->ha_index_first(p_table->record[0]);
-  assert(p_table->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-         error != HA_ERR_LOCK_DEADLOCK);
-  assert(p_table->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-         error != HA_ERR_LOCK_WAIT_TIMEOUT);
+  assert(error != HA_ERR_LOCK_DEADLOCK);
+  assert(error != HA_ERR_LOCK_WAIT_TIMEOUT);
   DBUG_EXECUTE_IF("wl7158_grant_load_proc_2", error = HA_ERR_LOCK_DEADLOCK;);
 
   if (error) {
@@ -2569,11 +2586,13 @@ static bool grant_load_procs_priv(TABLE *p_table) {
                  mem_check->host.get_host() ? mem_check->host.get_host() : "");
         }
       }
-      const enum_sp_type sp_type = to_sp_type(p_table->field[4]->val_int());
-      if (sp_type == enum_sp_type::PROCEDURE) {
-        hash = proc_priv_hash.get();
-      } else if (sp_type == enum_sp_type::FUNCTION) {
+      auto sp_type = p_table->field[4]->val_int();
+      if (sp_type == 1) {  // FUNCTION
         hash = func_priv_hash.get();
+      } else if (sp_type == 2) {  // PROCEDURE
+        hash = proc_priv_hash.get();
+      } else if (sp_type == 3) {  // LIBRARY
+        hash = library_priv_hash.get();
       } else {
         LogErr(WARNING_LEVEL,
                ER_AUTHCACHE_PROCS_PRIV_ENTRY_IGNORED_BAD_ROUTINE_TYPE,
@@ -2591,10 +2610,8 @@ static bool grant_load_procs_priv(TABLE *p_table) {
       }
     next_record:
       error = p_table->file->ha_index_next(p_table->record[0]);
-      assert(p_table->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-             error != HA_ERR_LOCK_DEADLOCK);
-      assert(p_table->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-             error != HA_ERR_LOCK_WAIT_TIMEOUT);
+      assert(error != HA_ERR_LOCK_DEADLOCK);
+      assert(error != HA_ERR_LOCK_WAIT_TIMEOUT);
       DBUG_EXECUTE_IF("wl7158_grant_load_proc_3",
                       error = HA_ERR_LOCK_DEADLOCK;);
       if (error) {
@@ -2656,10 +2673,8 @@ static bool grant_load(THD *thd, Table_ref *tables) {
   c_table->use_all_columns();
 
   error = t_table->file->ha_index_first(t_table->record[0]);
-  assert(t_table->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-         error != HA_ERR_LOCK_DEADLOCK);
-  assert(t_table->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-         error != HA_ERR_LOCK_WAIT_TIMEOUT);
+  assert(error != HA_ERR_LOCK_DEADLOCK);
+  assert(error != HA_ERR_LOCK_WAIT_TIMEOUT);
   DBUG_EXECUTE_IF("wl7158_grant_load_2", error = HA_ERR_LOCK_DEADLOCK;);
   if (error) {
     if (error == HA_ERR_END_OF_FILE)
@@ -2698,10 +2713,8 @@ static bool grant_load(THD *thd, Table_ref *tables) {
             unique_ptr_destroy_only<GRANT_TABLE>(mem_check));
       }
       error = t_table->file->ha_index_next(t_table->record[0]);
-      assert(t_table->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-             error != HA_ERR_LOCK_DEADLOCK);
-      assert(t_table->file->ht->db_type == DB_TYPE_NDBCLUSTER ||
-             error != HA_ERR_LOCK_WAIT_TIMEOUT);
+      assert(error != HA_ERR_LOCK_DEADLOCK);
+      assert(error != HA_ERR_LOCK_WAIT_TIMEOUT);
       DBUG_EXECUTE_IF("wl7158_grant_load_3", error = HA_ERR_LOCK_DEADLOCK;);
       if (error) {
         if (error != HA_ERR_END_OF_FILE)
@@ -2745,6 +2758,9 @@ static bool grant_reload_procs_priv(Table_ref *table) {
   unique_ptr<
       malloc_unordered_multimap<string, unique_ptr_destroy_only<GRANT_NAME>>>
       old_func_priv_hash(std::move(func_priv_hash));
+  unique_ptr<
+      malloc_unordered_multimap<string, unique_ptr_destroy_only<GRANT_NAME>>>
+      old_library_priv_hash(std::move(library_priv_hash));
   bool return_val = false;
 
   if ((return_val = grant_load_procs_priv(table->table))) {
@@ -2752,6 +2768,7 @@ static bool grant_reload_procs_priv(Table_ref *table) {
     DBUG_PRINT("error", ("Reverting to old privileges"));
     proc_priv_hash = std::move(old_proc_priv_hash);
     func_priv_hash = std::move(old_func_priv_hash);
+    library_priv_hash = std::move(old_library_priv_hash);
   }
 
   return return_val;
@@ -2862,7 +2879,7 @@ void acl_update_user(const char *user, const char *host, enum SSL_type ssl_type,
                      const char *x509_subject, USER_RESOURCES *mqh,
                      Access_bitmask privileges, const LEX_CSTRING &plugin,
                      const LEX_CSTRING &auth, const std::string &second_auth,
-                     const MYSQL_TIME &password_change_time,
+                     const Datetime_val &password_change_time,
                      const LEX_ALTER &password_life, Restrictions &restrictions,
                      acl_table::Pod_user_what_to_update &what_to_update,
                      uint failed_login_attempts, int password_lock_time,
@@ -3024,7 +3041,7 @@ void acl_users_add_one(const char *user, const char *host,
                        USER_RESOURCES *mqh, Access_bitmask privileges,
                        const LEX_CSTRING &plugin, const LEX_CSTRING &auth,
                        const LEX_CSTRING &second_auth,
-                       const MYSQL_TIME &password_change_time,
+                       const Datetime_val &password_change_time,
                        const LEX_ALTER &password_life, bool add_role_vertex,
                        Restrictions &restrictions, uint failed_login_attempts,
                        int password_lock_time, const I_multi_factor_auth *mfa,
@@ -3137,7 +3154,7 @@ void acl_insert_user(THD *thd [[maybe_unused]], const char *user,
                      const char *x509_subject, USER_RESOURCES *mqh,
                      Access_bitmask privileges, const LEX_CSTRING &plugin,
                      const LEX_CSTRING &auth,
-                     const MYSQL_TIME &password_change_time,
+                     const Datetime_val &password_change_time,
                      const LEX_ALTER &password_life, Restrictions &restrictions,
                      uint failed_login_attempts, int password_lock_time,
                      const I_multi_factor_auth *mfa) {
@@ -3391,10 +3408,11 @@ Acl_map::Acl_map(Security_context *sctx, uint64 ver)
     return;
   }
   List_of_granted_roles granted_roles;
-  get_privilege_access_maps(
-      acl_user, sctx->get_active_roles(), &m_global_acl, &m_db_acls,
-      &m_db_wild_acls, &m_table_acls, &m_sp_acls, &m_func_acls, &granted_roles,
-      &m_with_admin_acls, &m_dynamic_privileges, m_restrictions);
+  get_privilege_access_maps(acl_user, sctx->get_active_roles(), &m_global_acl,
+                            &m_db_acls, &m_db_wild_acls, &m_table_acls,
+                            &m_sp_acls, &m_func_acls, &m_lib_acls,
+                            &granted_roles, &m_with_admin_acls,
+                            &m_dynamic_privileges, m_restrictions);
 }
 
 Acl_map::~Acl_map() {
@@ -3411,6 +3429,7 @@ Acl_map &Acl_map::operator=(Acl_map &&map) {
   m_table_acls = std::move(map.m_table_acls);
   m_sp_acls = std::move(map.m_sp_acls);
   m_func_acls = std::move(map.m_func_acls);
+  m_lib_acls = std::move(map.m_lib_acls);
   m_with_admin_acls = std::move(map.m_with_admin_acls);
   m_version = map.m_version;
   m_restrictions = map.m_restrictions;
@@ -3433,6 +3452,8 @@ Grant_acl_set *Acl_map::grant_acls() { return &m_with_admin_acls; }
 SP_access_map *Acl_map::sp_acls() { return &m_sp_acls; }
 
 SP_access_map *Acl_map::func_acls() { return &m_func_acls; }
+
+SP_access_map *Acl_map::lib_acls() { return &m_lib_acls; }
 
 Dynamic_privileges *Acl_map::dynamic_privileges() {
   return &m_dynamic_privileges;
@@ -3565,6 +3586,15 @@ void Acl_cache::flush_cache() {
         lf_hash_random_match(&m_cache, pins, &cache_flusher, 0, nullptr));
     if (entry &&
         !lf_hash_delete(&m_cache, pins, entry->key, entry->key_length)) {
+      /*
+        Now that the entry is out of the cache, wait for the reference count to
+        go down to 0 if another thread is still using it.
+      */
+      while (entry->map->reference_count() != 0) {
+        DBUG_PRINT("info",
+                   ("Entry %p with reference count > 0. Waiting.", entry));
+        std::this_thread::sleep_for(100ms);
+      }
       // Hash element is removed from cache; safe to delete
       my_free(entry->key);
       delete entry->map;
@@ -4080,3 +4110,22 @@ bool is_partial_revoke_exists(THD *thd) {
 }
 
 bool is_acl_inited() { return acl_cache_initialized; }
+
+size_t acl_users_size() {
+  assert(assert_acl_cache_read_lock(current_thd));
+
+  size_t size = (acl_users != nullptr) ? acl_users->size() : 0;
+
+  return size;
+}
+
+void acl_users_accept(ACL_USER_visitor *visitor) {
+  assert(assert_acl_cache_read_lock(current_thd));
+
+  if (acl_users != nullptr) {
+    for (ACL_USER *acl_user = acl_users->begin(); acl_user != acl_users->end();
+         ++acl_user) {
+      visitor->visit(acl_user);
+    }
+  }
+}

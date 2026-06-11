@@ -59,6 +59,7 @@
 #include "sql/sql_error.h"
 #include "sql/sql_lex.h"
 #include "sql/sql_list.h"
+#include "sql/sql_masking_policy.h"
 #include "sql/sql_parse.h"
 #include "sql/system_variables.h"
 
@@ -112,7 +113,8 @@ class PT_column_attr_base : public Parse_tree_node_tmpl<Column_parse_context> {
     AT_COLUMN_FORMAT_COLUMN_ATTR,
     AT_STORAGE_MEDIA_COLUMN_ATTR,
     AT_SRID_COLUMN_ATTR,
-    AT_COLUMN_VISIBILITY_ATTR
+    AT_COLUMN_VISIBILITY_ATTR,
+    AT_MASKING_POLICY_NAME_ATTR,
   };
 
   typedef decltype(Alter_info::flags) alter_info_flags_t;
@@ -122,6 +124,7 @@ class PT_column_attr_base : public Parse_tree_node_tmpl<Column_parse_context> {
   virtual void apply_comment(LEX_CSTRING *) const {}
   virtual void apply_default_value(Item **) const {}
   virtual void apply_gen_default_value(Value_generator **) {}
+  virtual void apply_mask(LEX_CSTRING *) {}
   virtual void apply_on_update_value(Item **) const {}
   virtual void apply_srid_modifier(std::optional<gis::srid_t> *) const {}
   virtual bool apply_collation(Column_parse_context *,
@@ -602,6 +605,31 @@ class PT_generated_default_val_column_attr : public PT_column_attr_base {
   Value_generator m_default_value_expression;
 };
 
+/// Node for the masking policy, column attribute
+class PT_masking_policy_name_column_attr final : public PT_column_attr_base {
+  typedef PT_column_attr_base super;
+
+ public:
+  PT_masking_policy_name_column_attr(const POS &pos, LEX_CSTRING policy_name)
+      : super{pos}, m_policy_name{policy_name} {}
+
+  bool do_contextualize(Column_parse_context *pc) override {
+    return super::do_contextualize(pc) ||
+           check_masking_policy_name(m_policy_name);
+  }
+
+  void apply_mask(LEX_CSTRING *masking_policy_name) override {
+    *masking_policy_name = m_policy_name;
+  }
+
+  enum Attr_type attr_type() const override {
+    return AT_MASKING_POLICY_NAME_ATTR;
+  }
+
+ private:
+  LEX_CSTRING m_policy_name;
+};
+
 /**
   Node for the @SQL{VISIBLE|INVISIBLE} column attribute
 
@@ -775,6 +803,21 @@ class PT_char_type : public PT_type {
   }
   const char *get_length() const override { return length; }
   const CHARSET_INFO *get_charset() const override { return charset; }
+};
+
+class PT_vector_type : public PT_type {
+  char vector_length_buffer[33]{};
+
+ public:
+  PT_vector_type(const POS &pos, const char *length)
+      : PT_type(pos, MYSQL_TYPE_VECTOR) {
+    const char *length_arg = length == nullptr ? "2048" : length;
+    uint vector_length = atoi(length_arg) * sizeof(float);
+    sprintf(vector_length_buffer, "%u", vector_length);
+  }
+
+  const char *get_length() const override { return vector_length_buffer; }
+  const CHARSET_INFO *get_charset() const override { return &my_charset_bin; }
 };
 
 enum class Blob_type {
@@ -1007,6 +1050,7 @@ class PT_field_def_base : public Parse_tree_node {
   Value_generator *gcol_info = nullptr;
   /// Holds the expression to generate default values
   Value_generator *default_val_info = nullptr;
+  LEX_CSTRING masking_policy = EMPTY_CSTR;
   std::optional<gis::srid_t> m_srid{};
   // List of column check constraint's specification.
   Sql_check_constraint_spec_list *check_const_spec_list = nullptr;
@@ -1091,6 +1135,7 @@ class PT_field_def_base : public Parse_tree_node {
         attr->apply_comment(&comment);
         attr->apply_default_value(&default_value);
         attr->apply_gen_default_value(&default_val_info);
+        attr->apply_mask(&masking_policy);
         attr->apply_on_update_value(&on_update_value);
         attr->apply_srid_modifier(&m_srid);
         if (attr->apply_collation(pc, &charset, &has_explicit_collation))

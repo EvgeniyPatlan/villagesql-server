@@ -630,6 +630,8 @@ struct dfield_t {
   unsigned len; /*!< data length; UNIV_SQL_NULL if SQL null */
   dtype_t type; /*!< type of data */
 
+  bool is_ext() const { return ext; }
+
   bool is_virtual() const { return (type.is_virtual()); }
 
   void reset() {
@@ -860,6 +862,8 @@ struct dtuple_t {
     return false;
   }
 
+  /** Choose a field suitable for storing externally. */
+  dfield_t *choose_ext(dict_index_t *index);
   dtuple_t *deep_copy(mem_heap_t *heap) const;
 
 #ifdef UNIV_DEBUG

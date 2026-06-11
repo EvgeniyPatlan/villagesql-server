@@ -34,6 +34,7 @@
 #include <utility>
 
 #include "basic_protocol_splicer.h"
+#include "classic_auth_caching_sha2.h"
 #include "mysql/harness/logging/logging.h"
 #include "mysql/harness/stdx/expected.h"
 #include "mysql/harness/tls_error.h"
@@ -843,8 +844,8 @@ void MysqlRoutingClassicConnectionBase::loop() {
 bool MysqlRoutingClassicConnectionBase::connection_sharing_possible() const {
   const auto &sysvars = client_protocol().system_variables();
 
-  return context_.connection_sharing() &&             // config must allow it.
-         client_protocol().password().has_value() &&  // a password is required
+  return context_.connection_sharing() &&  // allowed by config (or route)
+         !client_protocol().credentials().empty() &&  // a password is required
          sysvars.get("session_track_gtids") == "OWN_GTID" &&
          sysvars.get("session_track_state_change") == "ON" &&
          sysvars.get("session_track_system_variables") == "*" &&
@@ -964,7 +965,7 @@ std::string MysqlRoutingClassicConnectionBase::connection_sharing_blocked_by()
 
   // "possible"
   if (!context_.connection_sharing()) return "config";
-  if (!client_protocol().password().has_value()) return "no-password";
+  if (client_protocol().credentials().empty()) return "no-password";
   if (sysvars.get("session_track_gtids") != "OWN_GTID")
     return "session-track-gtids";
   if (sysvars.get("session_track_state_change") != "ON")
@@ -1031,4 +1032,43 @@ void MysqlRoutingClassicConnectionBase::reset_to_initial() {
 
 void MysqlRoutingClassicConnectionBase::stash_server_conn() {
   // no-op
+}
+
+routing_guidelines::Session_info
+MysqlRoutingClassicConnectionBase::get_session_info() {
+  auto session_info = MySQLRoutingConnectionBase::get_session_info();
+  session_info.schema = client_protocol().schema();
+  session_info.user = client_protocol().username();
+
+  std::map<std::string, std::string, std::less<>> attributes;
+  const auto &attributes_str = client_protocol().attributes();
+  bool is_key{true};
+  std::string attribute_key;
+  auto attr_buf =
+      net::const_buffer(attributes_str.data(), attributes_str.size());
+  while (net::buffer_size(attr_buf) != 0) {
+    const auto decode_res =
+        classic_protocol::decode<classic_protocol::wire::VarString>(attr_buf,
+                                                                    {});
+    if (!decode_res) {
+      log_warning(
+          "[%s] could not set connection attributes for routing guidelines "
+          "evaluation",
+          this->context().get_name().c_str());
+      return session_info;
+    }
+
+    if (is_key) {
+      attribute_key = decode_res->second.value();
+    } else {
+      attributes[attribute_key] = decode_res->second.value();
+    }
+    is_key = !is_key;
+
+    const auto bytes_read = decode_res->first;
+    attr_buf += bytes_read;
+  }
+  session_info.connect_attrs = attributes;
+
+  return session_info;
 }

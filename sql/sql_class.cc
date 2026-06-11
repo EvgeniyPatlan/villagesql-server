@@ -192,6 +192,16 @@ void Thd_mem_cnt::alloc_cnt(size_t size) {
   }
 #endif
 
+  ulonglong conn_mem_status_limit_save = conn_memory_status_limit;
+  if (!m_thd->lex->is_crossed_connection_memory_status_limit() &&
+      (mem_counter - size) <= conn_mem_status_limit_save &&
+      mem_counter > conn_mem_status_limit_save) {
+    // update status variables
+    // count_hit_query_past_connection_memory_status_limit
+    atomic_count_hit_query_past_conn_mem_status_limit++;
+    m_thd->lex->set_crossed_connection_memory_status_limit();
+  }
+
   if (mem_counter > m_thd->variables.conn_mem_limit) {
 #ifndef NDEBUG
     // Used for testing the entering to idle state
@@ -212,14 +222,27 @@ void Thd_mem_cnt::alloc_cnt(size_t size) {
     const ulonglong delta = curr_mem - glob_mem_counter;
     ulonglong global_conn_mem_counter_save;
     ulonglong global_conn_mem_limit_save;
+    ulonglong global_conn_mem_status_limit_save;
     {
       MUTEX_LOCK(lock, &LOCK_global_conn_mem_limit);
       global_conn_mem_counter += delta;
       global_conn_mem_counter_save = global_conn_mem_counter;
       global_conn_mem_limit_save = global_conn_mem_limit;
+      global_conn_mem_status_limit_save = global_conn_memory_status_limit;
     }
     glob_mem_counter = curr_mem;
     max_conn_mem = std::max(max_conn_mem, glob_mem_counter);
+
+    if (!m_thd->lex->is_crossed_global_connection_memory_status_limit() &&
+        (global_conn_mem_counter_save - delta) <=
+            global_conn_mem_status_limit_save &&
+        global_conn_mem_counter_save > global_conn_mem_status_limit_save) {
+      // update status variables
+      // count_hit_query_past_global_connection_memory_status_limit
+      atomic_count_hit_query_past_global_conn_mem_status_limit++;
+      m_thd->lex->set_crossed_global_connection_memory_status_limit();
+    }
+
     if (global_conn_mem_counter_save > global_conn_mem_limit_save) {
 #ifndef NDEBUG
       // Used for testing the entering to idle state
@@ -260,6 +283,7 @@ int Thd_mem_cnt::reset() {
     ulonglong delta;
     ulonglong global_conn_mem_counter_save;
     ulonglong global_conn_mem_limit_save;
+    ulonglong global_conn_mem_status_limit_save;
     if (glob_mem_counter > mem_counter) {
       delta = glob_mem_counter - mem_counter;
       MUTEX_LOCK(lock, &LOCK_global_conn_mem_limit);
@@ -267,22 +291,43 @@ int Thd_mem_cnt::reset() {
       global_conn_mem_counter -= delta;
       global_conn_mem_counter_save = global_conn_mem_counter;
       global_conn_mem_limit_save = global_conn_mem_limit;
+      global_conn_mem_status_limit_save = global_conn_memory_status_limit;
     } else {
       delta = mem_counter - glob_mem_counter;
       MUTEX_LOCK(lock, &LOCK_global_conn_mem_limit);
       global_conn_mem_counter += delta;
       global_conn_mem_counter_save = global_conn_mem_counter;
       global_conn_mem_limit_save = global_conn_mem_limit;
+      global_conn_mem_status_limit_save = global_conn_memory_status_limit;
     }
     glob_mem_counter = mem_counter;
-    if (is_connection_stage &&
-        (global_conn_mem_counter_save > global_conn_mem_limit_save))
-      return generate_error(ER_DA_GLOBAL_CONN_LIMIT, global_conn_mem_limit_save,
-                            global_conn_mem_counter_save);
+    if (is_connection_stage) {
+      if (!m_thd->lex->is_crossed_global_connection_memory_status_limit() &&
+          global_conn_mem_counter_save > global_conn_mem_status_limit_save) {
+        // update status variables
+        // count_hit_query_past_global_connection_memory_status_limit
+        atomic_count_hit_query_past_global_conn_mem_status_limit++;
+        m_thd->lex->set_crossed_global_connection_memory_status_limit();
+      }
+
+      if (global_conn_mem_counter_save > global_conn_mem_limit_save)
+        return generate_error(ER_DA_GLOBAL_CONN_LIMIT,
+                              global_conn_mem_limit_save,
+                              global_conn_mem_counter_save);
+    }
   }
-  if (is_connection_stage && (mem_counter > m_thd->variables.conn_mem_limit))
-    return generate_error(ER_DA_CONN_LIMIT, m_thd->variables.conn_mem_limit,
-                          mem_counter);
+  if (is_connection_stage) {
+    if (!m_thd->lex->is_crossed_connection_memory_status_limit() &&
+        mem_counter > conn_memory_status_limit) {
+      // update status variables
+      // count_hit_query_past_connection_memory_status_limit
+      atomic_count_hit_query_past_conn_mem_status_limit++;
+      m_thd->lex->set_crossed_connection_memory_status_limit();
+    }
+    if (mem_counter > m_thd->variables.conn_mem_limit)
+      return generate_error(ER_DA_CONN_LIMIT, m_thd->variables.conn_mem_limit,
+                            mem_counter);
+  }
   is_connection_stage = false;
   return 0;
 }
@@ -640,6 +685,7 @@ THD::THD(bool enable_plugins)
       m_dd_client(new dd::cache::Dictionary_client(this)),
       m_query_string(NULL_CSTR),
       m_db(NULL_CSTR),
+      m_eligible_secondary_engine_handlerton(nullptr),
       rli_fake(nullptr),
       rli_slave(nullptr),
       copy_status_var_ptr(nullptr),
@@ -864,6 +910,10 @@ THD::THD(bool enable_plugins)
   if (events_cache_ == nullptr || !events_cache_->valid()) {
     /*ToDo: Raise warning */
   }
+
+  // Initialize based on the global system startup variable
+  if (!innodb_native_foreign_keys)
+    variables.option_bits |= OPTION_USE_SQL_FOREIGN_KEY_HANDLING;
 }
 
 void THD::store_cached_properties(cached_properties prop_mask) {
@@ -899,6 +949,14 @@ void THD::set_transaction(Transaction_ctx *transaction_ctx) {
 void THD::set_secondary_engine_statement_context(
     std::unique_ptr<Secondary_engine_statement_context> context) {
   m_secondary_engine_statement_context = std::move(context);
+}
+
+void THD::set_eligible_secondary_engine_handlerton(handlerton *hton) {
+  m_eligible_secondary_engine_handlerton = hton;
+}
+
+void THD::cleanup_after_statement_execution() {
+  set_secondary_engine_statement_context(nullptr);
 }
 
 bool THD::set_db(const LEX_CSTRING &new_db) {
@@ -1184,6 +1242,15 @@ void THD::set_new_thread_id() {
   thr_lock_info_init(&lock_info, m_thread_id, &COND_thr_lock);
 }
 
+void THD::set_protocol_dependent_variables(Protocol *proto) {
+  assert(proto != nullptr);
+
+  if (proto->has_client_capability(CLIENT_INTERACTIVE))
+    variables.net_wait_timeout = variables.net_interactive_timeout;
+  if (proto->has_client_capability(CLIENT_IGNORE_SPACE))
+    variables.sql_mode |= MODE_IGNORE_SPACE;
+}
+
 /*
   Do what's needed when one invokes change user
 
@@ -1211,6 +1278,7 @@ void THD::cleanup_connection(void) {
   running_explain_analyze = false;
   m_thd_life_cycle_stage = enum_thd_life_cycle_stages::ACTIVE;
   init();
+  set_protocol_dependent_variables(m_protocol);
   stmt_map.reset();
   user_vars.clear();
   sp_cache_clear(&sp_proc_cache);
@@ -1461,7 +1529,7 @@ THD::~THD() {
   THD_CHECK_SENTRY(this);
   DBUG_TRACE;
   DBUG_PRINT("info", ("THD dtor, this %p", this));
-
+  assert(m_eligible_secondary_engine_handlerton == nullptr);
   assert(m_secondary_engine_statement_context == nullptr);
 
   if (has_incremented_gtid_automatic_count) {
@@ -1857,6 +1925,8 @@ void THD::cleanup_after_query() {
   // Cleanup and free items that were created during this execution
   cleanup_items(item_list());
   free_items();
+  m_eligible_secondary_engine_handlerton = nullptr;
+
   /* Reset where. */
   where = THD::DEFAULT_WHERE;
   /* reset table map for multi-table update */
@@ -1866,7 +1936,9 @@ void THD::cleanup_after_query() {
   if (lex) {
     lex->mi.repl_ignore_server_ids.clear();
   }
-  if (rli_slave) rli_slave->cleanup_after_query();
+  if (rli_slave) {
+    rli_slave->cleanup_after_query();
+  }
   // Set the default "cute" mode for the execution environment:
   check_for_truncated_fields = CHECK_FIELD_IGNORE;
 }
@@ -2058,6 +2130,7 @@ void THD::rollback_item_tree_changes() {
 }
 
 void Query_arena::add_item(Item *item) {
+  assert(item->next_free == nullptr);
   item->next_free = m_item_list;
   m_item_list = item;
 }
@@ -2443,6 +2516,11 @@ void THD::inc_status_created_tmp_tables() {
 #ifdef HAVE_PSI_STATEMENT_INTERFACE
   PSI_STATEMENT_CALL(inc_statement_created_tmp_tables)(m_statement_psi, 1);
 #endif
+}
+
+void THD::inc_status_count_hit_tmp_table_size() {
+  assert(!status_var_aggregated);
+  status_var.count_hit_tmp_table_size++;
 }
 
 void THD::inc_status_select_full_join() {
@@ -3193,8 +3271,19 @@ void THD::cleanup_after_parse_error() {
 
   if (sp) {
     sp->m_parser_data.finish_parsing_sp_body(this);
-    //  Do not delete sp_head if is invoked in the context of sp execution.
-    if (sp_runtime_ctx == nullptr) {
+    // Do not delete sp_head if is invoked in the context of sp execution,
+    // unless the parsing happens as part of preparing.
+    // If parsing of a prepared statement fails, thd->lex can be left
+    // referencing a LEX created on the sp_head mem_root, (currently the
+    // only preparable statements which create an sp_head are CREATE
+    // and ALTER EVENT).
+    // It is important to clean up the lex objects belonging to the sp_head
+    // mem_root before returning to Prepared_statement::prepare().
+    // Otherwise, such a LEX will be swapped into m_lex by
+    // stmt_backup.restore_thd(). This would lead to reads of freed memory in
+    // ~Prepared_statement() (when m_lex was accessed after calling
+    // sp_head::destroy() there).
+    if (sp_runtime_ctx == nullptr || m_parser_state->m_lip.stmt_prepare_mode) {
       sp_head::destroy(sp);
       lex->sphead = nullptr;
     }
@@ -3303,6 +3392,19 @@ void *THD::fetch_external(unsigned int slot) {
   return external_store_.at(slot) ? external_store_.at(slot) : nullptr;
 }
 
+/**
+  @brief Check if there are event subscribers for the event
+
+  Subscribers can be one of the following:
+     * audit plugins subscribing via the component->plugin bridge
+     * reference cache registered components
+
+  @param event the class to check for
+  @param subevent the even in the class to check for
+  @param check_audited  true if we should skip non-audited users
+  @retval true : no subscribers present
+  @retval false: subscribers present
+*/
 bool THD::check_event_subscribers(Event_tracking_class event,
                                   unsigned long subevent, bool check_audited) {
   audit_plugins_present = false;
@@ -3392,7 +3494,6 @@ bool THD::event_notify(struct st_mysql_event_generic *event_data) {
       create_scope_guard([&] { this->pop_event_tracking_data(); });
 
   bool retval = false;
-
   if (audit_plugins_present) {
     /* Notify all plugins first */
     switch (event_data->event_class) {
@@ -3495,12 +3596,12 @@ bool THD::event_notify(struct st_mysql_event_generic *event_data) {
         break;
     };
   }
-
-  if (events_cache_ == nullptr || !events_cache_->valid()) return retval;
+  if (retval || events_cache_ == nullptr || !events_cache_->valid())
+    return retval;
 
   const my_h_service *refs{nullptr};
 
-  if (events_cache_->get(event_data->event_class, &refs)) return retval;
+  if (events_cache_->get(event_data->event_class, &refs)) return false;
 
   switch (event_data->event_class) {
     case Event_tracking_class::AUTHENTICATION: {
@@ -3771,4 +3872,9 @@ const Cost_model_server *THD::cost_model() const {
   } else {
     return &m_cost_model;
   }
+}
+
+bool use_sql_fk_checks_for_table(THD *thd, TABLE *table) {
+  return ((table->s->db_type()->flags & HTON_SUPPORTS_SQL_FK) &&
+          is_sql_fk_checks_enabled(thd));
 }

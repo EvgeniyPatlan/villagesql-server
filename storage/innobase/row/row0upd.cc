@@ -32,6 +32,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
  Created 12/27/1996 Heikki Tuuri
  *******************************************************/
 
+#include <sql/sql_thd_internal_api.h>
 #include <sys/types.h>
 
 #include "dict0dict.h"
@@ -44,7 +45,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "row0upd.h"
 #include "trx0undo.h"
 #ifndef UNIV_HOTBACKUP
-#include <algorithm>
 
 #include <debug_sync.h>
 #include "btr0btr.h"
@@ -56,7 +56,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "eval0eval.h"
 #include "fts0fts.h"
 #include "fts0types.h"
-#include "lob0lob.h"
 #include "lock0lock.h"
 #include "log0chkp.h"
 #include "mach0data.h"
@@ -68,8 +67,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "row0ins.h"
 #include "row0log.h"
 #ifndef UNIV_HOTBACKUP
-#include "fts0fts.h"
-#include "fts0types.h"
 #include "row0row.h"
 #include "row0sel.h"
 #include "trx0rec.h"
@@ -77,7 +74,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <algorithm>
 #include "lob0lob.h"
 #ifndef UNIV_HOTBACKUP
-#include "current_thd.h"
 #include "dict0dd.h"
 #include "villagesql/custom_column.h"
 #endif /* !UNIV_HOTBACKUP */
@@ -2339,7 +2335,8 @@ code or DB_LOCK_WAIT */
 
       ut_ad(err == DB_SUCCESS);
 
-      if (referenced) {
+      if (!thd_is_sql_fk_checks_enabled() && referenced) {
+        DBUG_PRINT("fk", ("InnoDB FK on table %s", index->table->name.m_name));
         ulint *offsets;
 
         offsets = rec_get_offsets(rec, index, nullptr, ULINT_UNDEFINED,
@@ -2642,7 +2639,8 @@ static inline bool row_upd_clust_rec_by_insert_inherit(
         }
       }
     check_fk:
-      if (referenced) {
+      if (!thd_is_sql_fk_checks_enabled() && referenced) {
+        DBUG_PRINT("fk", ("InnoDB FK on table %s", table->name.m_name));
         /* NOTE that the following call loses
         the position of pcur ! */
 
@@ -2994,7 +2992,8 @@ func_exit:
   err = btr_cur_del_mark_set_clust_rec(flags, btr_cur_get_block(btr_cur),
                                        btr_cur_get_rec(btr_cur), index, offsets,
                                        thr, node->row, mtr);
-  if (err == DB_SUCCESS && referenced) {
+  if (err == DB_SUCCESS && !thd_is_sql_fk_checks_enabled() && referenced) {
+    DBUG_PRINT("fk", ("InnoDB FK on table %s", index->table->name.m_name));
     /* NOTE that the following call loses the position of pcur ! */
 
     err = row_upd_check_references_constraints(node, pcur, index->table, index,
@@ -3034,8 +3033,6 @@ func_exit:
 
   index = node->table->first_index();
 
-  auto referenced = row_upd_index_is_referenced(index);
-
   pcur = node->pcur;
 
   /* We have to restore the cursor to its position */
@@ -3071,7 +3068,6 @@ func_exit:
   DEBUG_SYNC(trx->mysql_thd, "innodb_row_upd_clust_step_enter");
 
   if (dict_index_is_online_ddl(index)) {
-    ut_ad(node->table->id != DICT_INDEXES_ID);
     mode = BTR_MODIFY_LEAF | BTR_ALREADY_S_LATCHED;
     mtr_s_lock(dict_index_get_lock(index), &mtr, UT_LOCATION_HERE);
   } else {
@@ -3108,7 +3104,7 @@ func_exit:
 
   if (node->is_delete) {
     err = row_upd_del_mark_clust_rec(flags, node, index, offsets, thr,
-                                     referenced, &mtr);
+                                     row_upd_index_is_referenced(index), &mtr);
 
     if (err == DB_SUCCESS) {
       node->state = UPD_NODE_UPDATE_ALL_SEC;
@@ -3149,8 +3145,8 @@ func_exit:
     choosing records to update. MySQL solves now the problem
     externally! */
 
-    err =
-        row_upd_clust_rec_by_insert(flags, node, index, thr, referenced, &mtr);
+    err = row_upd_clust_rec_by_insert(flags, node, index, thr,
+                                      row_upd_index_is_referenced(index), &mtr);
 
     if (err != DB_SUCCESS) {
       goto exit_func;

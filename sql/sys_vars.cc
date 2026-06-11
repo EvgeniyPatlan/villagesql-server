@@ -55,11 +55,13 @@
 
 #include "include/compression.h"
 
+#include "mysql/components/library_mysys/my_system.h"  // my_physical_memory
 #include "mysql/components/services/log_builtins.h"
 #include "mysql/components/services/log_shared.h"
 #include "mysql/my_loglevel.h"
 #include "mysql_com.h"
 #include "sql/auth/authentication_policy.h"
+#include "sql/handler.h"
 #include "sql/protocol.h"
 #include "sql/rpl_trx_tracking.h"
 #ifdef HAVE_SYS_TIME_H
@@ -121,11 +123,10 @@
 #include "sql/rpl_info_factory.h"       // Rpl_info_factory
 #include "sql/rpl_info_handler.h"       // INFO_REPOSITORY_TABLE
 #include "sql/rpl_log_encryption.h"
-#include "sql/rpl_mi.h"           // Master_info
-#include "sql/rpl_msr.h"          // channel_map
-#include "sql/rpl_mta_submode.h"  // MTS_PARALLEL_TYPE_DB_NAME
-#include "sql/rpl_replica.h"      // SLAVE_THD_TYPE
-#include "sql/rpl_rli.h"          // Relay_log_info
+#include "sql/rpl_mi.h"                                    // Master_info
+#include "sql/rpl_msr.h"                                   // channel_map
+#include "sql/rpl_replica.h"                               // SLAVE_THD_TYPE
+#include "sql/rpl_rli.h"                                   // Relay_log_info
 #include "sql/server_component/log_builtins_filter_imp.h"  // until we have pluggable variables
 #include "sql/server_component/log_builtins_imp.h"
 #include "sql/session_tracker.h"
@@ -136,6 +137,7 @@
 #include "sql/sql_show_processlist.h"  // pfs_processlist_enabled
 #include "sql/sql_tmp_table.h"         // internal_tmp_mem_storage_engine_names
 #include "sql/ssl_acceptor_context_operator.h"
+#include "sql/statement/statement.h"  // STMT_HANDLE_PSI_STATEMENT_INFO_COUNT
 #include "sql/system_variables.h"
 #include "sql/table_cache.h"  // Table_cache_manager
 #include "sql/transaction.h"  // trans_commit_stmt
@@ -201,22 +203,36 @@ static constexpr const unsigned long TRANS_ALLOC_PREALLOC_SIZE{4096};
 static constexpr const unsigned long RANGE_ALLOC_BLOCK_SIZE{4096};
 
 // Including the switch in this set, makes its default 'on'
-static constexpr const unsigned long long OPTIMIZER_SWITCH_DEFAULT{
-    OPTIMIZER_SWITCH_INDEX_MERGE | OPTIMIZER_SWITCH_INDEX_MERGE_UNION |
+// clang-format off
+static constexpr const unsigned long long OPTIMIZER_SWITCH_DEFAULT {
+    OPTIMIZER_SWITCH_INDEX_MERGE |
+    OPTIMIZER_SWITCH_INDEX_MERGE_UNION |
     OPTIMIZER_SWITCH_INDEX_MERGE_SORT_UNION |
     OPTIMIZER_SWITCH_INDEX_MERGE_INTERSECT |
     OPTIMIZER_SWITCH_ENGINE_CONDITION_PUSHDOWN |
-    OPTIMIZER_SWITCH_INDEX_CONDITION_PUSHDOWN | OPTIMIZER_SWITCH_MRR |
-    OPTIMIZER_SWITCH_MRR_COST_BASED | OPTIMIZER_SWITCH_BNL |
-    OPTIMIZER_SWITCH_MATERIALIZATION | OPTIMIZER_SWITCH_SEMIJOIN |
-    OPTIMIZER_SWITCH_LOOSE_SCAN | OPTIMIZER_SWITCH_FIRSTMATCH |
-    OPTIMIZER_SWITCH_DUPSWEEDOUT | OPTIMIZER_SWITCH_SUBQ_MAT_COST_BASED |
+    OPTIMIZER_SWITCH_INDEX_CONDITION_PUSHDOWN |
+    OPTIMIZER_SWITCH_MRR |
+    OPTIMIZER_SWITCH_MRR_COST_BASED |
+    OPTIMIZER_SWITCH_BNL |
+    OPTIMIZER_SWITCH_MATERIALIZATION |
+    OPTIMIZER_SWITCH_SEMIJOIN |
+    OPTIMIZER_SWITCH_LOOSE_SCAN |
+    OPTIMIZER_SWITCH_FIRSTMATCH |
+    OPTIMIZER_SWITCH_DUPSWEEDOUT |
+    OPTIMIZER_SWITCH_SUBQ_MAT_COST_BASED |
     OPTIMIZER_SWITCH_USE_INDEX_EXTENSIONS |
-    OPTIMIZER_SWITCH_COND_FANOUT_FILTER | OPTIMIZER_SWITCH_DERIVED_MERGE |
-    OPTIMIZER_SKIP_SCAN | OPTIMIZER_SWITCH_HASH_JOIN |
+    OPTIMIZER_SWITCH_COND_FANOUT_FILTER |
+    OPTIMIZER_SWITCH_DERIVED_MERGE |
+    OPTIMIZER_SKIP_SCAN |
+    OPTIMIZER_SWITCH_HASH_JOIN |
     OPTIMIZER_SWITCH_PREFER_ORDERING_INDEX |
     OPTIMIZER_SWITCH_DERIVED_CONDITION_PUSHDOWN |
-    OPTIMIZER_SWITCH_HASH_SET_OPERATIONS};
+#if defined(ENABLE_HYPERGRAPH_OPTIMIZER)
+    OPTIMIZER_SWITCH_HYPERGRAPH_OPTIMIZER |
+#endif
+    OPTIMIZER_SWITCH_HASH_SET_OPERATIONS
+};
+// clang-format on
 
 static constexpr const unsigned long MYSQLD_NET_RETRY_COUNT{10};
 
@@ -357,6 +373,31 @@ static bool check_session_admin_or_replication_applier(sys_var *self
     my_error(ER_SPECIFIC_ACCESS_DENIED_ERROR, MYF(0),
              "SUPER, SYSTEM_VARIABLES_ADMIN, SESSION_VARIABLES_ADMIN or "
              "REPLICATION_APPLIER");
+    return true;
+  }
+  return false;
+}
+
+/**
+  Checks if user has an additional REPLICATION_SLAVE_ADMIN privilege, needed
+  to modify REPLICA_ALLOW_HIGHER_VERSION_SOURCE system variable (unless having
+  SUPER).
+
+  @retval true failure
+  @retval false success
+
+  @param self the system variable to set value for
+  @param thd  the session context
+  @param setv the SET operations metadata
+*/
+static bool check_replica_allow_higher_version_source(
+    sys_var *self [[maybe_unused]], THD *thd, set_var *setv [[maybe_unused]]) {
+  Security_context *sctx = thd->security_context();
+  if (!sctx->has_global_grant(STRING_WITH_LEN("REPLICATION_SLAVE_ADMIN"))
+           .first &&
+      !sctx->check_access(SUPER_ACL)) {
+    my_error(ER_SPECIFIC_ACCESS_DENIED_ERROR, MYF(0),
+             "SYSTEM_VARIABLES_ADMIN plus REPLICATION_SLAVE_ADMIN, or SUPER");
     return true;
   }
   return false;
@@ -931,6 +972,7 @@ static Sys_var_long Sys_pfs_events_stages_history_size(
   - CLONE_PSI_STATEMENT_COUNT for "statement/clone/...".
   - 1 for "statement/rpl/relay_log", for replicated statements.
   - 1 for "statement/scheduler/event", for scheduled events.
+  - STMT_HANDLE_PSI_STATEMENT_INFO_COUNT for "statement/stmt_handle/...".
 */
 static Sys_var_ulong Sys_pfs_max_statement_classes(
     "performance_schema_max_statement_classes",
@@ -938,7 +980,8 @@ static Sys_var_ulong Sys_pfs_max_statement_classes(
     READ_ONLY GLOBAL_VAR(pfs_param.m_statement_class_sizing),
     CMD_LINE(REQUIRED_ARG), VALID_RANGE(0, 2048),
     DEFAULT((ulong)SQLCOM_END + (ulong)COM_END + 5 +
-            SP_PSI_STATEMENT_INFO_COUNT + CLONE_PSI_STATEMENT_COUNT),
+            SP_PSI_STATEMENT_INFO_COUNT + CLONE_PSI_STATEMENT_COUNT +
+            STMT_HANDLE_PSI_STATEMENT_INFO_COUNT),
     BLOCK_SIZE(1), PFS_TRAILING_PROPERTIES);
 
 static Sys_var_long Sys_pfs_events_statements_history_long_size(
@@ -1107,7 +1150,7 @@ static Sys_var_ulong Sys_back_log(
     "MySQL can have. This comes into play when the main MySQL thread "
     "gets very many connection requests in a very short time",
     READ_ONLY GLOBAL_VAR(back_log), CMD_LINE(REQUIRED_ARG),
-    VALID_RANGE(0, 65535), DEFAULT(0), BLOCK_SIZE(1));
+    VALID_RANGE(0, 65535), DEFAULT(10000), BLOCK_SIZE(1));
 
 static Sys_var_charptr Sys_basedir(
     "basedir",
@@ -1174,6 +1217,19 @@ static Sys_var_bool Sys_use_separate_thread_for_admin(
     " interface",
     READ_ONLY NON_PERSIST GLOBAL_VAR(listen_admin_interface_in_separate_thread),
     CMD_LINE(OPT_ARG), DEFAULT(false));
+
+static Sys_var_bool Sys_container_aware(
+    "container_aware",
+    "Determines if server adheres to container's resource limits",
+    READ_ONLY NON_PERSIST GLOBAL_VAR(container_aware), CMD_LINE(OPT_ARG),
+    DEFAULT(false));
+
+static Sys_var_ulonglong Sys_server_memory(
+    "server_memory",
+    "Memory (in bytes) used by the MySQL Server when auto-tuning the default "
+    "values of the configuration parameters which depend on memory",
+    READ_ONLY NON_PERSIST GLOBAL_VAR(server_memory), CMD_LINE(REQUIRED_ARG),
+    VALID_RANGE(0, ULLONG_MAX), DEFAULT(0), BLOCK_SIZE(1));
 
 static Sys_var_bool Sys_password_require_current(
     "password_require_current",
@@ -1682,16 +1738,6 @@ static Sys_var_bool Sys_explicit_defaults_for_timestamp(
     DEFAULT(true), NO_MUTEX_GUARD, NOT_IN_BINLOG,
     ON_CHECK(check_explicit_defaults_for_timestamp));
 
-static bool replica_parallel_workers_update(sys_var *, THD *thd,
-                                            enum_var_type) {
-  if (opt_mts_replica_parallel_workers == 0) {
-    push_warning_printf(thd, Sql_condition::SL_WARNING,
-                        ER_WARN_DEPRECATED_SYNTAX,
-                        ER_THD(thd, ER_WARN_DEPRECATED_SYNTAX), "0", "1");
-  }
-  return false;
-}
-
 static Sys_var_bool Sys_binlog_rows_query(
     "binlog_rows_query_log_events",
     "Allow writing of Rows_query_log events into binary log.",
@@ -1872,13 +1918,6 @@ static bool check_charset_db(sys_var *self, THD *thd, set_var *var) {
   return false;
 }
 
-static bool update_deprecated_with_removal_message(sys_var *self, THD *thd,
-                                                   enum_var_type) {
-  push_warning_printf(thd, Sql_condition::SL_WARNING, ER_WARN_DEPRECATED_SYNTAX,
-                      ER_THD(thd, ER_WARN_DEPRECATED_SYNTAX_NO_REPLACEMENT),
-                      self->name.str);
-  return false;
-}
 static bool update_deprecated(sys_var *self, THD *thd, enum_var_type) {
   push_warning_printf(
       thd, Sql_condition::SL_WARNING, ER_WARN_DEPRECATED_SYNTAX_NO_REPLACEMENT,
@@ -2398,18 +2437,6 @@ static Sys_var_bool Sys_check_proxy_users(
     "GRANT PROXY privilege definition.",
     GLOBAL_VAR(check_proxy_users), CMD_LINE(OPT_ARG), DEFAULT(false));
 
-static Sys_var_bool Sys_mysql_native_password_proxy_users(
-    "mysql_native_password_proxy_users",
-    "If set to FALSE (the default), then the mysql_native_password "
-    "plugin will not signal for authenticated users to be checked for "
-    "mapping "
-    "to proxy users.  When set to TRUE, the plugin will flag associated "
-    "authenticated accounts to be mapped to proxy users when the server "
-    "option "
-    "check_proxy_users is enabled.",
-    GLOBAL_VAR(mysql_native_password_proxy_users), CMD_LINE(OPT_ARG),
-    DEFAULT(false));
-
 static Sys_var_bool Sys_sha256_password_proxy_users(
     "sha256_password_proxy_users",
     "If set to FALSE (the default), then the sha256_password authentication "
@@ -2427,6 +2454,20 @@ static Sys_var_charptr Sys_log_error(
     CMD_LINE(OPT_ARG, OPT_LOG_ERROR), IN_FS_CHARSET,
     DEFAULT(disabled_my_option), NO_MUTEX_GUARD, NOT_IN_BINLOG,
     ON_CHECK(nullptr), ON_UPDATE(nullptr), nullptr, sys_var::PARSE_EARLY);
+
+#ifdef HAVE_LOG_DIAGNOSTIC
+static Sys_var_charptr Sys_log_diagnostic(
+    "log_diagnostic", "Diagnostic log file",
+    READ_ONLY NON_PERSIST GLOBAL_VAR(log_dia_dest),
+    CMD_LINE(OPT_ARG, OPT_LOG_DIAGNOSTIC), IN_FS_CHARSET,
+    DEFAULT(disabled_my_option), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+    ON_CHECK(nullptr), ON_UPDATE(nullptr), nullptr, sys_var::PARSE_EARLY);
+
+static Sys_var_bool Sys_log_diagnostic_enable(
+    "log_diagnostic_enable", "Enable diagnostic output",
+    READ_ONLY NON_PERSIST GLOBAL_VAR(log_diagnostic_enable), CMD_LINE(OPT_ARG),
+    DEFAULT(false));
+#endif /* HAVE_LOG_DIAGNOSTIC */
 
 static bool check_log_error_services(sys_var *self, THD *thd, set_var *var) {
   // test whether syntax is OK and services exist
@@ -3234,32 +3275,20 @@ void update_optimizer_switch() {
 }
 
 static bool check_optimizer_switch(sys_var *, THD *thd [[maybe_unused]],
-                                   set_var *var) {
+                                   set_var *var [[maybe_unused]]) {
+#ifndef WITH_HYPERGRAPH_OPTIMIZER
   const bool current_hypergraph_optimizer =
       thd->optimizer_switch_flag(OPTIMIZER_SWITCH_HYPERGRAPH_OPTIMIZER);
   const bool want_hypergraph_optimizer =
       var->save_result.ulonglong_value & OPTIMIZER_SWITCH_HYPERGRAPH_OPTIMIZER;
 
-  if (current_hypergraph_optimizer && !want_hypergraph_optimizer) {
-    // Don't turn off the hypergraph optimizer on set optimizer_switch=DEFAULT.
-    // This is so that mtr --hypergraph should not be easily cancelled in the
-    // middle of a test, unless the test explicitly meant it.
-    if (var->value == nullptr) {
-      var->save_result.ulonglong_value |= OPTIMIZER_SWITCH_HYPERGRAPH_OPTIMIZER;
-    }
-  } else if (!current_hypergraph_optimizer && want_hypergraph_optimizer) {
-#ifdef WITH_HYPERGRAPH_OPTIMIZER
-    // Allow, with a warning.
-    push_warning(thd, Sql_condition::SL_WARNING, ER_WARN_DEPRECATED_SYNTAX,
-                 ER_THD(thd, ER_WARN_HYPERGRAPH_EXPERIMENTAL));
-    return false;
-#else
-    // Disallow; the hypergraph optimizer is not ready for production yet.
+  if (!current_hypergraph_optimizer && want_hypergraph_optimizer) {
     my_error(ER_HYPERGRAPH_NOT_SUPPORTED_YET, MYF(0),
-             "use in non-debug builds");
+             "this build configuration; to enable it, build with CMake option "
+             "WITH_HYPERGRAPH_OPTIMIZER=ON");
     return true;
-#endif
   }
+#endif
   return false;
 }
 
@@ -3324,6 +3353,30 @@ static Sys_var_ulonglong Sys_global_connection_memory_limit(
     VALID_RANGE(1, max_mem_sz), DEFAULT(max_mem_sz),
 #else
     VALID_RANGE(1024 * 1024 * 16, max_mem_sz), DEFAULT(max_mem_sz),
+#endif
+    BLOCK_SIZE(1), &PLock_global_conn_mem_limit, NOT_IN_BINLOG,
+    ON_CHECK(nullptr), ON_UPDATE(nullptr));
+
+static Sys_var_ulonglong Sys_global_connection_memory_status_limit(
+    "global_connection_memory_status_limit",
+    "Global connection memory usage threshold for triggering status update",
+    GLOBAL_VAR(global_conn_memory_status_limit), CMD_LINE(REQUIRED_ARG),
+#ifndef NDEBUG
+    VALID_RANGE(1, max_mem_sz), DEFAULT(max_mem_sz),
+#else
+    VALID_RANGE(1024 * 1024 * 16, max_mem_sz), DEFAULT(max_mem_sz),
+#endif
+    BLOCK_SIZE(1), &PLock_global_conn_mem_limit, NOT_IN_BINLOG,
+    ON_CHECK(nullptr), ON_UPDATE(nullptr));
+
+static Sys_var_ulonglong Sys_connection_memory_status_limit(
+    "connection_memory_status_limit",
+    "Maximum amount of memory connection can consume before status update",
+    GLOBAL_VAR(conn_memory_status_limit), CMD_LINE(REQUIRED_ARG),
+#ifndef NDEBUG
+    VALID_RANGE(1, max_mem_sz), DEFAULT(max_mem_sz),
+#else
+    VALID_RANGE(1024 * 1024 * 2, max_mem_sz), DEFAULT(max_mem_sz),
 #endif
     BLOCK_SIZE(1), &PLock_global_conn_mem_limit, NOT_IN_BINLOG,
     ON_CHECK(nullptr), ON_UPDATE(nullptr));
@@ -4029,25 +4082,6 @@ static bool check_slave_stopped(sys_var *self, THD *thd, set_var *var) {
   return result;
 }
 
-static const char *mts_parallel_type_names[] = {"DATABASE", "LOGICAL_CLOCK",
-                                                nullptr};
-static Sys_var_enum Sys_replica_parallel_type(
-    "replica_parallel_type",
-    "The method used by the replication applier to parallelize "
-    "transactions. DATABASE, indicates that it "
-    "may apply transactions in parallel in case they update different "
-    "databases. LOGICAL_CLOCK, which is the default, indicates that it decides "
-    "whether two "
-    "transactions can be applied in parallel using the logical timestamps "
-    "computed by the source.",
-    PERSIST_AS_READONLY GLOBAL_VAR(mts_parallel_option),
-    CMD_LINE(REQUIRED_ARG, OPT_REPLICA_PARALLEL_TYPE), mts_parallel_type_names,
-    DEFAULT(MTS_PARALLEL_TYPE_LOGICAL_CLOCK), NO_MUTEX_GUARD, NOT_IN_BINLOG,
-    ON_CHECK(check_slave_stopped), ON_UPDATE(nullptr), DEPRECATED_VAR(""));
-
-static Sys_var_deprecated_alias Sys_slave_parallel_type(
-    "slave_parallel_type", Sys_replica_parallel_type);
-
 static PolyLock_mutex PLock_slave_trans_dep_tracker(
     &LOCK_replica_trans_dep_tracker);
 static Sys_var_ulong Binlog_transaction_dependency_history_size(
@@ -4055,7 +4089,7 @@ static Sys_var_ulong Binlog_transaction_dependency_history_size(
     "Maximum number of rows to keep in the writeset history.",
     GLOBAL_VAR(mysql_bin_log.m_dependency_tracker.get_writeset()
                    ->m_opt_max_history_size),
-    CMD_LINE(REQUIRED_ARG, 0), VALID_RANGE(1, 1000000), DEFAULT(25000),
+    CMD_LINE(REQUIRED_ARG, 0), VALID_RANGE(1, 100000000), DEFAULT(10000000),
     BLOCK_SIZE(1), &PLock_slave_trans_dep_tracker, NOT_IN_BINLOG,
     ON_CHECK(nullptr), ON_UPDATE(nullptr));
 
@@ -4749,9 +4783,8 @@ static bool fix_sql_mode(sys_var *self, THD *thd, enum_var_type type) {
   return false;
 }
 /*
-  WARNING: When adding new SQL modes don't forget to update the
-  tables definitions that stores it's value (ie: mysql.event, mysql.routines,
-  mysql.triggers)
+  These strings are used as SET element values in mysql.events, mysql.routines,
+  mysql.triggers.
 */
 static const char *sql_mode_names[] = {"REAL_AS_FLOAT",
                                        "PIPES_AS_CONCAT",
@@ -4786,6 +4819,7 @@ static const char *sql_mode_names[] = {"REAL_AS_FLOAT",
                                        "NO_ENGINE_SUBSTITUTION",
                                        "PAD_CHAR_TO_FULL_LENGTH",
                                        "TIME_TRUNCATE_FRACTIONAL",
+                                       "INTERPRET_UTF8_AS_UTF8MB4",
                                        nullptr};
 export bool sql_mode_string_representation(THD *thd, sql_mode_t sql_mode,
                                            LEX_STRING *ls) {
@@ -4920,6 +4954,29 @@ static Sys_var_ulong Sys_table_cache_instances(
       Is is better to keep these options together, to avoid confusing
       handle_options() with partial name matches.
     */
+    sys_var::PARSE_EARLY);
+
+static bool fix_table_cache_triggers(sys_var *, THD *, enum_var_type) {
+  /*
+    Similarly to the table_open_cache parameter, table_open_cache_triggers
+    needs to be divided by the number of table cache instances in order to
+    get the per-instance soft limit on the number of TABLE objects with
+    fully loaded triggers within a table cache.
+  */
+  table_cache_triggers_per_instance =
+      table_cache_triggers / table_cache_instances;
+  return false;
+}
+
+static Sys_var_ulong Sys_table_cache_triggers(
+    "table_open_cache_triggers",
+    "The number of cached open tables with fully loaded triggers",
+    GLOBAL_VAR(table_cache_triggers), CMD_LINE(REQUIRED_ARG),
+    /* Use 1 as lower bound to be consistent with table_open_cache variable. */
+    VALID_RANGE(1, 512 * 1024), DEFAULT(512 * 1024), BLOCK_SIZE(1),
+    NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr),
+    ON_UPDATE(fix_table_cache_triggers), nullptr,
+    /* See explanation for Sys_table_cache_instances. */
     sys_var::PARSE_EARLY);
 
 /**
@@ -5121,7 +5178,7 @@ static Sys_var_ulong Sys_net_wait_timeout(
 static Sys_var_plugin Sys_default_storage_engine(
     "default_storage_engine", "The default storage engine for new tables",
     SESSION_VAR(table_plugin), NO_CMD_LINE, MYSQL_STORAGE_ENGINE_PLUGIN,
-    DEFAULT(&default_storage_engine), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+    DEFAULT(&default_storage_engine), false, NO_MUTEX_GUARD, NOT_IN_BINLOG,
     ON_CHECK(check_storage_engine));
 
 const char *internal_tmp_mem_storage_engine_names[] = {"MEMORY", "TempTable",
@@ -5134,17 +5191,36 @@ static Sys_var_enum Sys_internal_tmp_mem_storage_engine(
     DEFAULT(TMP_TABLE_TEMPTABLE), NO_MUTEX_GUARD, NOT_IN_BINLOG,
     ON_CHECK(check_session_admin_no_super));
 
-/* Default is updated to min(3% of physical memory, 4 GB) */
+/* Default value set here is changed in init_common_variables() due to
+dependency on --container_aware startup option */
 static Sys_var_ulonglong Sys_temptable_max_ram(
     "temptable_max_ram",
     "Maximum amount of memory (in bytes) the TempTable storage engine is "
     "allowed to allocate from the main memory (RAM) before starting to "
     "store data on disk.",
     GLOBAL_VAR(temptable_max_ram), CMD_LINE(REQUIRED_ARG),
-    VALID_RANGE(2 << 20 /* 2 MiB */, ULLONG_MAX),
-    DEFAULT(std::clamp(ulonglong{3 * (my_physical_memory() / 100)},
-                       1ULL << 30 /* 1 GiB */, 1ULL << 32 /* 4 GiB */)),
+    VALID_RANGE(2 << 20 /* 2 MiB */, ULLONG_MAX), DEFAULT(1 << 30 /* 1 GiB */),
     BLOCK_SIZE(1));
+
+/* Default is updated to min(3% of physical memory, 4 GB) */
+void update_temptable_max_ram_default() {
+  mysql_mutex_lock(&LOCK_global_system_variables);
+
+  assert(server_memory > 0);
+
+  /* Auto tune default value based on "server_memory" */
+  const ulonglong new_default =
+      std::clamp(ulonglong{3 * (my_physical_memory() / 100)},
+                 1ULL << 30 /* 1 GiB */, 1ULL << 32 /* 4 GiB */);
+  Sys_temptable_max_ram.update_default(new_default);
+
+  /* If "temptable_max_ram" is not set explicitly, update the default value */
+  if (Sys_temptable_max_ram.get_source() == COMPILED) {
+    temptable_max_ram = new_default;
+  }
+
+  mysql_mutex_unlock(&LOCK_global_system_variables);
+}
 
 static Sys_var_ulonglong Sys_temptable_max_mmap(
     "temptable_max_mmap",
@@ -5154,21 +5230,63 @@ static Sys_var_ulonglong Sys_temptable_max_mmap(
     GLOBAL_VAR(temptable_max_mmap), CMD_LINE(REQUIRED_ARG),
     VALID_RANGE(0, ULLONG_MAX), DEFAULT(0), BLOCK_SIZE(1));
 
-static Sys_var_bool Sys_temptable_use_mmap(
-    "temptable_use_mmap",
-    "Use mmap files for temptables. "
-    "This variable is deprecated and will be removed in a future release.",
-    GLOBAL_VAR(temptable_use_mmap), CMD_LINE(OPT_ARG), DEFAULT(false),
-    NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr),
-    ON_UPDATE(update_deprecated_with_removal_message), nullptr,
-    sys_var::PARSE_NORMAL);
-
 static Sys_var_plugin Sys_default_tmp_storage_engine(
     "default_tmp_storage_engine",
     "The default storage engine for new explicit temporary tables",
     HINT_UPDATEABLE SESSION_VAR(temp_table_plugin), NO_CMD_LINE,
-    MYSQL_STORAGE_ENGINE_PLUGIN, DEFAULT(&default_tmp_storage_engine),
+    MYSQL_STORAGE_ENGINE_PLUGIN, DEFAULT(&default_tmp_storage_engine), true,
     NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(check_storage_engine));
+
+static bool check_external_table_storage_engine(sys_var *self [[maybe_unused]],
+                                                THD *thd [[maybe_unused]],
+                                                set_var *var) {
+  if (var->value == nullptr) {
+    return false;  // Setting to DEFAULT
+  }
+  if (var->value->is_null()) {
+    return false;  // Allow NULL values
+  }
+
+  char buff[STRING_BUFFER_USUAL_SIZE];
+  String str(buff, sizeof(buff), system_charset_info);
+  LEX_CSTRING engine_name;
+  String *res = var->value->val_str(&str);
+  lex_cstring_set(&engine_name, res->ptr());
+
+  if ((DEFAULT_EXTERNAL_TABLE_ENGINE) != nullptr &&
+      my_strcasecmp(system_charset_info, engine_name.str,
+                    DEFAULT_EXTERNAL_TABLE_ENGINE) == 0)
+    return false;
+
+  plugin_ref plugin = ha_resolve_by_name(nullptr, &engine_name, false);
+  if (plugin == nullptr) {
+    my_error(ER_UNKNOWN_STORAGE_ENGINE, MYF(0), engine_name.str);
+    return true;
+  }
+
+  handlerton *hton = plugin_data<handlerton *>(plugin);
+  if ((hton->flags & HTON_SUPPORTS_EXTERNAL_SOURCE) == 0) {
+    my_error(ER_EXTERNAL_TABLE_ENGINE_NOT_SUPPORTED, MYF(0), engine_name.str);
+    plugin_unlock(nullptr, plugin);
+    return true;
+  }
+  plugin_unlock(nullptr, plugin);
+  return false;
+}
+
+static Sys_var_charptr Sys_external_table_storage_engine(
+    "external_table_storage_engine",
+    "Default storage engine for external tables",
+    SESSION_VAR(external_table_storage_engine), CMD_LINE(REQUIRED_ARG),
+    IN_SYSTEM_CHARSET, DEFAULT(DEFAULT_EXTERNAL_TABLE_ENGINE), NO_MUTEX_GUARD,
+    NOT_IN_BINLOG, ON_CHECK(check_external_table_storage_engine));
+
+static Sys_var_charptr Sys_external_table_secondary_storage_engine(
+    "external_table_secondary_storage_engine",
+    "Default secondary storage engine for external tables",
+    SESSION_VAR(external_table_secondary_storage_engine),
+    CMD_LINE(REQUIRED_ARG), IN_SYSTEM_CHARSET,
+    DEFAULT(DEFAULT_EXTERNAL_TABLE_SECONDARY_ENGINE));
 
 #if defined(ENABLED_DEBUG_SYNC)
 /*
@@ -6135,9 +6253,9 @@ static Sys_var_uint Sys_sync_relayloginfo_period(
 
 static Sys_var_uint Sys_replica_checkpoint_period(
     "replica_checkpoint_period",
-    "When using a multi-threaded applier (replica_parallel_workers>0), it "
-    "will update the worker progress status periodically. This option "
-    "specifies the maximum number of milliseconds between updates.",
+    "Applier worker threads progress status is updated periodically. "
+    "This option specifies the maximum number of milliseconds between "
+    "updates.",
     GLOBAL_VAR(opt_mta_checkpoint_period), CMD_LINE(REQUIRED_ARG),
 #ifndef NDEBUG
     VALID_RANGE(0, UINT_MAX), DEFAULT(300), BLOCK_SIZE(1));
@@ -6150,9 +6268,9 @@ static Sys_var_deprecated_alias Sys_slave_checkpoint_period(
 
 static Sys_var_uint Sys_replica_checkpoint_group(
     "replica_checkpoint_group",
-    "When using multi-threaded applier (replica_parallel_workers>0), it will "
-    "update the worker progress status periodically. This option specifies "
-    "the maximum number of committed transactions between updates.",
+    "Applier worker threads progress status is updated periodically. "
+    "This option specifies the maximum number of committed transactions "
+    "between updates.",
     GLOBAL_VAR(opt_mta_checkpoint_group), CMD_LINE(REQUIRED_ARG),
 #ifndef NDEBUG
     VALID_RANGE(1, MTS_MAX_BITS_IN_GROUP), DEFAULT(512), BLOCK_SIZE(1));
@@ -6204,12 +6322,11 @@ static Sys_var_deprecated_alias Sys_slave_transaction_retries(
 
 static Sys_var_ulong Sys_replica_parallel_workers(
     "replica_parallel_workers",
-    "Number of worker threads for executing events in parallel ",
+    "Number of worker threads applying changes in parallel ",
     PERSIST_AS_READONLY GLOBAL_VAR(opt_mts_replica_parallel_workers),
     CMD_LINE(REQUIRED_ARG, OPT_REPLICA_PARALLEL_WORKERS),
-    VALID_RANGE(0, MTS_MAX_WORKERS), DEFAULT(4), BLOCK_SIZE(1), NO_MUTEX_GUARD,
-    NOT_IN_BINLOG, ON_CHECK(nullptr),
-    ON_UPDATE(replica_parallel_workers_update));
+    VALID_RANGE(1, MTS_MAX_WORKERS), DEFAULT(4), BLOCK_SIZE(1), NO_MUTEX_GUARD,
+    NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
 
 static Sys_var_deprecated_alias Sys_slave_parallel_workers(
     "slave_parallel_workers", Sys_replica_parallel_workers);
@@ -6318,7 +6435,7 @@ static Sys_var_enforce_gtid_consistency Sys_enforce_gtid_consistency(
     PERSIST_AS_READONLY GLOBAL_VAR(_gtid_consistency_mode),
     CMD_LINE(OPT_ARG, OPT_ENFORCE_GTID_CONSISTENCY),
     enforce_gtid_consistency_aliases, 3,
-    DEFAULT(3 /*position of "FALSE" in enforce_gtid_consistency_aliases*/),
+    DEFAULT(1 /*position of "ON" in enforce_gtid_consistency_aliases*/),
     DEFAULT(GTID_CONSISTENCY_MODE_ON), NO_MUTEX_GUARD, NOT_IN_BINLOG,
     ON_CHECK(check_session_admin_outside_trx_outside_sf_outside_sp));
 const char *fixup_enforce_gtid_consistency_command_line(char *value_arg) {
@@ -6804,6 +6921,13 @@ static Sys_var_bool Sys_always_activate_granted_roles(
     DEFAULT(false), NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr),
     ON_UPDATE(nullptr));
 
+static Sys_var_bool Sys_activate_mandatory_roles(
+    "activate_mandatory_roles",
+    "Automatically set all mandatory roles as active after the user has "
+    "authenticated successfully.",
+    GLOBAL_VAR(opt_activate_mandatory_roles), CMD_LINE(OPT_ARG), DEFAULT(true),
+    NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
+
 static PolyLock_mutex plock_sys_password_history(&LOCK_password_history);
 static Sys_var_uint Sys_password_history(
     "password_history",
@@ -6994,6 +7118,14 @@ static Sys_var_enum Sys_use_secondary_engine(
     HINT_UPDATEABLE SESSION_ONLY(use_secondary_engine), NO_CMD_LINE,
     use_secondary_engine_values, DEFAULT(SECONDARY_ENGINE_ON), NO_MUTEX_GUARD,
     NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
+
+static Sys_var_bool Sys_enable_secondary_engine_statistics(
+    "enable_secondary_engine_statistics",
+    "When this option is enabled, the hypergraph query optimizer may fetch"
+    "statistics from the secondary engine, if available",
+    HINT_UPDATEABLE SESSION_VAR(enable_secondary_engine_statistics),
+    CMD_LINE(OPT_ARG), DEFAULT(true), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+    ON_CHECK(nullptr), ON_UPDATE(nullptr));
 
 static Sys_var_session_special Sys_statement_id(
     "statement_id",
@@ -7370,6 +7502,14 @@ static Sys_var_bool Sys_skip_replica_start(
     DEFAULT(false), NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr),
     ON_UPDATE(nullptr));
 
+static Sys_var_bool Sys_replica_allow_higher_version_source(
+    "replica_allow_higher_version_source",
+    "If disabled - replica rejects any attempt to connect to a higher-version "
+    "source server. If enabled - no compatibility check.",
+    GLOBAL_VAR(opt_replica_allow_higher_version_source), CMD_LINE(OPT_ARG),
+    DEFAULT(true), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+    ON_CHECK(check_replica_allow_higher_version_source), ON_UPDATE(nullptr));
+
 static bool check_authentication_policy(sys_var *, THD *, set_var *var) {
   if (!(var->save_result.string_value.str)) return true;
   return authentication_policy::policy_validate(
@@ -7469,12 +7609,12 @@ static const char *explain_format_names[] = {
 static Sys_var_enum Sys_explain_format(
     "explain_format",
     "The default format in which the EXPLAIN statement displays information. "
-    "Valid values are TRADITIONAL (default), TREE, JSON and TRADITIONAL_STRICT."
+    "Valid values are TRADITIONAL, TREE (default), JSON and TRADITIONAL_STRICT."
     " TRADITIONAL_STRICT is only used internally by the mtr test suite, and is "
     "not meant to be used anywhere else.",
     SESSION_VAR(explain_format), CMD_LINE(OPT_ARG), explain_format_names,
-    DEFAULT(static_cast<ulong>(Explain_format_type::TRADITIONAL)),
-    NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
+    DEFAULT(static_cast<ulong>(Explain_format_type::TREE)), NO_MUTEX_GUARD,
+    NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
 
 static Sys_var_uint Sys_explain_json_format_version(
     "explain_json_format_version",
@@ -7482,7 +7622,7 @@ static Sys_var_uint Sys_explain_json_format_version(
     "(non-hypergraph) join optimizer. "
     "Valid values are 1 and 2.",
     SESSION_VAR(explain_json_format_version), CMD_LINE(REQUIRED_ARG),
-    VALID_RANGE(1, 2), DEFAULT(1), BLOCK_SIZE(1));
+    VALID_RANGE(1, 2), DEFAULT(2), BLOCK_SIZE(1));
 
 static Sys_var_bool Sys_tls_certificates_enforced_validation(
     "tls_certificates_enforced_validation",
@@ -7499,7 +7639,7 @@ static Sys_var_ulonglong Sys_set_operations_buffer_size(
     "The maximum size of the buffer used for hash based set operations ",
     HINT_UPDATEABLE SESSION_VAR(set_operations_buffer_size),
     CMD_LINE(REQUIRED_ARG), VALID_RANGE(16384 /* 16*1024 */, max_mem_sz),
-    DEFAULT(256ULL * 1024), BLOCK_SIZE(128));
+    DEFAULT(256ULL * 1024), BLOCK_SIZE(1024));
 
 #ifndef NDEBUG
 // If this variable is set, it will inject a secondary overflow in spill to
@@ -7549,4 +7689,66 @@ Sys_var_bool Sys_restrict_fk_on_non_standard_key(
     NON_PERSIST SESSION_VAR(restrict_fk_on_non_standard_key), CMD_LINE(OPT_ARG),
     DEFAULT(true), NO_MUTEX_GUARD, NOT_IN_BINLOG,
     ON_CHECK(restrict_fk_on_non_standard_key_check), ON_UPDATE(nullptr));
+
+Sys_var_bool Sys_innodb_native_foreign_keys(
+    "innodb_native_foreign_keys",
+    "Use InnoDB foreign key checks and cascade operations instead of "
+    "SQL level foreign key checks or cascade operations",
+    PERSIST_AS_READONLY READ_ONLY GLOBAL_VAR(innodb_native_foreign_keys),
+    CMD_LINE(OPT_ARG, OPT_INNODB_FOREIGN_KEYS), DEFAULT(false), NO_MUTEX_GUARD,
+    NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
+
+/**
+  Warn usage of enable_cascade_triggers variable. When it is set
+  to false, warning should include triggers do not fire during FK cascade.
+*/
+bool enable_cascade_triggers_check(sys_var *self, THD *thd, set_var *setv) {
+  if (setv->save_result.ulonglong_value == 0)
+    push_warning_printf(
+        thd, Sql_condition::SL_WARNING, ER_WARN_DEPRECATED_WITH_NOTE,
+        ER_THD(thd, ER_WARN_DEPRECATED_WITH_NOTE), self->name.str,
+        "Triggers on child table will not fire during foreign key cascade.");
+  else {
+    if (!is_sql_fk_checks_enabled(thd)) {
+      push_warning_printf(
+          thd, Sql_condition::SL_WARNING, ER_WARN_DEPRECATED_WITH_NOTE,
+          ER_THD(thd, ER_WARN_DEPRECATED_WITH_NOTE), self->name.str,
+          "Enabling trigger execution on child table is supported only with "
+          "SQL Foreign Key handling "
+          "(i.e with innodb_native_foreign_keys = OFF).");
+    } else {
+      push_warning_printf(thd, Sql_condition::SL_WARNING,
+                          ER_WARN_DEPRECATED_SYNTAX_NO_REPLACEMENT,
+                          ER_THD(thd, ER_WARN_DEPRECATED_SYNTAX_NO_REPLACEMENT),
+                          self->name.str);
+    }
+  }
+  return false;
+}
+
+Sys_var_bool Sys_enable_cascade_triggers(
+    "enable_cascade_triggers",
+    "Execute trigger on child tables during foreign key cascade operations for "
+    "SQL Engine foreign key handling(i.e. innodb_native_foreign_keys = OFF).",
+    SESSION_VAR(enable_cascade_triggers),
+    CMD_LINE(OPT_ARG, OPT_CASCADE_TRIGGERS), DEFAULT(false), NO_MUTEX_GUARD,
+    IN_BINLOG, ON_CHECK(enable_cascade_triggers_check), ON_UPDATE(nullptr));
 }  // namespace
+
+#ifndef NDEBUG
+namespace {
+ulonglong debug_a_global_flagset;
+constexpr const uint64_t DEBUG_A_GLOBAL_FLAGSET_F1{1ULL << 0};
+constexpr const uint64_t DEBUG_A_GLOBAL_FLAGSET_F2{1ULL << 1};
+// constexpr const uint64_t DEBUG_A_GLOBAL_FLAGSET_LAST{1ULL << 2};
+constexpr uint64_t DEBUG_A_GLOBAL_FLAGSET_DEFAULT{DEBUG_A_GLOBAL_FLAGSET_F1 |
+                                                  DEBUG_A_GLOBAL_FLAGSET_F2};
+const char *debug_a_global_flagset_names[] = {"f1", "f2", "default", NullS};
+Sys_var_flagset Sys_debug_a_global_flagset(
+    "debug_a_global_flagset",
+    "Debug variable to test a global persistable flagset variable.",
+    GLOBAL_VAR(debug_a_global_flagset), CMD_LINE(REQUIRED_ARG),
+    debug_a_global_flagset_names, DEFAULT(DEBUG_A_GLOBAL_FLAGSET_DEFAULT),
+    NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
+}  // namespace
+#endif /* NDEBUG */

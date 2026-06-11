@@ -23,8 +23,8 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <stddef.h>
 #include <algorithm>
+#include <cstddef>
 #include <iterator>
 
 #include "my_inttypes.h"

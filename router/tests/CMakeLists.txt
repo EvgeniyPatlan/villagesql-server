@@ -42,14 +42,12 @@ SET(helper_sources
   helpers/tcp_port_pool.cc
   helpers/rest_api_testutils.cc
   helpers/rest_metadata_client.cc
+  helpers/routing_guidelines_builder.cc
 )
 
 IF(MY_COMPILER_IS_CLANG)
   STRING_APPEND(CMAKE_CXX_FLAGS " -Wno-deprecated")
 ENDIF()
-
-# TODO(sgunders): Remove when all GMock tests use MOCK_METHOD().
-STRING(REPLACE "-Wsuggest-override" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
 ADD_LIBRARY(routertest_helpers STATIC ${helper_sources})
 

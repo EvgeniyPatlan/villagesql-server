@@ -296,7 +296,9 @@ static void test_bootstrap() {
   psi = statement_boot->get_interface(PSI_STATEMENT_VERSION_4);
   ok(psi == nullptr, "no statement version 4");
   psi = statement_boot->get_interface(PSI_STATEMENT_VERSION_5);
-  ok(psi != nullptr, "statement version 5");
+  ok(psi == nullptr, "statement version 5");
+  psi = statement_boot->get_interface(PSI_STATEMENT_VERSION_6);
+  ok(psi != nullptr, "statement version 6");
 
   psi = transaction_boot->get_interface(0);
   ok(psi == nullptr, "no transaction version 0");
@@ -2420,7 +2422,7 @@ static void test_file_operations() {
 
   PFS_file_class *file_class;
   PSI_thread *thread_A, *thread_B;
-  PSI_file_locker *locker_A, *locker_B;
+  PSI_file_locker *locker_A = nullptr, *locker_B = nullptr;
   PSI_file_locker_state state_A, state_B;
   File fd1, fd2;
   const char *filename1, *filename2;
@@ -2727,7 +2729,7 @@ static void do_all_tests() {
 }
 
 int main(int, char **) {
-  plan(430);
+  plan(429);
 
   MY_INIT("pfs-t");
 

@@ -44,7 +44,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "srv0srv.h"
 #include "univ.i"
 #include "ut0byte.h"
-#include "ut0rbt.h"
 
 #include "buf/buf.h"
 
@@ -329,7 +328,7 @@ Returns zero if flush lists were empty, be careful in such case, because
 taking the newest lsn is probably not a good idea. If you wanted to rely
 on some lsn in such case, you would need to follow pattern:
 
-        dpa_lsn = log_buffer_dirty_pages_added_up_to_lsn(*log_sys);
+        dpa_lsn = buf_flush_list_added->smallest_not_added_lsn();
 
         lwm_lsn = buf_pool_get_oldest_modification_lwm();
 
@@ -343,7 +342,7 @@ last checkpoint lsn. It's not guaranteed that the returned value is
 the maximum possible. It's just the best effort for the low cost.
 It basically takes result of buf_pool_get_oldest_modification_approx()
 and subtracts maximum possible lag introduced by relaxed order in
-flush lists (srv_log_recent_closed_size).
+flush lists (srv_buf_flush_list_added_size).
 
 @return safe low watermark for oldest_modification of dirty pages,
         or zero if flush lists were empty; if non-zero, it is then
@@ -2391,9 +2390,9 @@ struct buf_pool_t {
 
   /** @{ */
 
-  /** Mutex protecting the flush list access. This mutex protects flush_list,
-  flush_rbt and bpage::list pointers when the bpage is on flush_list. It also
-  protects writes to bpage::oldest_modification and flush_list_hp */
+  /** Mutex protecting the flush list access. This mutex protects flush_list and
+  bpage::list pointers when the bpage is on flush_list. It also protects writes
+  to bpage::oldest_modification and flush_list_hp */
   BufListMutex flush_list_mutex;
 
   /** "Hazard pointer" used during scan of flush_list while doing flush list
@@ -2417,14 +2416,6 @@ struct buf_pool_t {
   /** This is in the set state when there is no flush batch of the given type
   running. Protected by flush_state_mutex. */
   os_event_t no_flush[BUF_FLUSH_N_TYPES];
-
-  /** A red-black tree is used exclusively during recovery to speed up
-  insertions in the flush_list. This tree contains blocks in order of
-  oldest_modification LSN and is kept in sync with the flush_list.  Each
-  member of the tree MUST also be on the flush_list.  This tree is relevant
-  only in recovery and is set to NULL once the recovery is over.  Protected
-  by flush_list_mutex */
-  ib_rbt_t *flush_rbt;
 
   /** A sequence number used to count the number of buffer blocks removed from
   the end of the LRU list; NOTE that this counter may wrap around at 4

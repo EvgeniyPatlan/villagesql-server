@@ -37,3 +37,6 @@ scalability_jobs_*
 
 # macOS AppleDouble files
 .!*
+
+# Cache directory used by e.g. clangd.
+.cache/

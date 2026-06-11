@@ -28,8 +28,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 #include "log_service_imp.h"
 
-#include <assert.h>
 #include <mysqld_error.h>  // ER_*
+#include <cassert>
 #include "my_compiler.h"
 
 #include <mysql/components/services/log_builtins.h>

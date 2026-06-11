@@ -45,7 +45,6 @@
 class Item;
 class THD;
 struct MEM_ROOT;
-struct SYS_VAR;
 struct TYPELIB;
 struct st_plugin_int;
 
@@ -179,12 +178,27 @@ struct st_bookmark {
 
 st_bookmark *find_bookmark(const char *plugin, const char *name, int flags);
 
+extern MEM_ROOT plugin_mem_root;
+extern uint global_variables_dynamic_size;
+extern malloc_unordered_map<std::string, st_bookmark *> *bookmark_hash;
+/** Hash for system variables of string type with MEMALLOC flag. */
+extern malloc_unordered_map<std::string, st_bookmark *>
+    *malloced_string_type_sysvars_bookmark_hash;
+
 /*
-  skeleton of a plugin variable - portion of structure common to all.
+  returns a bookmark for thd-local variables, creating if necessary.
+  returns null for non thd-local variables.
+  Requires that a write lock is obtained on LOCK_system_variables_hash
 */
-struct SYS_VAR {
-  MYSQL_PLUGIN_VAR_HEADER;
-};
+st_bookmark *register_var(const char *plugin, const char *name, int flags);
+
+bool *mysql_sys_var_bool(THD *thd, int offset);
+int *mysql_sys_var_int(THD *thd, int offset);
+unsigned int *mysql_sys_var_uint(THD *thd, int offset);
+unsigned long *mysql_sys_var_ulong(THD *thd, int offset);
+unsigned long long *mysql_sys_var_ulonglong(THD *thd, int offset);
+char **mysql_sys_var_str(THD *thd, int offset);
+double *mysql_sys_var_double(THD *thd, int offset);
 
 inline void convert_underscore_to_dash(char *str, size_t len) {
   for (char *p = str; p <= str + len; p++)

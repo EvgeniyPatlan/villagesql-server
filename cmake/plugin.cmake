@@ -152,21 +152,16 @@ MACRO(MYSQL_ADD_PLUGIN plugin_arg)
 
     ADD_DEPENDENCIES(${target} GenError ${ARG_DEPENDENCIES})
     IF(COMPRESS_DEBUG_SECTIONS)
-      MY_TARGET_LINK_OPTIONS(${target}
-        "LINKER:--compress-debug-sections=zlib")
+      TARGET_LINK_OPTIONS(${target} PRIVATE
+        LINKER:--compress-debug-sections=zlib)
     ENDIF()
     
     # Update mysqld dependencies
     SET (MYSQLD_STATIC_PLUGIN_LIBS ${MYSQLD_STATIC_PLUGIN_LIBS} 
       ${target} ${ARG_LINK_LIBRARIES} CACHE INTERNAL "" FORCE)
 
-    IF(ARG_MANDATORY)
-      SET(${with_var} ON CACHE INTERNAL
-        "Link ${plugin} statically to the server" FORCE)
-    ELSE()	
-      SET(${with_var} ON CACHE BOOL
-        "Link ${plugin} statically to the server" FORCE)
-    ENDIF()
+    SET(${with_var} ON CACHE BOOL
+      "Link ${plugin} statically to the server" FORCE)
 
     SET(THIS_PLUGIN_REFERENCE " builtin_${target}_plugin,")
     SET(PLUGINS_IN_THIS_SCOPE
@@ -194,8 +189,8 @@ MACRO(MYSQL_ADD_PLUGIN plugin_arg)
     ADD_VERSION_INFO(MODULE SOURCES "")
     ADD_LIBRARY(${target} MODULE ${SOURCES}) 
     IF(COMPRESS_DEBUG_SECTIONS)
-      MY_TARGET_LINK_OPTIONS(${target}
-        "LINKER:--compress-debug-sections=zlib")
+      TARGET_LINK_OPTIONS(${target} PRIVATE
+        LINKER:--compress-debug-sections=zlib)
     ENDIF()
     IF(ARG_SERVER_AND_CLIENT)
       SET_TARGET_PROPERTIES (${target} PROPERTIES
@@ -215,7 +210,7 @@ MACRO(MYSQL_ADD_PLUGIN plugin_arg)
     ENDIF()
 
     IF(ARG_NO_UNDEFINED AND LINK_FLAG_NO_UNDEFINED)
-      MY_TARGET_LINK_OPTIONS(${target} "${LINK_FLAG_NO_UNDEFINED}")
+      TARGET_LINK_OPTIONS(${target} PRIVATE ${LINK_FLAG_NO_UNDEFINED})
     ENDIF()
 
     IF(WIN32_CLANG AND WITH_ASAN)
@@ -316,7 +311,7 @@ MACRO(MYSQL_ADD_PLUGIN plugin_arg)
   ENDIF()
 
   IF(BUILD_PLUGIN AND WIN32 AND ARG_WIN_DEF_FILE)
-    MY_TARGET_LINK_OPTIONS(${target} "/DEF:${ARG_WIN_DEF_FILE}")
+    TARGET_LINK_OPTIONS(${target} PRIVATE /DEF:${ARG_WIN_DEF_FILE})
   ENDIF()
 
   IF(BUILD_PLUGIN AND ARG_VISIBILITY_HIDDEN AND UNIX)

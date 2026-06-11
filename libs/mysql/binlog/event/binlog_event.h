@@ -21,16 +21,8 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
-/// @defgroup GroupLibsMysql MySQL Libraries
-
-/// @defgroup GroupLibsMysqlBinlog MySQL Libraries : Binlog Libraries
-/// @ingroup GroupLibsMysql
-
-/// @defgroup GroupLibsMysqlBinlogEvent MySQL Libraries : Binlog Event
-/// @ingroup GroupLibsMysqlBinlog
-
 /**
-  @file binlog_event.h
+  @file
 
   @brief Contains the classes representing events occurring in the replication
   stream. Each event is represented as a byte sequence with logical divisions
@@ -149,7 +141,8 @@
    1U + 8 /* type, xid of DDL */ + 1U +                                       \
    2 /* type, default_collation_for_utf8mb4_number */ + 1U +                  \
    1 /* sql_require_primary_key */ + 1U +                                     \
-   1 /* type, default_table_encryption */)
+   1 /* type, default_table_encryption */ + 1U +                              \
+   1 /* type, enable_cascade_triggers */)
 
 /**
    Uninitialized timestamp value (for either last committed or sequence number).
@@ -401,14 +394,14 @@ struct Log_event_type_helper {
   }
 };
 
-/**
-  Struct to pass basic information about a event: type, query, is it ignorable
-*/
+/// Holds basic information about an event: common-header fields, query, etc.
 struct Log_event_basic_info {
   Log_event_type event_type{UNKNOWN_EVENT};
   const char *query{nullptr};
   size_t query_length{0};
   bool ignorable_event{false};
+  int32_t log_pos{0};
+  int32_t server_id{0};
 };
 
 /**

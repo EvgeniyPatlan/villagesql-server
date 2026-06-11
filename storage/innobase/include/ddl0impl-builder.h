@@ -91,8 +91,9 @@ struct Builder {
   dberr_t get_error() const noexcept { return m_ctx.get_error(); }
 
   /** Set the error code.
-  @param[in] err                Error code to set. */
-  void set_error(dberr_t err) noexcept { m_ctx.set_error(err, m_id); }
+  @param[in] err                Error code to set.
+  @return true iff this thread successfully set the error code. */
+  bool set_error(dberr_t err) noexcept { return m_ctx.set_error(err, m_id); }
 
   /** @return the instance ID. */
   [[nodiscard]] size_t id() const noexcept { return m_id; }
@@ -396,10 +397,8 @@ struct Builder {
 
   /** Check for duplicates in the first block
   @param[in] dupcheck           Files to check for duplicates.
-  @param[in,out] dup            For collecting duplicate key information.
   @return DB_SUCCESS or error code. */
-  [[nodiscard]] dberr_t check_duplicates(Thread_ctxs &dupcheck,
-                                         Dup *dup) noexcept;
+  [[nodiscard]] dberr_t check_duplicates(Thread_ctxs &dupcheck) noexcept;
 
   /** Cleanup DDL after error in online build
   Note: To be called if DDL must cleanup due to error in online build. Pages

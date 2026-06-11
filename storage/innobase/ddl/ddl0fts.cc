@@ -476,8 +476,8 @@ dict_index_t *FTS::create_index(dict_index_t *index, dict_table_t *table,
   ulint col_prtype = idx_field->col->prtype | DATA_NOT_NULL;
 
   dict_mem_fill_column_struct(field->col, 0, col_mtype, col_prtype, col_len,
-                              true, UINT32_UNDEFINED, UINT8_UNDEFINED,
-                              UINT8_UNDEFINED);
+                              true, UINT32_UNDEFINED, INVALID_ROW_VERSION,
+                              INVALID_ROW_VERSION);
   field->col->mbminmaxlen = idx_field->col->mbminmaxlen;
 
   /* Doc ID */
@@ -523,8 +523,8 @@ dict_index_t *FTS::create_index(dict_index_t *index, dict_table_t *table,
   col_prtype = (DATA_NOT_NULL | DATA_BINARY_TYPE);
 
   dict_mem_fill_column_struct(field->col, 0, col_mtype, col_prtype, col_len,
-                              true, UINT32_UNDEFINED, UINT8_UNDEFINED,
-                              UINT8_UNDEFINED);
+                              true, UINT32_UNDEFINED, INVALID_ROW_VERSION,
+                              INVALID_ROW_VERSION);
   field->col->mbminmaxlen = 0;
 
   /* The third field is on the word's position in the original doc */
@@ -542,8 +542,8 @@ dict_index_t *FTS::create_index(dict_index_t *index, dict_table_t *table,
   col_prtype = DATA_NOT_NULL;
 
   dict_mem_fill_column_struct(field->col, 0, col_mtype, col_prtype, col_len,
-                              true, UINT32_UNDEFINED, UINT8_UNDEFINED,
-                              UINT8_UNDEFINED);
+                              true, UINT32_UNDEFINED, INVALID_ROW_VERSION,
+                              INVALID_ROW_VERSION);
   field->col->mbminmaxlen = 0;
 
   return new_index;
@@ -1418,7 +1418,7 @@ dberr_t FTS::Inserter::insert(Builder *builder,
       auto err = cursor.add_file(file, io_buffer_size);
 
       if (err != DB_SUCCESS) {
-        return err;
+        return func_exit(err);
       }
       total_rows += file.m_n_recs;
     }
