@@ -16,7 +16,13 @@ ORDER BY ORDINAL_POSITION;
 SELECT * FROM t1 ORDER BY id;
 
 --echo # Dump the table
---exec $MYSQL_DUMP --compact test t1 > $mysqldumpfile
+# --set-gtid-purged=OFF: MySQL 9.7 (WL#8602) makes gtid_mode=ON the server
+# default, so mysqldump's default --set-gtid-purged=AUTO now emits
+# SET @@GLOBAL.GTID_PURGED. Reloading that into the *same* server (as this test
+# does) fails with ER_CANT_SET_GTID_PURGED (3546) because the GTIDs already exist
+# in GTID_EXECUTED. This test checks COMPLEX round-trip fidelity, not GTID
+# handling, so suppress the purge statement.
+--exec $MYSQL_DUMP --compact --set-gtid-purged=OFF test t1 > $mysqldumpfile
 
 --echo # Rename original and restore from dump
 ALTER TABLE t1 RENAME TO t1_orig;

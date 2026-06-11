@@ -9,6 +9,15 @@
 # 5. Restart replication - the failed statements should now succeed
 # 6. Verify subsequent operations replicate correctly
 
+# TODO(villagesql-ga): The villagesql/rpl suite runs in a single replication
+# mode only (no combinations file, no suite .cnf), so it inherits whichever
+# gtid_mode the default rpl harness provides — gtid_mode=ON since the 9.7
+# WL#8602 default flip. Custom-type replication should be exercised in BOTH
+# gtid modes (and binlog formats) before GA. Upstream's pattern: split into
+# rpl_gtid (gtid-mode=on enforce-gtid-consistency) / rpl_nogtid suites, or add
+# a combinations file for binlog-format (row/stmt/mix). Applies to all three
+# tests in this suite.
+
 --source include/rpl/init_source_replica.inc
 
 # Install COMPLEX extension only on source (not on replica)
@@ -37,12 +46,17 @@ call mtr.add_suppression("The replica coordinator and worker threads are stopped
 --let $slave_sql_errno= 1064
 --source include/rpl/wait_for_applier_error.inc
 
-# Show the replication error
-# Filter out binlog file name and position to make test less sensitive to changes
+# Verify the replica stopped with the expected "missing COMPLEX custom type"
+# error. Assert on the message rather than printing it: under gtid_mode=ON (the
+# 9.7 WL#8602 default) the raw Last_Error_Message embeds a non-deterministic GTID
+# and binlog position. This mirrors upstream's capture-and-assert idiom (e.g.
+# rpl/t/rpl_perfschema_applier_status_by_coordinator.test) instead of the
+# dump-and-mask approach (which needed an ad-hoc --replace_regex).
 --echo Replication error occurred (expected):
 --disable_query_log
---replace_regex /master-bin\.[0-9]+/master-bin.NNNNNN/ /end_log_pos [0-9]+/end_log_pos POSITION/
-SELECT Last_Error_Message FROM performance_schema.replication_applier_status_by_worker;
+SELECT COUNT(*) AS workers_stopped_on_missing_complex_type
+FROM performance_schema.replication_applier_status_by_worker
+WHERE Last_Error_Message LIKE '%Expected a type or a custom type instead of "COMPLEX"%';
 --enable_query_log
 
 # Now install COMPLEX extension on replica to allow recovery

@@ -98,7 +98,20 @@
 SET debug = '+d,skip_dd_table_access_check';
 
 # Total number of system views in MySQL server.
-let $expected_system_view_count = 45;
+# 50 upstream 9.7 system views + 1 VillageSQL view (information_schema.EXTENSIONS).
+let $expected_system_view_count = 51;
+#
+# I_S checksum (PART 3): VillageSQL's information_schema.EXTENSIONS view (plus the
+# COLUMNS override -- both in villagesql/system_views/) changes the I_S schema, so
+# its checksum differs from vanilla 9.7's. Following VillageSQL's 8.4 convention
+# (keep IS_DD_VERSION, override the published checksum rather than bump the DD
+# version), the 90500 lctn=1 row in I_S_published_schema below holds VillageSQL's
+# actual checksum, NOT vanilla 9.7's. IS_DD_VERSION stays 90500 (no DD-upgrade
+# change); the rejected alternative was bumping IS_DD_VERSION to 90700, which
+# would force a DD upgrade (datadirs regenerate the I_S views) -- deliberately
+# not done.
+# TODO(villagesql-rebase): the lctn=0 (case-sensitive FS) 90500 row still holds
+# vanilla's checksum -- re-record it on Linux CI; that FS combo can't run on macOS.
 
 --echo ########################################################################
 --echo # PART 1
@@ -301,10 +314,10 @@ INSERT INTO I_S_published_schema
         'd8f5013771e8f2d28283159286ec85ec7a481724e3cfdda3c098b7cf2acd9a64');
 INSERT INTO I_S_published_schema
   VALUES ('80029', '80029', 1,
-        '06bdff30a209ee9b41bf1b654048010e0ca67399ccca594600659816fb3ee036');  
+        '06bdff30a209ee9b41bf1b654048010e0ca67399ccca594600659816fb3ee036');
 INSERT INTO I_S_published_schema
   VALUES ('80030', '80030', 0,
-        'f2f9eac78a7fe69de079bd55831bb4451236c492a76f9195e43051db44e84510');  
+        'f2f9eac78a7fe69de079bd55831bb4451236c492a76f9195e43051db44e84510');
 INSERT INTO I_S_published_schema
   VALUES ('80030', '80030', 1,
         '4399948df993b3a2084c4a6dd80d76e38b2ff874e68b7e33a16b907eeb090ff0');
@@ -325,7 +338,43 @@ INSERT INTO I_S_published_schema
         '046414dff37c1d172842d5d012e1887fee3fb87600ae0554a409892b85396c2b');
 INSERT INTO I_S_published_schema
   VALUES ('80400', '80400', 1,
-        '4a1da2bd6eaca1ee198d89d69fb770db23bf24a45e87642ef67403ad83937936');
+        'fedb1d31841a81321ec0c95d672b80929c0772fc357e30eedfb561a755f8c137');
+INSERT INTO I_S_published_schema
+  VALUES ('90000', '90000', 0,
+        'fce2482b7736ab8689aef1d66bd20615dd8b869ef2295c60f90627f662d891a9');
+INSERT INTO I_S_published_schema
+  VALUES ('90000', '90000', 1,
+        '891156b623ed2e309b26109f8dcfbd4084ac6f094639b3249087a4597431667c');
+INSERT INTO I_S_published_schema
+  VALUES ('90100', '90100', 0,
+        'fc80d54974ad6e864c9779b45f1692da35f99d9d55252ad701f81e0ebe991e62');
+INSERT INTO I_S_published_schema
+  VALUES ('90100', '90100', 1,
+        '4401b727bf9ec5e1e56f8c114f9da8d7a5ee35f6fedb72b3335a0bf7e5ea6f4e');
+INSERT INTO I_S_published_schema
+  VALUES ('90200', '90200', 0,
+        'e5e697e8d1047c52c799820e39aad1b3557c8691563defe4af3d9869a3db6e16');
+INSERT INTO I_S_published_schema
+  VALUES ('90200', '90200', 1,
+        'c6bac6a1f2b4d7fd42aadffd69df5b51f17629714fd83a3666f6ff79874889f2');
+INSERT INTO I_S_published_schema
+  VALUES ('90300', '90300', 0,
+        'a9269cec4c139c7cbe62d694b03a243e6e9d3a18d1d8af9bef823dffc74be336');
+INSERT INTO I_S_published_schema
+  VALUES ('90300', '90300', 1,
+        '94cc97ea64544ac65cb61abbe760c3b5b08254ab7dc01f825cc118d0570db199');
+INSERT INTO I_S_published_schema
+  VALUES ('90400', '90400', 0,
+        'd5c7a6c854f676b1f8e096728c7d178225a745d172a4bcbca6536a7e807ffe26');
+INSERT INTO I_S_published_schema
+  VALUES ('90400', '90400', 1,
+        '027170b29c123596a675415c0e95542856cdd7bb837da87a74ce3c9bff8103fd');
+INSERT INTO I_S_published_schema
+  VALUES ('90500', '90500', 0,
+        '7d93c94a2e79e52648902f8cd51988bfe4dc9627b9f477ef82440bbff17c12c8');
+INSERT INTO I_S_published_schema
+  VALUES ('90500', '90500', 1,
+        'b617baf217455673d80419170ab2142912134ebcaa454bf810b5f5c74b6ed8e2');
 
 LET $checksum_version = `SELECT IF(ISNULL(mysqld_version), "0", i_s_version)
                   FROM I_S_published_schema i RIGHT OUTER JOIN whole_schema w

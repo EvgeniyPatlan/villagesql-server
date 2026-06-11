@@ -30,6 +30,20 @@ val
 (3,4)
 (9,10)
 (11,12)
+SELECT val FROM t_complex INTERSECT SELECT val FROM t_numeric;
+ERROR HY000: Cannot use UNION with mixed custom and non-custom types
+SELECT val FROM t_complex INTERSECT SELECT val FROM t_complex2_type;
+ERROR HY000: Cannot use UNION with different custom types 'vsql_complex.COMPLEX' and 'vsql_complex.COMPLEX2'
+SELECT val FROM t_complex EXCEPT SELECT val FROM t_numeric;
+ERROR HY000: Cannot use UNION with mixed custom and non-custom types
+SELECT val FROM t_complex EXCEPT SELECT val FROM t_complex2_type;
+ERROR HY000: Cannot use UNION with different custom types 'vsql_complex.COMPLEX' and 'vsql_complex.COMPLEX2'
+SELECT val FROM t_complex INTERSECT SELECT val FROM t_complex_same ORDER BY val;
+val
+SELECT val FROM t_complex EXCEPT SELECT val FROM t_complex_same ORDER BY val;
+val
+(1,2)
+(3,4)
 DROP TABLE t_complex;
 DROP TABLE t_numeric;
 DROP TABLE t_string;
