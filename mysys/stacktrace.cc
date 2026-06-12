@@ -32,14 +32,12 @@
 
 #include "my_config.h"
 
-#include <errno.h>
 #include <fcntl.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
-#include <cstdint>
+#include <cerrno>
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
 #include <string_view>
 #if defined(__linux__) || defined(__sun) || defined(__FreeBSD__)
 #include <sys/syscall.h>
@@ -47,18 +45,18 @@
 #include <backtrace/stacktrace.hpp>
 #endif
 #endif
-#include <time.h>
+#include <ctime>
 
 #include <algorithm>
 #include <cinttypes>
+#include <iterator>
 
 #include "my_inttypes.h"
-#include "my_macros.h"
 #include "my_stacktrace.h"
-#include "template_utils.h"
+#include "template_utils.h"  // IWYU pragma: keep
 
 #ifndef _WIN32
-#include <signal.h>
+#include <csignal>
 
 #include "my_thread.h"
 #ifdef HAVE_UNISTD_H
@@ -67,11 +65,11 @@
 #ifdef HAVE_STACKTRACE
 
 #ifdef __linux__
-#include <ctype.h> /* isprint */
+#include <cctype> /* isprint */
 #endif
 
 #ifdef HAVE_EXECINFO_H
-#include <execinfo.h>
+#include <execinfo.h>  // IWYU pragma: keep
 #endif
 
 #ifdef __FreeBSD__
@@ -146,10 +144,8 @@ static int safe_print_str(const char *addr, int max_len) {
 
     if ((nbytes = pread(fd, buf, count, offset)) < 0) {
       /* Just in case... */
-      if (errno == EINTR)
-        continue;
-      else
-        break;
+      if (errno == EINTR) continue;
+      break;
     }
 
     /* Advance offset into memory. */

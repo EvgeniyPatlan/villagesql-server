@@ -71,12 +71,14 @@ constexpr size_t FIL_SCAN_MAX_THREADS = 16;
 /** Number of threads per core. */
 constexpr size_t FIL_SCAN_THREADS_PER_CORE = 2;
 
+#ifndef UNIV_HOTBACKUP
 /** Calculate the number of threads that can be spawned to scan the given
 number of files taking into the consideration, number of cores available
 on the machine.
 @param[in]      num_files       Number of files to be scanned
 @return number of threads to be spawned for scanning the files */
 size_t fil_get_scan_threads(size_t num_files);
+#endif /* !UNIV_HOTBACKUP */
 
 /** This tablespace name is used internally during file discovery to open a
 general tablespace before the data dictionary is recovered and available. */
@@ -229,9 +231,6 @@ struct fil_node_t {
 
   /** block size to use for punching holes */
   size_t block_size;
-
-  /** whether atomic write is enabled for this file */
-  bool atomic_write;
 
   /** FIL_NODE_MAGIC_N */
   size_t magic_n;
@@ -1398,13 +1397,11 @@ void fil_space_set_imported(space_id_t space_id);
                                 downwards to an integer
 @param[in,out]  space           space where to append
 @param[in]      is_raw          true if a raw device or a raw disk partition
-@param[in]      atomic_write    true if the file has atomic write enabled
 @param[in]      max_pages       maximum number of pages in file
 @return pointer to the file name
 @retval nullptr if error */
 [[nodiscard]] char *fil_node_create(const char *name, page_no_t size,
                                     fil_space_t *space, bool is_raw,
-                                    bool atomic_write,
                                     page_no_t max_pages = PAGE_NO_MAX);
 
 /** Create a space memory object and put it to the fil_system hash table.
@@ -1581,13 +1578,6 @@ for concurrency control.
 /** Release a tablespace acquired with fil_space_acquire().
 @param[in,out]  space   Tablespace to release  */
 void fil_space_release(fil_space_t *space);
-
-/** Fetch the file name opened for a space_id from the file map.
-@param[in]   space_id  tablespace ID
-@param[out]  name      the scanned filename
-@return true if the space_id is found. The name is set to an
-empty string if the space_id is not found. */
-bool fil_system_get_file_by_space_id(space_id_t space_id, std::string &name);
 
 /** Fetch the file name opened for an undo space number from the file map.
 @param[in]   space_num  Undo tablespace Number
@@ -2064,14 +2054,6 @@ inline void fil_space_open_if_needed(fil_space_t *space) {
   }
 }
 
-#ifdef UNIV_LINUX
-/**
-Try and enable FusionIO atomic writes.
-@param[in] file         OS file handle
-@return true if successful */
-[[nodiscard]] bool fil_fusionio_enable_atomic_write(pfs_os_file_t file);
-#endif /* UNIV_LINUX */
-
 /** Note that the file system where the file resides doesn't support PUNCH HOLE.
 Called from AIO handlers when IO returns DB_IO_NO_PUNCH_HOLE
 @param[in,out]  file            file to set */
@@ -2163,18 +2145,6 @@ void fil_tablespace_open_init_for_recovery(bool recovery);
 @return true if the space ID is known. */
 [[nodiscard]] bool fil_tablespace_lookup_for_recovery(space_id_t space_id);
 
-/** Compare and update space name and dd path for partitioned table. Uniformly
-converts partition separators and names to lower case.
-@param[in]      space_id        tablespace ID
-@param[in]      fsp_flags       tablespace flags
-@param[in]      update_space    update space name
-@param[in,out]  space_name      tablespace name
-@param[in,out]  dd_path         file name with complete path
-@return true, if names are updated. */
-bool fil_update_partition_name(space_id_t space_id, uint32_t fsp_flags,
-                               bool update_space, std::string &space_name,
-                               std::string &dd_path);
-
 /** Add tablespace to the set of tablespaces to be updated in DD.
 @param[in]      dd_object_id    Server DD tablespace ID
 @param[in]      space_id        Innodb tablespace ID
@@ -2233,14 +2203,14 @@ already be known.
 [[nodiscard]] dberr_t fil_tablespace_open_for_recovery(space_id_t space_id);
 
 /** Replay a file rename operation for ddl replay.
-@param[in]      page_id         Space ID and first page number in the file
+@param[in]      space_id        Space ID
 @param[in]      old_name        old file name
 @param[in]      new_name        new file name
 @return whether the operation was successfully applied
 (the name did not exist, or new_name did not exist and
 name was successfully renamed to new_name)  */
-bool fil_op_replay_rename_for_ddl(const page_id_t &page_id,
-                                  const char *old_name, const char *new_name);
+bool fil_op_replay_rename_for_ddl(space_id_t space_id, const char *old_name,
+                                  const char *new_name);
 
 /** Free the Tablespace_files instance.
 @param[in]      read_only_mode  true if InnoDB is started in read only mode.
@@ -2274,13 +2244,12 @@ one of the four path settings scanned at startup for file discovery.
 @param[in]      encrypt_info    encryption key information
 @param[in]      space_id        tablespace ID
 @param[in,out]  space_flags     tablespace flags
-@param[out]     atomic_write    if atomic write is used
 @param[out]     punch_hole      if punch hole is used
 @return DB_SUCCESS on success */
 [[nodiscard]] dberr_t fil_write_initial_pages(
     pfs_os_file_t file, const char *path, fil_type_t type, page_no_t size,
     const byte *encrypt_info, space_id_t space_id, uint32_t &space_flags,
-    bool &atomic_write, bool &punch_hole);
+    bool &punch_hole);
 
 /** Free the data structures required for recovery. */
 void fil_free_scanned_files();

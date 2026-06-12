@@ -42,15 +42,6 @@ ENDIF()
 
 IF(EXISTS "/etc/fedora-release")
   SET(LINUX_FEDORA 1)
-  FILE(READ "/etc/fedora-release" FEDORA_RELEASE)
-  IF(FEDORA_RELEASE MATCHES "Fedora" AND
-      FEDORA_RELEASE MATCHES "28")
-    SET(LINUX_FEDORA_28 1)
-  ENDIF()
-  IF(FEDORA_RELEASE MATCHES "Fedora" AND
-      FEDORA_RELEASE MATCHES "34")
-    SET(LINUX_FEDORA_34 1)
-  ENDIF()
   IF(IS_SYMLINK "/usr/sbin")
     FILE(READ_SYMLINK "/usr/sbin" USR_SBIN)
     IF(USR_SBIN STREQUAL "bin")
@@ -74,9 +65,9 @@ ENDIF()
 # We require at least GCC 10 Clang 14
 IF(NOT FORCE_UNSUPPORTED_COMPILER)
   IF(MY_COMPILER_IS_GNU)
-    # gcc9 is known to fail
-    IF(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
-      MESSAGE(FATAL_ERROR "GCC 10 or newer is required")
+    # gcc10 is known to fail
+    IF(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
+      MESSAGE(FATAL_ERROR "GCC 11 or newer is required")
     ENDIF()
   ELSEIF(MY_COMPILER_IS_CLANG)
     # This is the lowest version tested

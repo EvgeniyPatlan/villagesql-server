@@ -68,6 +68,7 @@ static const std::set<String_type> default_valid_option_keys = {
     "checksum",
     "compress",
     "connection_string",
+    "create_external_table",
     "delay_key_write",
     "encrypt_type",
     "explicit_tablespace",
@@ -90,7 +91,9 @@ static const std::set<String_type> default_valid_option_keys = {
     "tablespace",
     "timestamp",
     "view_valid",
-    "gipk"};
+    "gipk",
+    "view_type",
+    "materialization_engine"};
 
 ///////////////////////////////////////////////////////////////////////////
 // Abstract_table_impl implementation.

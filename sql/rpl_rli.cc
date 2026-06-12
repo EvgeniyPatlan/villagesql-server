@@ -170,10 +170,8 @@ Relay_log_info::Relay_log_info(bool is_slave_recovery,
       deferred_events(nullptr),
       workers(PSI_NOT_INSTRUMENTED),
       workers_array_initialized(false),
-      curr_group_assigned_parts(PSI_NOT_INSTRUMENTED),
       curr_group_da(PSI_NOT_INSTRUMENTED),
       curr_group_seen_begin(false),
-      mts_end_group_sets_max_dbs(false),
       replica_parallel_workers(0),
       exit_counter(0),
       max_updated_index(0),
@@ -185,8 +183,6 @@ Relay_log_info::Relay_log_info(bool is_slave_recovery,
       mts_recovery_index(0),
       mts_recovery_group_seen_begin(false),
       mts_group_status(MTS_NOT_IN_GROUP),
-      stats_exec_time(0),
-      stats_read_time(0),
       current_mts_submode(nullptr),
       reported_unsafe_warning(false),
       rli_description_event(nullptr),
@@ -222,7 +218,6 @@ Relay_log_info::Relay_log_info(bool is_slave_recovery,
   ign_master_log_name_end[0] = 0;
   set_timespec_nsec(&last_clock, 0);
   cached_charset_invalidate();
-  inited_hash_workers = false;
   commit_timestamps_status = COMMIT_TS_UNKNOWN;
 
   if (!rli_fake) {
@@ -273,16 +268,11 @@ void Relay_log_info::init_workers(ulong n_workers) {
     Parallel slave parameters initialization is done regardless
     whether the feature is or going to be active or not.
   */
-  mts_groups_assigned = 0;
-  mts_events_assigned = 0;
-  mts_online_stat_curr = 0;
-  pending_jobs = 0;
-  wq_size_waits_cnt = 0;
-  mts_wq_excess_cnt = mts_wq_no_underrun_cnt = mts_wq_overfill_cnt = 0;
-  mts_total_wait_overlap = 0;
-  mts_total_wait_worker_avail = 0;
-  mts_last_online_stat = 0;
   mta_coordinator_has_waited_stat = 0;
+  mts_groups_assigned = 0;
+  pending_jobs = 0;
+  mts_wq_excess_cnt = 0;
+  worker_queue_mem_exceeded_count = 0;
 
   workers.reserve(n_workers);
   workers_array_initialized = true;  // set after init
@@ -417,7 +407,7 @@ void Relay_log_info::reset_notified_checkpoint(ulong shift, time_t new_ts,
     Then the new checkpoint sequence is updated by subtracting the number
     of consecutive jobs that were successfully processed.
   */
-  assert(current_mts_submode->get_type() != MTS_PARALLEL_TYPE_DB_NAME ||
+  assert(current_mts_submode->get_type() == MTS_PARALLEL_TYPE_LOGICAL_CLOCK ||
          !(shift == 0 && rli_checkpoint_seqno != 0));
   rli_checkpoint_seqno = rli_checkpoint_seqno - shift;
   DBUG_PRINT("mta", ("reset_notified_checkpoint shift --> %lu, "
@@ -480,7 +470,7 @@ err:
   return ret;
 }
 
-static inline int add_relay_log(Relay_log_info *rli, LOG_INFO *linfo) {
+static inline int add_relay_log(Relay_log_info *rli, Log_info *linfo) {
   MY_STAT s;
   DBUG_TRACE;
   mysql_mutex_assert_owner(&rli->log_space_lock);
@@ -498,7 +488,7 @@ static inline int add_relay_log(Relay_log_info *rli, LOG_INFO *linfo) {
 }
 
 int Relay_log_info::count_relay_log_space() {
-  LOG_INFO flinfo;
+  Log_info flinfo;
   DBUG_TRACE;
   MUTEX_LOCK(lock, &log_space_lock);
   log_space_total = 0;
@@ -519,7 +509,7 @@ int Relay_log_info::count_relay_log_space() {
 }
 
 bool Relay_log_info::reset_group_relay_log_pos(const char **errmsg) {
-  LOG_INFO linfo;
+  Log_info linfo;
 
   mysql_mutex_assert_owner(&data_lock);
 
@@ -536,7 +526,7 @@ bool Relay_log_info::is_group_relay_log_name_invalid(const char **errmsg) {
   DBUG_TRACE;
   const char *errmsg_fmt = nullptr;
   static char errmsg_buff[MYSQL_ERRMSG_SIZE + FN_REFLEN];
-  LOG_INFO linfo;
+  Log_info linfo;
 
   *errmsg = nullptr;
   if (relay_log.find_log_pos(&linfo, group_relay_log_name, true)) {
@@ -2679,10 +2669,6 @@ ulong Relay_log_info::adapt_to_master_version_updown(ulong master_version,
   return master_version;
 }
 
-bool is_mts_db_partitioned(Relay_log_info *rli) {
-  return (rli->current_mts_submode->get_type() == MTS_PARALLEL_TYPE_DB_NAME);
-}
-
 const char *Relay_log_info::get_for_channel_str(bool upper_case) const {
   if (rli_fake || mi == nullptr)
     return "";
@@ -3320,6 +3306,12 @@ void Relay_log_info::set_applier_source_position_info_invalid(bool invalid) {
 
 bool Relay_log_info::is_applier_source_position_info_invalid() const {
   return m_is_applier_source_position_info_invalid;
+}
+
+cs::apply::instruments::Applier_metrics_interface &
+Relay_log_info::get_applier_metrics() {
+  if (mi->is_metric_collection_enabled()) return m_coordinator_metrics;
+  return m_disabled_metric_aggregator;
 }
 
 std::string Assign_gtids_to_anonymous_transactions_info::get_value() const {

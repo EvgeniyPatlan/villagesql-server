@@ -161,7 +161,9 @@ inline constexpr sql_mode_t MODE_PAD_CHAR_TO_FULL_LENGTH = 1ULL << 31;
 */
 inline constexpr sql_mode_t MODE_TIME_TRUNCATE_FRACTIONAL = 1ULL << 32;
 
-inline constexpr sql_mode_t MODE_LAST = 1ULL << 33;
+inline constexpr sql_mode_t MODE_INTERPRET_UTF8_AS_UTF8MB4 = 1ULL << 33;
+
+inline constexpr sql_mode_t MODE_LAST = 1ULL << 34;
 
 inline constexpr sql_mode_t MODE_ALLOWED_MASK =
     (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES |
@@ -171,7 +173,8 @@ inline constexpr sql_mode_t MODE_ALLOWED_MASK =
      MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES | MODE_NO_ZERO_IN_DATE |
      MODE_NO_ZERO_DATE | MODE_INVALID_DATES | MODE_ERROR_FOR_DIVISION_BY_ZERO |
      MODE_TRADITIONAL | MODE_HIGH_NOT_PRECEDENCE | MODE_NO_ENGINE_SUBSTITUTION |
-     MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TIME_TRUNCATE_FRACTIONAL);
+     MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TIME_TRUNCATE_FRACTIONAL |
+     MODE_INTERPRET_UTF8_AS_UTF8MB4);
 
 /*
   We can safely ignore and reset these obsolete mode bits while replicating:
@@ -197,8 +200,7 @@ inline constexpr sql_mode_t MODE_ALLOWED_MASK =
   updated (to store more bytes on disk).
 
   NOTE: When adding new SQL_MODE types, make sure to also add them to
-  the scripts used for creating the MySQL system tables
-  in scripts/mysql_system_tables.sql and scripts/mysql_system_tables_fix.sql
+  sql_mode_names[] in sys_vars.cc
 */
 
 struct System_variables {
@@ -311,6 +313,8 @@ struct System_variables {
 
   plugin_ref table_plugin;
   plugin_ref temp_table_plugin;
+  char *external_table_storage_engine;
+  char *external_table_secondary_storage_engine;
 
   /* Only charset part of these variables is sensible */
   const CHARSET_INFO *character_set_filesystem;
@@ -377,6 +381,10 @@ struct System_variables {
 
   /** Used for controlling preparation of queries against secondary engine. */
   ulong use_secondary_engine;
+
+  /** Used to determine if statistics from secondary engine can be used
+      by the hypergraph optimizer. */
+  bool enable_secondary_engine_statistics;
 
   /**
     Used for controlling which statements to execute in a secondary
@@ -511,6 +519,12 @@ struct System_variables {
     @sa Sys_restrict_fk_on_non_standard_key
   */
   bool restrict_fk_on_non_standard_key;
+
+  /**
+    Activate child table trigger execution during SQL foreign key cascade.
+    @sa Sys_enable_cascade_triggers
+  */
+  bool enable_cascade_triggers;
 };
 
 static_assert(std::is_trivially_copyable<System_variables>::value);
@@ -527,6 +541,7 @@ struct System_status_var {
   /* IMPORTANT! See first_system_status_var definition below. */
   ulonglong created_tmp_disk_tables;
   ulonglong created_tmp_tables;
+  ulonglong count_hit_tmp_table_size;
   ulonglong ha_commit_count;
   ulonglong ha_delete_count;
   ulonglong ha_read_first_count;
@@ -555,6 +570,9 @@ struct System_status_var {
   ulonglong table_open_cache_hits;
   ulonglong table_open_cache_misses;
   ulonglong table_open_cache_overflows;
+  ulonglong table_open_cache_triggers_hits;
+  ulonglong table_open_cache_triggers_misses;
+  ulonglong table_open_cache_triggers_overflows;
   ulonglong select_full_join_count;
   ulonglong select_full_range_join_count;
   ulonglong select_range_count;

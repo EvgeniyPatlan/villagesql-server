@@ -26,6 +26,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <deque>
+#include <ranges>
 #include <vector>
 
 #include "mem_root_deque.h"
@@ -204,7 +205,7 @@ TEST(MemRootDequeTest, Copy) {
   d.push_back(1);
   d.push_back(2);
   d.push_back(3);
-  mem_root_deque<int> e(d);
+  mem_root_deque<int> const e(d);
   e[0] = 5;
   EXPECT_THAT(d, ElementsAre(1, 2, 3));
   EXPECT_THAT(e, ElementsAre(5, 2, 3));
@@ -237,22 +238,22 @@ TEST(MemRootDequeTest, ReverseIteration) {
   d.push_back(2);
   d.push_back(3);
   mem_root_deque<int> e(&mem_root);
-  for (auto it = d.rbegin(); it != d.rend(); ++it) {
-    e.push_back(*it);
+  for (int &it : std::ranges::reverse_view(d)) {
+    e.push_back(it);
   }
   EXPECT_THAT(e, ElementsAre(3, 2, 1));
 
   const mem_root_deque<int> &d_ref = d;
-  for (auto it = d_ref.rbegin(); it != d_ref.rend(); ++it) {
-    e.push_back(*it);
+  for (int it : std::ranges::reverse_view(d_ref)) {
+    e.push_back(it);
   }
 }
 
 TEST(MemRootDequeTest, ConvertIterators) {
   MEM_ROOT mem_root;
   mem_root_deque<int> d(&mem_root);
-  mem_root_deque<int>::iterator i = d.begin();
-  mem_root_deque<int>::const_iterator j{i};
+  mem_root_deque<int>::iterator const i = d.begin();
+  mem_root_deque<int>::const_iterator const j{i};
 }
 
 // Test that exponential growth works correctly for both directions.
@@ -456,7 +457,7 @@ using std_mem_root_deque = std::deque<T, Mem_root_allocator<T>>;
 static void BM_EmptyConstruct(size_t num_iterations) {
   MEM_ROOT mem_root;
   for (size_t i = 0; i < num_iterations; ++i) {
-    { mem_root_deque<int> d(&mem_root); }
+    { mem_root_deque<int> const d(&mem_root); }
     mem_root.ClearForReuse();
   }
 }
@@ -465,7 +466,7 @@ BENCHMARK(BM_EmptyConstruct)
 static void BM_EmptyConstructStdDeque(size_t num_iterations) {
   MEM_ROOT mem_root;
   for (size_t i = 0; i < num_iterations; ++i) {
-    { std_mem_root_deque<int> d{Mem_root_allocator<int>(&mem_root)}; }
+    { std_mem_root_deque<int> const d{Mem_root_allocator<int>(&mem_root)}; }
     mem_root.ClearForReuse();
   }
 }
@@ -563,7 +564,7 @@ static void BM_Iteration(size_t num_iterations) {
 
   unsigned sum = 0;  // To prevent it from being optimized away.
   for (size_t i = 0; i < num_iterations; ++i) {
-    for (unsigned x : d) {
+    for (unsigned const x : d) {
       sum += x;
     }
   }
@@ -585,7 +586,7 @@ static void BM_IterationStdDeque(size_t num_iterations) {
 
   unsigned sum = 0;  // To prevent it from being optimized away.
   for (size_t i = 0; i < num_iterations; ++i) {
-    for (unsigned x : d) {
+    for (unsigned const x : d) {
       sum += x;
     }
   }

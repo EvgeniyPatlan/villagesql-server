@@ -218,16 +218,16 @@ Item *convert_charset_partition_constant(Item *item, const CHARSET_INFO *cs) {
   Table_ref *save_list = nullptr;
   const char *save_where = thd->where;
 
-  item = item->safe_charset_converter(thd, cs);
+  item = item->convert_charset(thd, cs);
+  if (item == nullptr) return nullptr;
 
-  // Only save the table_list when a query block exists.
   if (qb != nullptr) {
     context = &qb->context;
     save_list = context->table_list;
     context->table_list = nullptr;
   }
   thd->where = "convert character set partition constant";
-  if (!item || item->fix_fields(thd, (Item **)nullptr)) item = nullptr;
+  if (item->fix_fields(thd, nullptr)) return nullptr;
   thd->where = save_where;
   if (qb != nullptr) {
     context->table_list = save_list;
@@ -447,7 +447,7 @@ static bool set_up_field_array(TABLE *table, bool is_sub_part) {
   uint i = 0;
   uint inx;
   partition_info *part_info = table->part_info;
-  int result = false;
+  bool result = false;
   DBUG_TRACE;
 
   ptr = table->field;
@@ -518,8 +518,22 @@ static bool set_up_field_array(TABLE *table, bool is_sub_part) {
             performance reasons.
         */
 
+        if (field->real_type() == MYSQL_TYPE_VECTOR) {
+          /* vector column as partition key is not supported */
+          my_error(ER_FIELD_TYPE_NOT_ALLOWED_AS_PARTITION_FIELD, MYF(0),
+                   field->field_name);
+          result = true;
+        }
+
         if (field->is_flag_set(BLOB_FLAG)) {
           my_error(ER_BLOB_FIELD_IN_PART_FUNC_ERROR, MYF(0));
+          result = true;
+        }
+
+        if (field->has_masking_policy()) {
+          my_error(ER_MASKING_POLICY_INCOMPATIBLE_COLUMN_FEATURE, MYF(0),
+                   field->field_name,
+                   "be referenced by a partitioning function");
           result = true;
         }
       }
@@ -1961,6 +1975,13 @@ static int check_part_field(enum_field_types sql_type, const char *field_name,
   if (sql_type >= MYSQL_TYPE_TINY_BLOB && sql_type <= MYSQL_TYPE_BLOB) {
     my_error(ER_BLOB_FIELD_IN_PART_FUNC_ERROR, MYF(0));
     return true;
+  }
+  if (sql_type == MYSQL_TYPE_VECTOR) {
+    /* vector column as partition key is not supported */
+    /* LCOV_EXCL_START */
+    my_error(ER_FIELD_TYPE_NOT_ALLOWED_AS_PARTITION_FIELD, MYF(0), field_name);
+    return true;
+    /* LCOV_EXCL_STOP */
   }
   switch (sql_type) {
     case MYSQL_TYPE_TINY:
@@ -5729,7 +5750,7 @@ static int get_part_iter_for_interval_via_mapping(
   get_endpoint_func get_endpoint = nullptr;
   bool can_match_multiple_values; /* is not '=' */
   const uint field_len = field->pack_length_in_rec();
-  MYSQL_TIME start_date;
+  Datetime_val start_date;
   bool check_zero_dates = false;
   bool zero_in_start_date = true;
   DBUG_TRACE;
@@ -5822,7 +5843,7 @@ static int get_part_iter_for_interval_via_mapping(
         if (!(flags & NO_MAX_RANGE) && (field->type() == MYSQL_TYPE_DATE ||
                                         field->type() == MYSQL_TYPE_DATETIME)) {
           /* Monotonic, but return NULL for dates with zeros in month/day. */
-          zero_in_start_date = field->get_date(&start_date, 0);
+          zero_in_start_date = field->val_datetime(&start_date, 0);
           DBUG_PRINT("info",
                      ("zero start %u %04d-%02d-%02d", zero_in_start_date,
                       start_date.year, start_date.month, start_date.day));
@@ -5842,8 +5863,8 @@ static int get_part_iter_for_interval_via_mapping(
     part_iter->part_nums.end = get_endpoint(part_info, false, include_endp);
     if (check_zero_dates && !zero_in_start_date &&
         !part_info->part_expr->null_value) {
-      MYSQL_TIME end_date;
-      const bool zero_in_end_date = field->get_date(&end_date, 0);
+      Datetime_val end_date;
+      const bool zero_in_end_date = field->val_datetime(&end_date, 0);
       /*
         This is an optimization for TO_DAYS()/TO_SECONDS() to avoid scanning
         the NULL partition for ranges that cannot include a date with 0 as

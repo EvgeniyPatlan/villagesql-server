@@ -23,8 +23,8 @@
 
 /* open a heap-database */
 
-#include <errno.h>
 #include <sys/types.h>
+#include <cerrno>
 
 #include "my_dbug.h"
 #include "my_inttypes.h"

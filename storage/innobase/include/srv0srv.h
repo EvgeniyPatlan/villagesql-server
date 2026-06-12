@@ -295,12 +295,6 @@ extern Srv_cpu_usage srv_cpu_usage;
 
 extern Log_DDL *log_ddl;
 
-#ifdef INNODB_DD_TABLE
-extern bool srv_is_upgrade_mode;
-extern bool srv_downgrade_logs;
-extern bool srv_upgrade_old_undo_found;
-#endif /* INNODB_DD_TABLE */
-
 extern bool srv_downgrade_partition_files;
 
 extern const char *srv_main_thread_op_info;
@@ -403,9 +397,6 @@ extern char *srv_innodb_directories;
 /** Server undo tablespaces directory, can be absolute path. */
 extern char *srv_undo_dir;
 
-/** Number of undo tablespaces to use. */
-extern ulong srv_undo_tablespaces;
-
 /** The number of rollback segments per tablespace */
 extern ulong srv_rollback_segments;
 
@@ -432,12 +423,6 @@ extern bool srv_redo_log_encrypt;
 
 /* Maximum number of redo files of a cloned DB. */
 constexpr size_t SRV_N_LOG_FILES_CLONE_MAX = 1000;
-
-/** Value of innodb_log_files_in_group. This is deprecated. */
-extern ulong srv_log_n_files;
-
-/** Value of innodb_log_file_size. Expressed in bytes. This is deprecated. */
-extern ulonglong srv_log_file_size;
 
 /** Value of innodb_redo_log_capacity. Expressed in bytes. Might be set
 during startup automatically when started in "dedicated server mode". */
@@ -478,10 +463,10 @@ writes to log buffer. The slots are addressed by LSN values modulo number
 of the slots. */
 extern ulong srv_log_recent_written_size;
 
-/** Number of slots in a small buffer, which is used to break requirement
+/** Number of slots in a small link buffer, which is used to break requirement
 for total order of dirty pages, when they are added to flush lists.
 The slots are addressed by LSN values modulo number of the slots. */
-extern ulong srv_log_recent_closed_size;
+extern ulong srv_buf_flush_list_added_size;
 
 /** Whether to activate/pause the log writer threads. */
 extern bool srv_log_writer_threads;
@@ -1096,11 +1081,11 @@ This is called during CREATE UNDO TABLESPACE.
 dberr_t srv_undo_tablespace_create(const char *space_name,
                                    const char *file_name, space_id_t space_id);
 
-/** Initialize undo::spaces and trx_sys_undo_spaces,
+/** Initialize undo::spaces,
 called once during srv_start(). */
 void undo_spaces_init();
 
-/** Free the resources occupied by undo::spaces and trx_sys_undo_spaces,
+/** Free the resources occupied by undo::spaces,
 called once during thread de-initialization. */
 void undo_spaces_deinit();
 

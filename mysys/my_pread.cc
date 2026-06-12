@@ -32,12 +32,11 @@
 
 #include "my_config.h"
 
-#include <errno.h>
-#include <fcntl.h>
-#include <stddef.h>
-#include <stdio.h>
 #include <sys/types.h>
-#include <limits>
+#include <cassert>
+#include <cerrno>
+#include <cstdint>
+#include <cstdio>
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -46,7 +45,6 @@
 #include "my_base.h"
 #include "my_dbug.h"
 #include "my_inttypes.h"
-#include "my_io.h"
 #include "my_sys.h"
 #include "my_thread_local.h"
 #include "mysys_err.h"

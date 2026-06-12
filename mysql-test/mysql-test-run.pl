@@ -62,6 +62,7 @@ use My::File::Path;    # Patched version of File::Path
 use My::Find;
 use My::Options;
 use My::Platform;
+use My::RouterConfigFactory;
 use My::SafeProcess;
 use My::SysInfo;
 
@@ -126,6 +127,7 @@ my $opt_start;
 my $opt_start_dirty;
 my $opt_start_exit;
 my $opt_start_test;
+my $opt_strace_router;
 my $opt_strace_client;
 my $opt_strace_server;
 my @opt_perf_servers;
@@ -135,6 +137,7 @@ my $opt_tmpdir_pid;
 my @opt_veb_source_dirs;
 my $opt_trace_protocol;
 my $opt_user_args;
+my $opt_valgrind_ld_preload;
 my $opt_valgrind_path;
 my $opt_view_protocol;
 my $opt_wait_all;
@@ -183,6 +186,8 @@ my $exe_ndbmtd;
 my $initial_bootstrap_cmd;
 my $mysql_base_version;
 my $mysqlx_baseport;
+my $router_baseport;
+my $router_plugin_dir;
 my $path_config_file;       # The generated config file, var/my.cnf
 my $path_vardir_trace;
 my $test_fail;
@@ -200,6 +205,7 @@ my @valgrind_args;
 
 # Storage for changed environment variables
 my %old_env;
+my %old_env_router;
 my %visited_suite_names;
 
 # Global variables
@@ -208,6 +214,7 @@ our $opt_client_ddd;
 our $opt_client_debugger;
 our $opt_client_gdb;
 our $opt_client_lldb;
+our $opt_ctest_filter;
 our $opt_ctest_report;
 our $opt_dbx;
 our $opt_ddd;
@@ -279,6 +286,8 @@ our @DEFAULT_SUITES = qw(
   test_services
   x
   component_keyring_file
+  component_connection_control
+  jdv
 );
 
 our $DEFAULT_SUITES = join ',', @DEFAULT_SUITES;
@@ -294,6 +303,7 @@ our $opt_gcov_err                  = "mysql-test-gcov.err";
 our $opt_gcov_exe                  = "gcov";
 our $opt_gcov_msg                  = "mysql-test-gcov.msg";
 our $opt_hypergraph                = 0;
+our $opt_hypergraph_off            = 0;
 our $opt_keep_ndbfs                = 0;
 our $opt_mem                       = $ENV{'MTR_MEM'} ? 1 : 0;
 our $opt_only_big_test             = 0;
@@ -323,12 +333,16 @@ our @opt_extra_bootstrap_opt;
 our @opt_extra_mysqld_opt;
 our @opt_extra_mysqltest_opt;
 our @opt_mysqld_envs;
+our @opt_mysqltest_envs;
 
 our $basedir;
 our $bindir;
 our $build_thread_id_dir;
 our $build_thread_id_file;
 our $config;    # The currently running config
+our $config_router;
+our $config_router_filename;
+our $current_router_template;
 our $debug_compiled_binaries;
 our $default_vardir;
 our $excluded_string;
@@ -336,6 +350,7 @@ our $exe_libtool;
 our $exe_mysql;
 our $exe_mysql_migrate_keyring;
 our $exe_mysql_keyring_encryption_test;
+our $exe_mysql_test_jwt_generator;
 our $exe_mysqladmin;
 our $exe_mysqltest;
 our $exe_mysql_test_event_tracking;
@@ -352,9 +367,16 @@ our $path_language;
 our $path_testlog;
 our $secondary_engine_plugin_dir;
 our $start_only;
+our $exe_mysqlrouter;
+our $exe_mysqlrouter_mrs_client;
+our $exe_mysqlrouter_keyring;
+our $plugin_mysqlrouter_jit_executor;
+our $plugin_mysqlrouter_routing;
 
 our $glob_debugger       = 0;
 our $group_replication   = 0;
+our $router_test           = 0;
+our $router_bootstrap_test = 0;
 our $ndbcluster_enabled  = 0;
 our $ndbcluster_only     = $ENV{'MTR_NDB_ONLY'} || 0;
 our $mysqlbackup_enabled = 0;
@@ -370,7 +392,8 @@ use constant { MYSQLTEST_PASS        => 0,
                MYSQLTEST_FAIL        => 1,
                MYSQLTEST_SKIPPED     => 62,
                MYSQLTEST_NOSKIP_PASS => 63,
-               MYSQLTEST_NOSKIP_FAIL => 64 };
+               MYSQLTEST_NOSKIP_FAIL => 64,
+               MYSQLTEST_OPT_PASS => 66 };
 
 sub check_timeout ($) { return testcase_timeout($_[0]) / 10; }
 
@@ -385,7 +408,8 @@ sub mysqlds     { return _like('mysqld.'); }
 sub ndbds       { return _like('cluster_config.ndbd.'); }
 sub ndb_mgmds   { return _like('cluster_config.ndb_mgmd.'); }
 sub clusters    { return _like('mysql_cluster.'); }
-sub all_servers { return (mysqlds(), ndb_mgmds(), ndbds()); }
+sub routers     { return $config_router ? $config_router->group('DEFAULT') : (); }
+sub all_servers { return (mysqlds(), ndb_mgmds(), ndbds(), routers()); }
 
 # Return an object which refers to the group named '[mysqld]'
 # from the my.cnf file. Options specified in the section can
@@ -472,6 +496,7 @@ sub main {
   $secondary_engine_support =
     ($secondary_engine_support and find_secondary_engine($bindir)) ? 1 : 0;
 
+
   if ($secondary_engine_support) {
     check_secondary_engine_features(using_extern());
     # Append secondary engine test suite to list of default suites if found.
@@ -484,6 +509,13 @@ sub main {
   if ($external_language_support) {
     # Append external language test suite to list of default suites if found.
     add_external_language_suite();
+  }
+
+  my $routing_plugin = find_plugin("routing", "plugin_output_directory");
+  if ($routing_plugin && !$ndbcluster_only) {
+    $router_plugin_dir = dirname($routing_plugin);
+    $DEFAULT_SUITES .= "," if $DEFAULT_SUITES;
+    $DEFAULT_SUITES .= "router";
   }
 
   if ($opt_gcov) {
@@ -656,6 +688,18 @@ sub main {
   my $sys_info = My::SysInfo->new();
   $ENV{NUMBER_OF_CPUS} = $sys_info->num_cpus();
 
+  # Valgrind shows many errors in dload-ed library which is fixed by setting
+  # LD_PRELOAD env to the library ($opt_valgrind_ld_preload option).
+  # The option is valid only with other Valgrind options to not disturb
+  # non-Valgrind tests.
+  if ($opt_valgrind and $opt_valgrind_ld_preload) {
+    my $ld_preload = find_plugin($opt_valgrind_ld_preload, "plugin_output_directory");
+    if($ld_preload) {
+      $ENV{LD_PRELOAD} = $ld_preload;
+      print "LD_PRELOAD = $ld_preload\n";
+    }
+  }
+
   if ($opt_parallel eq "auto") {
     # Try to find a suitable value for number of workers
     $opt_parallel = $ENV{NUMBER_OF_CPUS};
@@ -706,6 +750,10 @@ sub main {
   if ($num_tests == 0) {
     mtr_report("No tests found, terminating");
     exit(0);
+  }
+
+  if ($secondary_engine_support) {
+    secondary_drivers_setup($opt_suites, $bindir);
   }
 
   initialize_servers();
@@ -763,9 +811,8 @@ sub main {
 
   if ($secondary_engine_support) {
     secondary_engine_offload_count_report_init();
-    # Create virtual environment
-    find_ml_driver($bindir);
-    reserve_secondary_ports();
+    configure_encryption();
+    reserve_secondary_ports($bindir);
   }
 
   if ($opt_summary_report) {
@@ -803,6 +850,13 @@ sub main {
     # Reserve 10 extra ports per worker process
     $ports_per_thread = $ports_per_thread + 10;
   }
+
+  if ($router_test) {
+    # Reserve 10 extra ports for the Router to use
+    $ports_per_thread = $ports_per_thread + 10;
+  }
+
+  mtr_report("ports_per_thread:".$ports_per_thread);
 
   create_manifest_file();
 
@@ -887,9 +941,14 @@ sub main {
     }
     mtr_report();
     if(int(@$completed)) {
-      mtr_report_stats("In completed tests", $completed);
+      # Workaround: ignore possible MTR bug missing some tests,
+      # if run with --accept-test-fail for PGO
+      my $ignore_fail = $opt_accept_fail &&
+        ($opt_max_test_fail==0 || (int(@not_completed) < $opt_max_test_fail));
+      mtr_report_stats("In completed tests", $completed, $ignore_fail);
+    } else {
+      mtr_error("No test(s) completed");
     }
-    mtr_error("No test(s) completed");
   }
 
   mark_time_used('init');
@@ -1617,6 +1676,7 @@ sub print_global_resfile {
   resfile_global("gprof",            $opt_gprof            ? 1 : 0);
   resfile_global("helgrind",         $opt_helgrind         ? 1 : 0);
   resfile_global("hypergraph",       $opt_hypergraph       ? 1 : 0);
+  resfile_global("hypergraph-off",   $opt_hypergraph_off   ? 1 : 0);
   resfile_global("initialize",       \@opt_extra_bootstrap_opt);
   resfile_global("max-connections",  $opt_max_connections);
   resfile_global("mem",              $opt_mem              ? 1 : 0);
@@ -1675,6 +1735,7 @@ sub command_line_setup {
     'cursor-protocol'       => \$opt_cursor_protocol,
     'explain-protocol'      => \$opt_explain_protocol,
     'hypergraph'            => \$opt_hypergraph,
+    'hypergraph-off'        => \$opt_hypergraph_off,
     'json-explain-protocol' => \$opt_json_explain_protocol,
     'opt-trace-protocol'    => \$opt_trace_protocol,
     'ps-protocol'           => \$opt_ps_protocol,
@@ -1738,6 +1799,7 @@ sub command_line_setup {
 
     # Extra options used when running test clients
     'mysqltest=s' => \@opt_extra_mysqltest_opt,
+    'mysqltest-env=s' => \@opt_mysqltest_envs,
 
     # Debugging
     'boot-dbx'             => \$opt_boot_dbx,
@@ -1766,6 +1828,7 @@ sub command_line_setup {
     'max-save-core=i'      => \$opt_max_save_core,
     'max-save-datadir=i'   => \$opt_max_save_datadir,
     'max-test-fail=i'      => \$opt_max_test_fail,
+    'strace-router'        => \$opt_strace_router,
     'strace-client'        => \$opt_strace_client,
     'strace-server'        => \$opt_strace_server,
     'perf:s'               => \@opt_perf_servers,
@@ -1778,6 +1841,7 @@ sub command_line_setup {
     'helgrind'                  => \$opt_helgrind,
     'lock-order=i'              => \$opt_lock_order,
     'sanitize'                  => \$opt_sanitize,
+    'valgrind-ld-preload=s'     => \$opt_valgrind_ld_preload,
     'valgrind-clients'          => \$opt_valgrind_clients,
     'valgrind-mysqld'           => \$opt_valgrind_mysqld,
     'valgrind-mysqltest'        => \$opt_valgrind_mysqltest,
@@ -1785,18 +1849,6 @@ sub command_line_setup {
     'valgrind-path=s'           => \$opt_valgrind_path,
     'valgrind-secondary-engine' => \$opt_valgrind_secondary_engine,
     'valgrind|valgrind-all'     => \$opt_valgrind,
-    'valgrind-options=s'        => sub {
-      my ($opt, $value) = @_;
-      # Deprecated option unless it's what we know pushbuild uses
-      if (option_equals($value, "--gen-suppressions=all --show-reachable=yes"))
-      {
-        push(@valgrind_args, $_) for (split(' ', $value));
-        return;
-      }
-      die("--valgrind-options=s is deprecated. Use ",
-          "--valgrind-option=s, to be specified several",
-          " times if necessary");
-    },
 
     # Directories
     'clean-vardir'    => \$opt_clean_vardir,
@@ -1844,6 +1896,7 @@ sub command_line_setup {
     'timer!'                => \&report_option,
     'timestamp'             => \&report_option,
     'unit-tests!'           => \$opt_ctest,
+    'unit-tests-filter=s'    => \$opt_ctest_filter,
     'unit-tests-report!'    => \$opt_ctest_report,
     'user-args'             => \$opt_user_args,
     'user=s'                => \$opt_user,
@@ -2214,8 +2267,8 @@ sub command_line_setup {
 
   # Set default values for opt_ctest (--unit-tests)
   if ($opt_ctest == -1) {
-    if (defined $opt_ctest_report && $opt_ctest_report) {
-      # Turn on --unit-tests by default if --unit-tests-report is used
+    if ((defined $opt_ctest_report && $opt_ctest_report) || defined $opt_ctest_filter) {
+      # Turn on --unit-tests by default if --unit-tests-report or --unit-tests-filter is used
       $opt_ctest = 1;
     } elsif ($opt_suites || @opt_cases) {
       # Don't run ctest if tests or suites named
@@ -2359,6 +2412,11 @@ sub command_line_setup {
     $debug_d   = "d,query,info,error,enter,exit";
   }
 
+  if ($opt_strace_router && ($^O ne "linux")) {
+    $opt_strace_router = 0;
+    mtr_warning("Strace only supported in Linux ");
+  }
+
   if ($opt_strace_server && ($^O ne "linux")) {
     $opt_strace_server = 0;
     mtr_warning("Strace only supported in Linux ");
@@ -2467,8 +2525,10 @@ sub create_manifest_file {
   my $exe_mysqld = find_mysqld($basedir);
   my ($exename, $path, $suffix) = fileparse($exe_mysqld, qr/\.[^.]*/);
   my $manifest_file_path = $path.$exename.$manifest_file_ext;
-  open(my $mh, "> $manifest_file_path") or die;
-  print $mh $config_content or die;
+  open(my $mh, "> $manifest_file_path") or
+    die "Could not create manifest file $manifest_file_path";
+  print $mh $config_content or
+    die "Could not write manifest file $manifest_file_path";
   close($mh);
 }
 
@@ -2490,8 +2550,10 @@ sub create_one_config($$) {
   my $config_content = "{ \"read_local_config\": true }";
   my $config_file_ext = ".cnf";
   my $config_file_path = $location."\/".$component.$config_file_ext;
-  open(my $mh, "> $config_file_path") or die;
-  print $mh $config_content or die;
+  open(my $mh, "> $config_file_path") or
+    die "Could not create config file $config_file_path";
+  print $mh $config_content or
+    die "Could not write config file $config_file_path";
   close($mh);
 }
 
@@ -2601,29 +2663,37 @@ sub set_build_thread_ports($) {
   # Calculate baseport
   $baseport = $build_thread * 10 + 10000;
 
+  # First set of 20 ports is reserved for mysqld servers (10 each for
+  # standard and admin connections)
+  my $baseport_offset = 20;
+
+  # Next set of 10 ports is reserver for Group Replication if used
+  if ($group_replication) {
+    $baseport_offset = $baseport_offset + 10;
+  }
+
+  # Next set of 10 ports is reserved for the Router if used
+  if ($router_test) {
+    $router_baseport = $baseport + $baseport_offset;
+    $ENV{'MTR_ROUTER_PORT_OFFSET'} = $baseport + $baseport_offset;
+    $baseport_offset = $baseport_offset + 10;
+  }
+
   if (lc($opt_mysqlx_baseport) eq "auto") {
     # Reserving last 10 ports in the current port range for X plugin.
-    $mysqlx_baseport = $baseport + $ports_per_thread - 10;
+    $mysqlx_baseport = $baseport + $baseport_offset;
+    $baseport_offset = $baseport_offset + 10;
   } else {
     $mysqlx_baseport = $opt_mysqlx_baseport;
   }
 
+  # Next set of 10 ports is reserved for secondary engine plugin if used.
+  # It has to be last as there can be additional ports allocated/used
+  # by a secondary engine outside of the 10 declared here.
+  # (see reserve_secondary_ports())
   if ($secondary_engine_support) {
-    # Reserve a port for secondary engine server
-    if ($group_replication) {
-      # When both group replication and secondary engine are enabled,
-      # ports_per_thread value should be 50.
-      # - First set of 20 ports are reserved for mysqld servers (10 each for
-      #   standard and admin connections)
-      # - Second set of 10 ports are reserver for Group replication
-      # - Third set of 10 ports are reserved for secondary engine plugin
-      # - Fourth and last set of 10 ports are reserved for X plugin
-      $::secondary_engine_port = $baseport + 30;
-    } else {
-      # ports_per_thread value should be 40, reserve second set of
-      # 10 ports for secondary engine server.
-      $::secondary_engine_port = $baseport + 20;
-    }
+    $::secondary_engine_port if 0; # prevent spurious warning
+    $::secondary_engine_port = $baseport + $baseport_offset;
   }
 
   if ($baseport < 5001 or $baseport + $ports_per_thread - 1 >= 32767) {
@@ -2808,7 +2878,7 @@ sub executable_setup () {
     mtr_exe_exists("$path_client_bindir/mysql_migrate_keyring");
   $exe_mysql_keyring_encryption_test =
     mtr_exe_exists("$path_client_bindir/mysql_keyring_encryption_test");
-
+  $exe_mysql_test_jwt_generator = mtr_exe_maybe_exists("$path_client_bindir/mysql_test_jwt_generator");
   # Look for mysql_test_event_tracking binary
   $exe_mysql_test_event_tracking = my_find_bin($bindir,
                 [ "runtime_output_directory", "bin" ],
@@ -2904,6 +2974,24 @@ sub executable_setup () {
   } else {
     $exe_mysqltest = mtr_exe_exists("$path_client_bindir/mysqltest");
   }
+
+  $exe_mysqlrouter =
+    my_find_bin($bindir,
+              [ "runtime_output_directory", "libexec", "sbin", "bin" ],
+              "mysqlrouter", NOT_REQUIRED);
+
+  $exe_mysqlrouter_keyring =
+    my_find_bin($bindir,
+              [ "runtime_output_directory", "libexec", "sbin", "bin" ],
+              "mysqlrouter_keyring", NOT_REQUIRED);
+
+  $exe_mysqlrouter_mrs_client =
+    my_find_bin($bindir,
+              [ "runtime_output_directory", "libexec", "sbin", "bin" ],
+              "mysqlrouter_mrs_client", NOT_REQUIRED);
+
+  $plugin_mysqlrouter_jit_executor = find_router_plugin("jit_executor");
+  $plugin_mysqlrouter_routing = find_router_plugin("routing");
 }
 
 sub client_debug_arg($$) {
@@ -2987,10 +3075,11 @@ sub mysqldump_arguments ($) {
   return mtr_args2str($exe, @$args);
 }
 
-sub mysql_client_test_arguments() {
+sub mysql_client_test_arguments($) {
+  my ($client_name) = @_;
   my $exe;
   # mysql_client_test executable may _not_ exist
-  $exe = mtr_exe_maybe_exists("$path_client_bindir/mysql_client_test");
+  $exe = mtr_exe_maybe_exists("$path_client_bindir/$client_name");
   return "" unless $exe;
 
   my $args;
@@ -3028,6 +3117,15 @@ sub mysqlxtest_arguments() {
   mtr_add_arg($args, "--port=%d", $mysqlx_baseport);
   return mtr_args2str($exe, @$args);
 }
+sub mysqlrouter_bootstrap_arguments() {
+  my $exe;
+  # mysqlrouter_bootstrap executable may _not_ exist
+  $exe = mtr_exe_maybe_exists("$path_client_bindir/mysqlrouter_bootstrap");
+  return "" unless $exe;
+
+  return $exe;
+}
+
 
 sub mysqlbackup_arguments () {
   my $exe =
@@ -3069,9 +3167,40 @@ sub find_plugin($$) {
                     "$basedir/lib/plugin/" . $plugin_filename,
                     "$basedir/lib64/plugin/" . $plugin_filename,
                     "$basedir/lib/mysql/plugin/" . $plugin_filename,
-                    "$basedir/lib64/mysql/plugin/" . $plugin_filename,);
+                    "$basedir/lib64/mysql/plugin/" . $plugin_filename,
+                    "$basedir/lib/mysqlrouter/" . $plugin_filename,
+                    "$basedir/lib64/mysqlrouter/" . $plugin_filename,
+                    "$basedir/lib/mysqlrouter/plugin/" . $plugin_filename,
+                    "$basedir/lib64/mysqlrouter/plugin/" . $plugin_filename,
+                    "$basedir/lib/" . $plugin_filename,);
   return $lib_plugin;
 }
+
+# Separates functionality for router binaries and generic binaries.
+sub find_router_plugin_in_package($) {
+  my ($plugin) = @_;
+  my $plugin_filename;
+
+  if (IS_WINDOWS) {
+    $plugin_filename = $plugin . ".dll";
+  } else {
+    $plugin_filename = $plugin . ".so";
+  }
+
+  return mtr_file_exists("$basedir/lib64/mysqlrouter/" . $plugin_filename,
+                         "$basedir/lib/mysqlrouter/" . $plugin_filename,
+                         "$basedir/lib/" . $plugin_filename);
+}
+
+sub find_router_plugin($) {
+  my ($plugin) = @_;
+  my $router_plugin = find_plugin($plugin, "plugin_output_directory");
+  if (!$router_plugin) {
+    $router_plugin = find_router_plugin_in_package($plugin);
+  }
+  return $router_plugin;
+}
+
 
 # Read plugin defintions file
 sub read_plugin_defs($$) {
@@ -3346,7 +3475,8 @@ sub environment_setup {
   $ENV{'MYSQL_OPTIONS'}       = substr($mysql_cmd, index($mysql_cmd, " "));
   $ENV{'MYSQL_BINLOG'}        = client_arguments("mysqlbinlog");
   $ENV{'MYSQL_CHECK'}         = client_arguments("mysqlcheck");
-  $ENV{'MYSQL_CLIENT_TEST'}   = mysql_client_test_arguments();
+  $ENV{'MYSQL_CLIENT_TEST'}   = mysql_client_test_arguments("mysql_client_test");
+  $ENV{'I_MYSQL_CLIENT_TEST'} = mysql_client_test_arguments("i_mysql_client_test");
   $ENV{'MYSQL_DUMP'}          = mysqldump_arguments(".1");
   $ENV{'MYSQL_DUMP_SLAVE'}    = mysqldump_arguments(".2");
   $ENV{'MYSQL_IMPORT'}        = client_arguments("mysqlimport");
@@ -3355,6 +3485,11 @@ sub environment_setup {
   $ENV{'MYSQL_SLAVE'}         = client_arguments("mysql", ".2");
   $ENV{'MYSQLADMIN'}          = native_path($exe_mysqladmin);
   $ENV{'MYSQLXTEST'}          = mysqlxtest_arguments();
+  $ENV{'MYSQLROUTER'}         = $exe_mysqlrouter;
+  $ENV{'MRS_CLIENT'}          = $exe_mysqlrouter_mrs_client;
+  $ENV{'MYSQLROUTER_KEYRING'} = $exe_mysqlrouter_keyring;
+  $ENV{'MYSQLROUTER_BOOTSTRAP'} = mysqlrouter_bootstrap_arguments();
+
   $ENV{'MYSQL_MIGRATE_KEYRING'} = $exe_mysql_migrate_keyring;
   $ENV{'MYSQL_KEYRING_ENCRYPTION_TEST'} = $exe_mysql_keyring_encryption_test;
   $ENV{'MYSQL_TEST_EVENT_TRACKING'} = $exe_mysql_test_event_tracking;
@@ -3367,7 +3502,7 @@ sub environment_setup {
   $ENV{'MYSQL_SECURE_INSTALLATION'} =
     "$path_client_bindir/mysql_secure_installation";
   $ENV{'OPENSSL_EXECUTABLE'} = $exe_openssl;
-
+  $ENV{'MYSQL_TEST_JWT_GENERATOR'} = $exe_mysql_test_jwt_generator;
   my $exe_mysqld = find_mysqld($basedir);
   $ENV{'MYSQLD'} = $exe_mysqld;
 
@@ -3464,10 +3599,6 @@ sub environment_setup {
   my $exe_mysql_tzinfo_to_sql =
     mtr_exe_exists("$path_client_bindir/mysql_tzinfo_to_sql");
   $ENV{'MYSQL_TZINFO_TO_SQL'} = native_path($exe_mysql_tzinfo_to_sql);
-
-  # Create an environment variable to make it possible
-  # to detect that the hypergraph optimizer is being used from test cases
-  $ENV{'HYPERGRAPH_TEST'} = $opt_hypergraph;
 
   # Create an environment variable to make it possible
   # to detect that valgrind is being used from test cases
@@ -5086,14 +5217,6 @@ sub run_testcase ($) {
       # to use a different one
       $current_config_name = $tinfo->{template_path};
 
-      # Set variables in the ENV section
-      foreach my $option ($config->options_in_group("ENV")) {
-        # Save old value to restore it before next time
-        $old_env{ $option->name() } = $ENV{ $option->name() };
-        mtr_verbose($option->name(), "=", $option->value());
-        $ENV{ $option->name() } = $option->value();
-      }
-
       # Restore the value of the reinitialization flag after new config
       # is generated.
       foreach my $mysqld (mysqlds()) {
@@ -5111,6 +5234,57 @@ sub run_testcase ($) {
             $mysqld->{need_reinitialization} = 1;
           }
         }
+      }
+
+      if ($tinfo->{router_test}) {
+        my ($r_config,@r_env) = create_router_config($tinfo, $opt_vardir);
+        $config_router = $r_config;
+
+        foreach my $option (@r_env) {
+          $old_env_router{ $option->name() } = $ENV{ $option->name() };
+          $ENV{ $option->name() } = $option->value();
+        }
+      }
+
+      # Set variables in the ENV section
+      foreach my $option ($config->options_in_group("ENV")) {
+        # Save old value to restore it before next time
+        $old_env{ $option->name() } = $ENV{ $option->name() };
+        mtr_verbose($option->name(), "=", $option->value());
+        $ENV{ $option->name() } = $option->value();
+      }
+    }
+
+    if ($tinfo->{router_test} && !$config_router) {
+      # Restore old ENV
+      while (my ($option, $value) = each(%old_env_router)) {
+        if (defined $value) {
+          mtr_verbose("Restoring $option to $value");
+          $ENV{$option} = $value;
+
+        } else {
+          mtr_verbose("Removing $option");
+          delete($ENV{$option});
+        }
+      }
+
+      %old_env_router = ();
+
+      my ($r_config,@r_env) = create_router_config($tinfo, $opt_vardir);
+      $config_router = $r_config;
+      # Set variables in the ENV section
+      foreach my $option (@r_env) {
+        # Save old value to restore it before next time
+        $old_env_router{ $option->name() } = $ENV{ $option->name() };
+        mtr_verbose($option->name(), "=", $option->value());
+        $ENV{ $option->name() } = $option->value();
+      }
+    }
+    if (!$tinfo->{router_test}) {
+      $config_router = ();
+      if ($tinfo->{router_bootstrap_test}) {
+        my $plugin_dir = dirname($plugin_mysqlrouter_routing);
+        $ENV{"ROUTER_PLUGIN_DIRECTORY"} = $plugin_dir;
       }
     }
 
@@ -5301,7 +5475,7 @@ sub run_testcase ($) {
         "condition check before modifying the system status.";
 
       if (($res == MYSQLTEST_PASS or $res == MYSQLTEST_NOSKIP_PASS) or
-          $res == MYSQLTEST_SKIPPED) {
+          $res == MYSQLTEST_SKIPPED or $res == MYSQLTEST_OPT_PASS) {
         if ($tinfo->{'no_result_file'}) {
           # Test case doesn't have it's corresponding result file, marking
           # the test case as failed.
@@ -5324,7 +5498,7 @@ sub run_testcase ($) {
         if ((($res == MYSQLTEST_PASS or $res == MYSQLTEST_NOSKIP_PASS) and
              !restart_forced_by_test('force_restart')
             ) or
-            ($res == MYSQLTEST_SKIPPED and
+            (($res == MYSQLTEST_SKIPPED or $res == MYSQLTEST_OPT_PASS) and
              !restart_forced_by_test('force_restart_if_skipped'))
           ) {
           $check_res = check_testcase($tinfo, "after");
@@ -5332,7 +5506,8 @@ sub run_testcase ($) {
           # Test run succeeded but failed in check-testcase, marking
           # the test case as failed.
           if (defined $check_res and $check_res == 1) {
-            $tinfo->{comment} .= "\n$message" if ($res == MYSQLTEST_SKIPPED);
+            $tinfo->{comment} .= "\n$message"
+              if ($res == MYSQLTEST_SKIPPED or $res == MYSQLTEST_OPT_PASS);
             $res = ($res == MYSQLTEST_NOSKIP_PASS) ? MYSQLTEST_NOSKIP_FAIL :
               MYSQLTEST_FAIL;
           }
@@ -5352,7 +5527,7 @@ sub run_testcase ($) {
           return 1;
         }
         mtr_report_test_passed($tinfo);
-      } elsif ($res == MYSQLTEST_SKIPPED) {
+      } elsif ($res == MYSQLTEST_SKIPPED or $res == MYSQLTEST_OPT_PASS) {
         if (defined $check_res and $check_res == 1) {
           # Test case had side effects, not fatal error, just continue
           $tinfo->{check} .= "\n$message";
@@ -5361,12 +5536,19 @@ sub run_testcase ($) {
           resfile_output($tinfo->{'check'}) if $opt_resfile;
           mtr_report_test_passed($tinfo);
         } else {
-          # Testcase itself tell us to skip this one
-          $tinfo->{skip_detected_by_test} = 1;
+          if ($res == MYSQLTEST_OPT_PASS) {
+            # Extract reason from test log file and set comment, reuses
+            # pre-existing routine which does this for skipped tests
+            find_testcase_skipped_reason($tinfo);
+            mtr_report_test_opt_passed($tinfo);
+          } else {
+            # Testcase itself tell us to skip this one
+            $tinfo->{skip_detected_by_test} = 1;
 
-          # Try to get reason from test log file
-          find_testcase_skipped_reason($tinfo);
-          mtr_report_test_skipped($tinfo);
+            # Try to get reason from test log file
+            find_testcase_skipped_reason($tinfo);
+            mtr_report_test_skipped($tinfo);
+         }
 
           # Restart if skipped due to missing perl, it may have had side effects
           if (restart_forced_by_test('force_restart_if_skipped') ||
@@ -5404,14 +5586,15 @@ sub run_testcase ($) {
 
       # Save info from this testcase run to mysqltest.log
       if (-f $path_current_testlog) {
-        if ($opt_resfile && $res && $res != MYSQLTEST_SKIPPED) {
+        if ($opt_resfile && $res &&
+            ($res != MYSQLTEST_SKIPPED && $res != MYSQLTEST_OPT_PASS)) {
           resfile_output_file($path_current_testlog);
         }
         mtr_appendfile_to_file($path_current_testlog, $path_testlog);
         unlink($path_current_testlog);
       }
 
-      return ($res == MYSQLTEST_SKIPPED) ? 0 : $res;
+      return ($res == MYSQLTEST_SKIPPED or $res == MYSQLTEST_OPT_PASS) ? 0 : $res;
     }
 
     # Check if it was an expected crash
@@ -5905,7 +6088,8 @@ sub wait_for_check_warnings ($$) {
 
       if ($res == MYSQLTEST_PASS or
           $res == MYSQLTEST_NOSKIP_PASS or
-          $res == MYSQLTEST_SKIPPED) {
+          $res == MYSQLTEST_SKIPPED or
+          $res == MYSQLTEST_OPT_PASS) {
         if ($res == MYSQLTEST_PASS or $res == MYSQLTEST_NOSKIP_PASS) {
           # Check completed with problem
           my $report = mtr_grab_file($err_file);
@@ -6032,17 +6216,19 @@ sub check_expected_crash_and_restart($$) {
   my $proc  = shift;
   my $tinfo = shift;
 
-  foreach my $mysqld (mysqlds()) {
+  foreach my $application (mysqlds(), routers()) {
     next
-      unless (($mysqld->{proc} and $mysqld->{proc} eq $proc) or
+      unless (($application->{proc} and $application->{proc} eq $proc) or
               ($ENV{'MTR_MANUAL_DEBUG'} and $proc->{'SAFE_NAME'} eq 'timer'));
 
     # If a test was started with bootstrap options, make sure
     # the restart happens with the same options.
-    my $bootstrap_opts = get_bootstrap_opts($mysqld, $tinfo);
+    my $bootstrap_opts = get_bootstrap_opts($application, $tinfo);
+    my $is_router = $application->name() =~ /^DEFAULT/;
+    my $app_name = $is_router ? "mysqlrouter" : $application->name();
 
     # Check if crash expected by looking at the .expect file in var/tmp
-    my $expect_file = "$opt_vardir/tmp/" . $mysqld->name() . ".expect";
+    my $expect_file = "$opt_vardir/tmp/" . $app_name . ".expect";
     if (-f $expect_file) {
       mtr_verbose("Crash was expected, file '$expect_file' exists");
       for (my $waits = 0 ; $waits < 50 ; mtr_milli_sleep(100), $waits++) {
@@ -6063,19 +6249,19 @@ sub check_expected_crash_and_restart($$) {
 
         # If the last line begins with 'restart:' or 'restart_abort:' (with
         # a colon), rest of the line is read as additional command line options
-        # to be provided to the mysql server during restart.
+        # to be provided to the application during restart.
         # Anything other than 'wait', 'restart:' or'restart_abort:' will result
-        # in a restart with the original mysqld options.
+        # in a restart with the original application options.
         my $follow_up_wait = 0;
         if ($last_line =~ /restart:(.+)/) {
           my @rest_opt = split(' ', $1);
-          $mysqld->{'restart_opts'} = \@rest_opt;
+          $application->{'restart_opts'} = \@rest_opt;
         } elsif ($last_line =~ /restart_abort:(.+)/) {
           my @rest_opt = split(' ', $1);
-          $mysqld->{'restart_opts'} = \@rest_opt;
+          $application->{'restart_opts'} = \@rest_opt;
           $follow_up_wait = 1;
         } else {
-          delete $mysqld->{'restart_opts'};
+          delete $application->{'restart_opts'};
         }
 
         # Attempt to remove the .expect file. It was observed that on Windows
@@ -6107,14 +6293,20 @@ sub check_expected_crash_and_restart($$) {
           mtr_verbose("Test says wait after unsuccessful restart");
         }
 
-        # Start server with same settings as last time
-        mysqld_start($mysqld, $mysqld->{'started_opts'},
-                     $tinfo, $bootstrap_opts);
+        if ($is_router) {
+          router_start($application, $application->{'started_opts'}, $tinfo);
+        } else {
+          # Start server with same settings as last time
+          mysqld_start($application, $application->{'started_opts'},
+                       $tinfo, $bootstrap_opts);
+        }
 
-        if ($tinfo->{'secondary-engine'}) {
+        if ($tinfo->{'secondary-engine'} && !$is_router) {
           my $restart_flag = 1;
+          my $pre_config_state = prepare_secondary_engine_plugin_for_config($application, $tinfo);
+          configure_secondary_engine_plugin($application, $tinfo, $pre_config_state);
           # Start secondary engine servers.
-          start_secondary_engine_servers($tinfo, $restart_flag);
+          start_secondary_engine_servers($tinfo, $restart_flag, $application->after('mysqld.'));
         }
 
         return 1;
@@ -6169,7 +6361,7 @@ sub clean_datadir {
     mtr_error("Trying to clean datadir before all servers stopped");
   }
 
-  foreach my $cluster (clusters()) {
+  foreach my $cluster (clusters(), routers()) {
     my $cluster_dir = "$opt_vardir/" . $cluster->{name};
     mtr_verbose(" - removing '$cluster_dir'");
     rmtree($cluster_dir);
@@ -6525,7 +6717,7 @@ sub mysqld_start ($$$$) {
 
   # Implementation for strace-server
   if ($opt_strace_server) {
-    strace_server_arguments($args, \$exe, $mysqld->name());
+    strace_server_or_router_arguments($args, \$exe, $mysqld->name());
   }
 
   foreach my $arg (@$extra_opts) {
@@ -6631,6 +6823,9 @@ sub mysqld_start ($$$$) {
   # Remember data dir for gmon.out files if using gprof
   $gprof_dirs{ $mysqld->value('datadir') } = 1 if $opt_gprof;
 
+  # Set $AWS_SHARED_CREDENTIALS_FILE required by some AWS tests
+  $ENV{'AWS_SHARED_CREDENTIALS_FILE'} = "$opt_vardir/tmp/credentials";
+
   if (defined $exe) {
     $mysqld->{'proc'} =
       My::SafeProcess->new(name        => $mysqld->name(),
@@ -6665,6 +6860,196 @@ sub mysqld_start ($$$$) {
   # Reinitialization of the datadir should happen only if
   # the bootstrap options of the next test are different.
   $mysqld->{'save_bootstrap_opts'} = $bootstrap_opts;
+  return;
+}
+
+sub run_mysqlrouter_keyring_util($$$) {
+  my $keyring_directory = shift;
+  my $operation = shift;
+  my $additional_args = shift;
+
+  my $exe_mysqlrouter_keyring = $ENV{'MYSQLROUTER_KEYRING'};
+  my $keyring_file="$keyring_directory/keyring";
+  my $keyring_master_file="$keyring_directory/mysqlrouter.key";
+
+  if ($operation eq 'init') {
+    unlink($keyring_file) if -e $keyring_file;
+    unlink($keyring_master_file) if -e $keyring_master_file;
+  }
+
+  my $args;
+  mtr_init_args(\$args);
+  mtr_add_arg($args, $operation);
+  mtr_add_arg($args, $keyring_file);
+  mtr_add_arg($args, "--master-key-file=$keyring_master_file");
+  for my $arg (@$additional_args) {
+    mtr_add_arg($args, $arg);
+  }
+
+  My::SafeProcess->run(name  => "mysqlrouter_keyring",
+                       path  => $exe_mysqlrouter_keyring,
+                       args  => \$args);
+}
+
+sub router_create_keyring($) {
+  my $keyring_directory = shift;
+
+  run_mysqlrouter_keyring_util($keyring_directory, "init", []);
+  run_mysqlrouter_keyring_util($keyring_directory, "set",
+                      ["mysqlrouter", "password", "mysqlrouter"]);
+  run_mysqlrouter_keyring_util($keyring_directory, "set",
+                      ["root", "password", ""]);
+  run_mysqlrouter_keyring_util($keyring_directory, "set",
+                      ["mrs_user", "password", ""]);
+  run_mysqlrouter_keyring_util($keyring_directory, "set",
+                      ["rest-user", "jwt_secret", "secret12345"]);
+  run_mysqlrouter_keyring_util($keyring_directory, "set",
+                      ["account_with_auth_socket", "password", ""]);
+  run_mysqlrouter_keyring_util($keyring_directory, "set",
+                      ["account1", "password", "pwd1"]);
+  run_mysqlrouter_keyring_util($keyring_directory, "set",
+                      ["account2", "password", "pwd2"]);
+}
+
+sub router_create_dynamic_state_file($) {
+  my $state_dir = shift;
+
+  my $state_file="$state_dir/state.json";
+  my $group_replication_group_name="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  my $s1_port=$config->group('mysqld.1')->value('port');
+
+  my $state_content = <<delim;
+{
+    "metadata-cache": {
+      "group-replication-id": "$group_replication_group_name",
+      "cluster-metadata-servers": ["mysql://127.0.0.1:$s1_port"]
+    },
+    "version" : "1.0.0."
+}
+delim
+
+   open(FILE, ">", $state_file) or die($!);
+   print FILE $state_content;
+   close(FILE);
+}
+
+sub create_router_config($$) {
+  my $tinfo = shift;
+  my $vardir = shift;
+
+  $current_router_template= $tinfo->{router_template_path};
+  if (!$current_router_template) {
+    $current_router_template= "include/default_my-router.cnf";
+  }
+
+  my $factory = My::RouterConfigFactory->new();
+  my $router_config =
+     $factory->new_config({ basedir       => $basedir,
+                            testdir        => $glob_mysql_test_dir,
+                            template_path  => $current_router_template,
+                            vardir        =>  $vardir,
+                            plugin_folder  => $router_plugin_dir,
+                            baseport       => $router_baseport,
+                            endpoint_tcp   => $config->group('mysqld.1')->value('port'),
+                            endpoint_socket => $config->group('mysqld.1')->value('socket')
+                          });
+  $factory->push_env_variable('MYSQLROUTER_LOGFILE', $router_config->value("DEFAULT", "#log-error"));
+  $factory->push_env_variable('MYSQLROUTER_PIDFILE', $router_config->value("DEFAULT", "pid_file"));
+
+  # only needed if metadata_cache and/or mysql_rest_service is configured
+  if ($router_config->like("metadata_cache") || $router_config->like("mysql_rest_service")) {
+    router_create_keyring($vardir);
+    router_create_dynamic_state_file($vardir);
+  }
+
+  my $config_dir = $vardir;
+  mkpath($config_dir);
+  $config_router_filename = $config_dir . '/mysqlrouter.cnf';
+
+   open(FILE, ">", $config_router_filename) or die($!);
+   print FILE $router_config;
+   close(FILE);
+
+  return ($router_config, $factory->env_variables());
+}
+
+sub router_start ($$$) {
+  my $router         = shift;
+  my $extra_opts     = shift;
+  my $tinfo          = shift;
+
+  mtr_verbose(My::Options::toStr("router_start", @$extra_opts));
+
+  my $pid_file = $router->value('pid_file');
+
+  my $exe = $exe_mysqlrouter;
+  my $args;
+  mtr_init_args(\$args);
+
+  # Implementation for strace-router
+  if ($opt_strace_router) {
+    strace_server_or_router_arguments($args, \$exe, $router->name());
+  }
+
+  if (!$opt_skip_core) {
+    mtr_add_arg($args, "--core-file");
+  }
+  mtr_add_arg($args, "--pid-file=%s", $pid_file);
+  mtr_add_arg($args, "--config=%s", $config_router_filename);
+
+  my $output = $router->value('#log-error');
+
+  my @all_opts;
+  if (exists $router->{'restart_opts'}) {
+    foreach my $extra_opt (@$extra_opts) {
+      next if $extra_opt eq '';
+      my ($opt_name1, $value1) = My::Options::split_option($extra_opt);
+      my $found = 0;
+      foreach my $restart_opt (@{ $router->{'restart_opts'} }) {
+        next if $restart_opt eq '';
+        my ($opt_name2, $value2) = My::Options::split_option($restart_opt);
+        $found = 1 if (My::Options::option_equals($opt_name1, $opt_name2));
+        last if $found == 1;
+      }
+      push(@all_opts, $extra_opt) if $found == 0;
+    }
+    push(@all_opts, @{ $router->{'restart_opts'} });
+    mtr_verbose(
+       My::Options::toStr("router_start restart", @{ $router->{'restart_opts'} }
+       ));
+  } else {
+    @all_opts = @$extra_opts;
+  }
+
+  foreach my $opt (@all_opts) {
+    mtr_add_arg($args, "%s", $opt);
+  }
+
+  # Remove the old pidfile if any
+  unlink($pid_file) if -e $pid_file;
+
+  # Remember this log file for valgrind/shutdown error report search.
+  $logs{$output} = 1;
+
+  if (defined $exe) {
+    $router->{'proc'} =
+      My::SafeProcess->new(name        => $router->name(),
+                           path        => $exe,
+                           args        => \$args,
+                           output      => $output,
+                           error       => $output,
+                           append      => 1,
+                           verbose     => $opt_verbose,
+                           nocore      => $opt_skip_core,
+                           host        => undef,
+                           pid_file    => $pid_file);
+
+    mtr_verbose("Started $router->{proc}");
+  }
+
+  # Remember options used when starting
+  $router->{'started_opts'} = $extra_opts;
+
   return;
 }
 
@@ -6841,6 +7226,22 @@ sub server_need_restart {
     }
   }
 
+  my $is_router = $server->name() eq "DEFAULT";
+  if ($is_router) {
+    if (!$tinfo->{router_test}) {
+      # This is not a router test, we want Router to be stopped if it is running
+      mtr_verbose_restart($server, "Router restarted");
+      $config_router = ();
+      return 1;
+    }
+
+    if ($tinfo->{router_template_path} ne $current_router_template) {
+      mtr_verbose_restart($server, "using different Router config file");
+      $config_router = ();
+      return 1;
+    }
+  }
+
   # Default, no restart
   return 0;
 }
@@ -6879,7 +7280,7 @@ sub servers_need_restart($) {
   }
 
   # Check if any remaining servers need restart
-  foreach my $server (ndb_mgmds(), ndbds()) {
+  foreach my $server (ndb_mgmds(), ndbds(), routers()) {
     if (server_need_restart($tinfo, $server, $master_restarted)) {
       push(@restart_servers, $server);
     }
@@ -6966,7 +7367,7 @@ sub stop_servers($$) {
 
     # cluster processes
     My::SafeProcess::shutdown($opt_shutdown_timeout,
-                              started(ndbds(), ndb_mgmds()));
+                              started(ndbds(), ndb_mgmds(), routers()));
   } else {
     mtr_report("Restarting ", started(@servers));
 
@@ -7157,6 +7558,7 @@ sub start_servers($) {
     $mysqld->{'started_tinfo'} = $tinfo;
   }
 
+
   # Wait for clusters to start
   foreach my $cluster (clusters()) {
     if (ndbcluster_wait_started($cluster, "")) {
@@ -7193,9 +7595,6 @@ sub start_servers($) {
   }
 
   if ($tinfo->{'secondary-engine'}) {
-    # Start secondary engine servers.
-    start_secondary_engine_servers($tinfo);
-
     # Set an environment variable to indicate that the test needs
     # secondary engine.
     $ENV{'SECONDARY_ENGINE_TEST'} = 1;
@@ -7204,8 +7603,52 @@ sub start_servers($) {
     foreach my $mysqld (mysqlds()) {
       install_external_engine_plugin($mysqld);
       install_secondary_engine_plugin($mysqld);
+      my $pre_config_state = prepare_secondary_engine_plugin_for_config($mysqld, $tinfo);
+      configure_secondary_engine_plugin($mysqld, $tinfo, $pre_config_state);
+    }
+
+    # Start secondary engine servers.
+    start_secondary_engine_servers($tinfo);
+
+    foreach my $mysqld (mysqlds()) {
+      wait_till_secondary_engine_plugin_active($mysqld);
     }
   }
+
+  # Start routers
+  foreach my $router (routers()) {
+    my $extra_opts = ();
+    # get_extra_opts($router, $tinfo);
+    mark_testcase_start_in_logs($router, $tinfo);
+
+    if ($router->{proc}) {
+      # Already started
+      next;
+    }
+
+    router_start($router, $extra_opts, $tinfo);
+  }
+
+  # Wait for routers to start
+  foreach my $router (routers()) {
+    next if !started($router);
+
+    if (!sleep_until_pid_file_created($router->value('pid_file'),
+                                      $opt_start_timeout,
+                                      $router->{'proc'})
+      ) {
+      $tinfo->{comment} = "Failed to start " . $router->name();
+      my $logfile = $router->value('#log-error');
+      if (defined $logfile and -f $logfile) {
+        my @srv_lines = extract_server_log($logfile, $tinfo->{name});
+        $tinfo->{logfile} = "Router log is:\n" . join("", @srv_lines);
+      } else {
+        $tinfo->{logfile} = "Could not open router logfile: '$logfile'";
+      }
+      return 1;
+    }
+  }
+
 
   return 0;
 }
@@ -7235,6 +7678,16 @@ sub start_check_testcase ($$$) {
   mtr_add_arg($args, "--test-file=%s",   "include/check-testcase.test");
   mtr_add_arg($args, "--verbose");
   mtr_add_arg($args, "--logdir=%s/tmp",  $opt_vardir);
+
+  if ($opt_hypergraph && $opt_hypergraph_off) {
+    die "Cannot specify both hypergraph and hypergraph-off";
+  }
+  if ($opt_hypergraph) {
+    mtr_add_arg($args, "--hypergraph");
+  }
+  if ($opt_hypergraph_off) {
+    mtr_add_arg($args, "--hypergraph-off");
+  }
 
   if (IS_WINDOWS) {
     mtr_add_arg($args, "--protocol=pipe");
@@ -7360,8 +7813,14 @@ sub start_mysqltest ($) {
     mtr_add_arg($args, "--colored-diff", $opt_colored_diff);
   }
 
+  if ($opt_hypergraph && $opt_hypergraph_off) {
+    die "Cannot specify both hypergraph and hypergraph-off";
+  }
   if ($opt_hypergraph) {
     mtr_add_arg($args, "--hypergraph");
+  }
+  if ($opt_hypergraph_off) {
+    mtr_add_arg($args, "--hypergraph-off");
   }
 
   foreach my $arg (@opt_extra_mysqltest_opt) {
@@ -7441,6 +7900,7 @@ sub start_mysqltest ($) {
                                   append => 1,
                                   @redirect_output,
                                   error   => $path_current_testlog,
+                                  envs    => \@opt_mysqltest_envs,
                                   verbose => $opt_verbose,);
   mtr_verbose("Started $proc");
   return $proc;
@@ -7671,7 +8131,7 @@ sub perf_arguments {
 }
 
 # Modify the exe and args so that program is run in strace
-sub strace_server_arguments {
+sub strace_server_or_router_arguments {
   my $args = shift;
   my $exe  = shift;
   my $type = shift;
@@ -7862,7 +8322,14 @@ sub run_ctest() {
     # Skip tests with label NDB
     $ctest_opts .= "-LE " . ((IS_WINDOWS) ? "^^NDB\$" : "^NDB\\\$");
   }
-  my $ctest_out = `ctest $ctest_opts --test-timeout $opt_ctest_timeout $ctest_vs 2>&1`;
+  my $ctest_out = "";
+  if (defined $opt_ctest_filter) {
+    $ctest_out =
+      `ctest -R $opt_ctest_filter $ctest_opts --test-timeout $opt_ctest_timeout $ctest_vs 2>&1`;
+  } else {
+    $ctest_out =
+      `ctest $ctest_opts --test-timeout $opt_ctest_timeout $ctest_vs 2>&1`;
+  }
   if ($? == $no_ctest && ($opt_ctest == -1 || defined $ENV{PB2WORKDIR})) {
     chdir($olddir);
     return;
@@ -7944,6 +8411,7 @@ Options to control what engine/variation to run
   explain-protocol      Run 'EXPLAIN EXTENDED' on all SELECT, INSERT,
                         REPLACE, UPDATE and DELETE queries.
   hypergraph            Set the 'hypergraph_optimizer=on' optimizer switch.
+  hypergraph-off        Set the 'hypergraph_optimizer=off' optimizer switch.
   json-explain-protocol Run 'EXPLAIN FORMAT=JSON' on all SELECT, INSERT,
                         REPLACE, UPDATE and DELETE queries.
   opt-trace-protocol    Print optimizer trace.
@@ -8076,6 +8544,7 @@ Options that pass on options (these may be repeated)
 
 Options for mysqltest
   mysqltest=ARGS        Extra options used when running test clients.
+  mysqltest-env=VAR=VAL Specify additional environment settings for "mysqltest"
 
 Options to run test on running server
 
@@ -8130,6 +8599,7 @@ Options for debugging the product
   max-test-fail         Limit the number of test failurs before aborting the
                         current test run. Defaults to $opt_max_test_fail, set to
                         0 for no limit. Set it's default with MTR_MAX_TEST_FAIL.
+  strace-router         Create strace output for mysqltest router.
   strace-client         Create strace output for mysqltest client.
   strace-server         Create strace output for mysqltest server.
   perf[=<mysqld_name>]  Run mysqld with "perf record" saving profile data
@@ -8155,12 +8625,13 @@ Options for valgrind
                         valgrind with default options.
   valgrind-all          Synonym for --valgrind.
   valgrind-clients      Run clients started by .test files with valgrind.
+  valgrind-ld-preload=<LIBRARY>
+                        Set LD_PRELOAD system variable to LIBRARY.
   valgrind-mysqld       Run the "mysqld" executable with valgrind.
   valgrind-mysqltest    Run the "mysqltest" and "mysql_client_test" executable
                         with valgrind.
   valgrind-option=ARGS  Option to give valgrind, replaces default option(s), can
                         be specified more then once.
-  valgrind-options=ARGS Deprecated, use --valgrind-option.
   valgrind-path=<EXE>   Path to the valgrind executable.
 
 Misc options
@@ -8249,6 +8720,8 @@ Misc options
   timer                 Show test case execution time.
   timestamp             Print timestamp before each test report line.
   unit-tests            Run unit tests even if they would otherwise not be run.
+  unit-tests-filter=    Execute only a specific subset of unit tests that matches
+                        a given regular expression.
   unit-tests-report     Include report of every test included in unit tests.
   user-args             In combination with start* and no test name, drops
                         arguments to mysqld except those specified with

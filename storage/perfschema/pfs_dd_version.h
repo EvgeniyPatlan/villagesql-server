@@ -269,8 +269,27 @@
 
    - WL#15201 PERFORMANCE_SCHEMA, OTEL INTERFACE: LOG
      - New table performance_schema.setup_logger.
+
+  90000:
+
+   - WL#15855: System variable metadata
+      New tables variable_metadata, global_variable_attributes added to
+  performance_schema
+
+  90100:
+
+   - Bug#31763497 PERFORMANCE DEGRADATION CAUSED BY MONITORING
+     SYS.INNODB_LOCK_WAITS IN MYSQL 8.0
+     - Table performance_schema.data_lock_waits, add PRIMARY KEY.
+
+  90600:
+
+   - WL#16803: Query Temporary Account Locking Status
+     - New table temporary_account_locks.
+     - New column host_cache.COUNT_ACCOUNT_LOCKED_ERRORS.
+     - New column host_cache.COUNT_TEMPORARY_ACCOUNT_LOCKED_ERRORS.
 */
 
-static const uint PFS_DD_VERSION = 80409;
+static const uint PFS_DD_VERSION = 90600;
 
 #endif /* PFS_DD_VERSION_H */

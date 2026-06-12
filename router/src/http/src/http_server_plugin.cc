@@ -43,6 +43,7 @@
 #include "my_thread.h"  // my_thread_self_setname
 #include "mysql/harness/config_option.h"
 #include "mysql/harness/config_parser.h"
+#include "mysql/harness/destination.h"
 #include "mysql/harness/dynamic_config.h"
 #include "mysql/harness/loader.h"
 #include "mysql/harness/logging/logging.h"
@@ -72,7 +73,6 @@ IMPORT_LOG_FUNCTIONS()
 
 static constexpr const char kHttpServerSectionName[]{"http_server"};
 static constexpr const char kDefaultBindAddress[]{"0.0.0.0"};
-static constexpr const uint16_t kDefaultPort{8081};
 static constexpr const unsigned kDefaultSsl{0};
 
 using mysql_harness::IntOption;
@@ -118,7 +118,7 @@ class HttpServerPluginConfig : public mysql_harness::BasePluginConfig {
   std::string get_default(std::string_view option) const override {
     const std::map<std::string_view, std::string> defaults{
         {"bind_address", kDefaultBindAddress},
-        {"port", std::to_string(kDefaultPort)},
+        {"port", std::to_string(kDefaultHttpPort)},
         {"ssl", std::to_string(kDefaultSsl)},
         {"ssl_cipher", get_default_ciphers()},
     };
@@ -260,8 +260,11 @@ static void init(mysql_harness::PluginFuncEnv *env) {
       // one.
       http_servers.emplace(section->name, HttpServerFactory::create(config));
 
-      log_info("listening on %s:%u", config.srv_address.c_str(),
-               config.srv_port);
+      log_info(
+          "listening on %s%s", (config.with_ssl ? "https://" : "http://"),
+          mysql_harness::TcpDestination(config.srv_address, config.srv_port)
+              .str()
+              .c_str());
 
       auto srv = http_servers.at(section->name);
 
@@ -271,8 +274,9 @@ static void init(mysql_harness::PluginFuncEnv *env) {
       HttpServerComponent::get_instance().init(srv);
 
       if (!config.static_basedir.empty()) {
-        srv->add_route("", std::make_unique<HttpStaticFolderHandler>(
-                               config.static_basedir, config.require_realm));
+        srv->add_regex_route("", "",
+                             std::make_unique<HttpStaticFolderHandler>(
+                                 config.static_basedir, config.require_realm));
       }
     }
   } catch (const std::invalid_argument &exc) {
@@ -343,14 +347,14 @@ static void start(mysql_harness::PluginFuncEnv *env) {
   }
 }
 
-static const std::array<const char *, 4> required = {{
+static constexpr std::array required{
     "logger",
     "router_openssl",
     // as long as this plugin links against http_auth_backend_lib which links
     // against metadata_cache there is a need to cleanup protobuf
     "router_protobuf",
     "io",
-}};
+};
 
 namespace {
 

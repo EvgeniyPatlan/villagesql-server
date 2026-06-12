@@ -894,7 +894,6 @@ row_prebuilt_t *row_create_prebuilt(
   prebuilt->search_tuple = dtuple_create(heap, search_tuple_n_fields);
   prebuilt->m_stop_tuple = dtuple_create(heap, search_tuple_n_fields);
   ut_ad(!prebuilt->m_stop_tuple_found);
-  ut_ad(!prebuilt->is_reading_range());
 
   ref = dtuple_create(heap, ref_len);
 
@@ -942,10 +941,6 @@ void row_prebuilt_free(row_prebuilt_t *prebuilt, bool dict_locked) {
 
   prebuilt->magic_n = ROW_PREBUILT_FREED;
   prebuilt->magic_n2 = ROW_PREBUILT_FREED;
-
-  /* It is better to fail here on assertion, than to let the destructor of the
-  active row_is_reading_range_guard_t modify some random place in memory. */
-  ut_a(!prebuilt->is_reading_range());
 
   prebuilt->pcur->reset();
   prebuilt->clust_pcur->reset();
@@ -1870,8 +1865,6 @@ static void init_fts_doc_id_for_ref(
     ulint *depth)        /*!< in: recursive call depth */
 {
   dict_foreign_t *foreign;
-
-  table->fk_max_recusive_level = 0;
 
   (*depth)++;
 

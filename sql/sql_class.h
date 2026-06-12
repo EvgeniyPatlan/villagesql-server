@@ -169,7 +169,7 @@ class Rows_log_event;
 class Time_zone;
 class sp_cache;
 struct Binlog_user_var_event;
-struct LOG_INFO;
+struct Log_info;
 
 typedef struct user_conn USER_CONN;
 struct MYSQL_LOCK;
@@ -749,6 +749,7 @@ enum class Secondary_engine_optimization {
 
 #define SUB_STMT_TRIGGER 1
 #define SUB_STMT_FUNCTION 2
+#define SUB_STMT_DUALITY_VIEW 3
 
 class Sub_statement_state {
  public:
@@ -1092,6 +1093,9 @@ class THD : public MDL_context_owner,
   std::unique_ptr<Secondary_engine_statement_context>
       m_secondary_engine_statement_context;
 
+  /* eligible secondary engine handlerton for this query */
+  handlerton *m_eligible_secondary_engine_handlerton;
+
  public:
   /* Store a thread safe copy of protocol properties. */
   enum class cached_properties : int {
@@ -1140,6 +1144,12 @@ class THD : public MDL_context_owner,
     return m_secondary_engine_statement_context.get();
   }
 
+  void set_eligible_secondary_engine_handlerton(handlerton *hton);
+
+  handlerton *eligible_secondary_engine_handlerton() const {
+    return m_eligible_secondary_engine_handlerton;
+  }
+
   /**
     When the thread is a binlog or slave applier it reattaches the engine
     ha_data associated with it and memorizes the fact of that.
@@ -1154,6 +1164,11 @@ class THD : public MDL_context_owner,
           mark at once with this check.
   */
   bool is_engine_ha_data_detached() const;
+
+  /// Iterates over the table and call check_and_registered_engine
+  /// and emits error for non-composable engines
+  /// @param[in] table_ref Tables involved in the query
+  void check_and_emit_warning_for_non_composable_engines(Table_ref *table_ref);
 
   void reset_for_next_command();
   /*
@@ -2501,6 +2516,7 @@ class THD : public MDL_context_owner,
 
   void inc_status_created_tmp_disk_tables();
   void inc_status_created_tmp_tables();
+  void inc_status_count_hit_tmp_table_size();
   void inc_status_select_full_join();
   void inc_status_select_full_range_join();
   void inc_status_select_range();
@@ -2584,6 +2600,7 @@ class THD : public MDL_context_owner,
   */
   void set_new_thread_id();
   my_thread_id thread_id() const { return m_thread_id; }
+
   uint tmp_table;
   uint server_status, open_options;
   enum enum_thread_type system_thread;
@@ -2850,6 +2867,8 @@ class THD : public MDL_context_owner,
   bool derived_tables_processing;
   // Set while parsing INFORMATION_SCHEMA system views.
   bool parsing_system_view;
+  // Set while parsing JSON duality view.
+  bool parsing_json_duality_view{false};
 
   /** Current SP-runtime context. */
   sp_rcontext *sp_runtime_ctx;
@@ -3015,6 +3034,17 @@ class THD : public MDL_context_owner,
   */
   void init_query_mem_roots();
   void cleanup_connection(void);
+  /**
+    Sets the THD::variables values that depend on the protocol
+
+    Some THD::variable values take different default based on properties of the
+    protocol, e.g. capabilities etc. This function sets these values.
+
+    Called when:
+       1. A new connection is established
+       2. A reset connection or change_user is done
+   */
+  void set_protocol_dependent_variables(Protocol *proto);
   void cleanup_after_query();
   void store_globals();
   void restore_globals();
@@ -3197,6 +3227,10 @@ class THD : public MDL_context_owner,
   }
   inline bool is_fsp_truncate_mode() const {
     return (variables.sql_mode & MODE_TIME_TRUNCATE_FRACTIONAL);
+  }
+
+  bool interpret_utf8_as_utf8mb4() const {
+    return (variables.sql_mode & MODE_INTERPRET_UTF8_AS_UTF8MB4);
   }
 
   /**
@@ -4741,6 +4775,8 @@ class THD : public MDL_context_owner,
   void set_secondary_engine_optimization(Secondary_engine_optimization state) {
     m_secondary_engine_optimization = state;
   }
+  /// cleanup all secondary engine relevant members after statement execution.
+  void cleanup_after_statement_execution();
 
   /**
     Can secondary storage engines be used for query execution in
@@ -4901,6 +4937,9 @@ class THD : public MDL_context_owner,
   /// with GTID_NEXT set to AUTOMATIC:tag
   bool has_incremented_gtid_automatic_count;
 
+  /// Count of Regular Statement Handles in use.
+  unsigned short m_regular_statement_handle_count{0};
+
   /// Increment the owned temptable counter. This is used to find leaked
   /// temptable handles during close_connection calls
   void increment_temptable_count() { ++m_opened_temptable_count; }
@@ -4925,6 +4964,20 @@ class THD : public MDL_context_owner,
     defined behaviour when they aren't.
   */
   size_t m_opened_temptable_count{};
+
+ private:
+  bool m_sql_foreign_keys{1};
+  /// Member to store count of tables in foreign key cascade chains.
+  uint32_t m_fk_cascade_chain_tables{0};
+
+ public:
+  bool get_sql_foreign_keys() const;
+  void set_sql_foreign_keys(bool flag) { m_sql_foreign_keys = flag; }
+
+  uint32_t fk_cascade_chain_tables() { return m_fk_cascade_chain_tables; }
+  void inc_fk_cascade_chain_tables() { m_fk_cascade_chain_tables++; }
+  void dec_fk_cascade_chain_tables() { m_fk_cascade_chain_tables--; }
+  void reset_fk_cascade_chain_tables() { m_fk_cascade_chain_tables = 0; }
 };
 
 /**
@@ -5006,4 +5059,57 @@ inline bool is_xa_tran_detached_on_prepare(const THD *thd) {
   return thd->variables.xa_detach_on_prepare;
 }
 
+/**
+   Return if source replication node is older than the given version.
+   @param thd       thread context
+   @param version   version number to compare
+
+   @retval true     if source version is older
+   @retval false    otherwise
+ */
+inline bool is_rpl_source_older(const THD *thd, uint version) {
+  return thd->is_applier_thread() &&
+         (thd->variables.original_server_version == UNDEFINED_SERVER_VERSION ||
+          thd->variables.original_server_version < version);
+}
+
+/**
+ * @brief Check if foreign handling at SQL is enabled.
+ *
+ * @param thd        Thread Handle.
+ *
+ * @return true      If enabled.
+ * @return false     Otherwise.
+ */
+inline bool is_sql_fk_checks_enabled(THD *thd) {
+  DBUG_EXECUTE_IF("force_innodb_fk", return false;);
+  DBUG_EXECUTE_IF("force_sql_fk", return true;);
+  assert(thd != nullptr);
+  return thd->variables.option_bits & OPTION_USE_SQL_FOREIGN_KEY_HANDLING;
+}
+
+/**
+ * @brief Check if SQL foreign key handling can be used for a table.
+ *
+ * @param thd              Thread Handle.
+ * @param table            TABLE instance of a table.
+ *
+ * @return true            if SQL FK checks supported for SE.
+ * @return false           Otherwise.
+ */
+bool use_sql_fk_checks_for_table(THD *thd, TABLE *table);
+
+/**
+ *  @brief Check if SQL FK cascade should fire triggers.
+ *
+ *  @param thd        Thread Handle.
+ *
+ *  @return true      If enabled.
+ *  @return false     Otherwise.
+ */
+inline bool is_cascade_triggers_enabled(THD *thd) {
+  assert(thd != nullptr);
+  if (is_rpl_source_older(thd, 90700)) return false;
+  return thd->variables.enable_cascade_triggers;
+}
 #endif /* SQL_CLASS_INCLUDED */

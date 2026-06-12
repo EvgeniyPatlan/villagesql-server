@@ -32,8 +32,13 @@ scalability_jobs_*
 .project
 .settings/
 
+<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 *.local.md
 .DS_Store
 
 # macOS AppleDouble files
 .!*
+=======
+# Cache directory used by e.g. clangd.
+.cache/
+>>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857

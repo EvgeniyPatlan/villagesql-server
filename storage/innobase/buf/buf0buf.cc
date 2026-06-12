@@ -327,6 +327,10 @@ static buf_pool_chunk_map_t *buf_chunk_map_reg;
 pool(s). */
 buf_stat_per_index_t *buf_stat_per_index;
 
+/** Tracks adding dirty pages to the flush list. The life cycle
+of this object is constraint to the life of buffer pool*/
+Buf_flush_list_added_lsns_aligned_ptr buf_flush_list_added;
+
 #if defined UNIV_DEBUG || defined UNIV_BUF_DEBUG
 /** This is used to insert validation operations in execution
 in the debug version */
@@ -492,7 +496,7 @@ lsn_t buf_pool_get_oldest_modification_lwm(void) {
 
   const log_t &log = *log_sys;
 
-  const lsn_t lag = log_buffer_flush_order_lag(log);
+  const lsn_t lag = buf_flush_list_added->order_lag();
 
   ut_a(lag % OS_FILE_LOG_BLOCK_SIZE == 0);
 
@@ -508,22 +512,14 @@ lsn_t buf_pool_get_oldest_modification_lwm(void) {
   }
 }
 
-/** Get total buffer pool statistics.
-@param[out] LRU_len Length of all lru lists
-@param[out] free_len Length of all free lists
-@param[out] flush_list_len Length of all flush lists */
 void buf_get_total_list_len(ulint *LRU_len, ulint *free_len,
                             ulint *flush_list_len) {
-  ulint i;
-
   *LRU_len = 0;
   *free_len = 0;
   *flush_list_len = 0;
 
-  for (i = 0; i < srv_buf_pool_instances; i++) {
-    buf_pool_t *buf_pool;
-
-    buf_pool = buf_pool_from_array(i);
+  for (size_t i = 0; i < srv_buf_pool_instances; i++) {
+    buf_pool_t *buf_pool = buf_pool_from_array(i);
 
     *LRU_len += UT_LIST_GET_LEN(buf_pool->LRU);
     *free_len += UT_LIST_GET_LEN(buf_pool->free);
@@ -1269,7 +1265,7 @@ static void buf_pool_create(buf_pool_t *buf_pool, ulint buf_pool_size,
 
   buf_pool->stat.reset();
 
-  if (pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) == -1) {
+  if (pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) != 0) {
     ib::error(ER_IB_ERR_SCHED_SETAFFNINITY_FAILED)
         << "sched_setaffinity() failed!";
   }
@@ -1500,6 +1496,7 @@ static void buf_pool_free() {
 
   ut::free(buf_pool_ptr);
   buf_pool_ptr = nullptr;
+  buf_flush_list_added.reset(nullptr);
 }
 
 /** Creates the buffer pool.
@@ -1515,6 +1512,8 @@ dberr_t buf_pool_init(ulint total_size, ulint n_instances) {
   ut_ad(n_instances == srv_buf_pool_instances);
 
   NUMA_MEMPOLICY_INTERLEAVE_IN_SCOPE;
+
+  buf_flush_list_added = Buf_flush_list_added_lsns::create();
 
   /* Usually buf_pool_should_madvise is protected by buf_pool_t::chunk_mutex-es,
   but at this point in time there is no buf_pool_t instances yet, and no risk of
@@ -2219,13 +2218,7 @@ static void buf_pool_resize() {
     // No locking needed to read, same thread updated those
     ut_ad(buf_pool->curr_size == buf_pool->old_size);
     ut_ad(buf_pool->n_chunks_new == buf_pool->n_chunks);
-#ifdef UNIV_DEBUG
     ut_ad(UT_LIST_GET_LEN(buf_pool->withdraw) == 0);
-
-    buf_flush_list_mutex_enter(buf_pool);
-    ut_ad(buf_pool->flush_rbt == nullptr);
-    buf_flush_list_mutex_exit(buf_pool);
-#endif
 
     buf_pool->curr_size = new_instance_size;
 
@@ -4037,7 +4030,7 @@ dberr_t Buf_fetch<T>::zip_page_handler(buf_block_t *&fix_block) {
     ut_a(success);
   }
 
-  if (!recv_no_ibuf_operations) {
+  if (!recv_recovery_is_on()) {
     if (access_time != std::chrono::steady_clock::time_point{}) {
 #ifdef UNIV_IBUF_COUNT_DEBUG
       ut_a(ibuf_count_get(m_page_id) == 0);
@@ -4891,7 +4884,7 @@ buf_page_t *buf_page_init_for_read(ulint mode, const page_id_t &page_id,
 
     ibuf_mtr_start(&mtr);
 
-    if (!recv_no_ibuf_operations &&
+    if (!recv_recovery_is_on() &&
         !ibuf_page(page_id, page_size, UT_LOCATION_HERE, &mtr)) {
       ibuf_mtr_commit(&mtr);
 
@@ -5955,13 +5948,12 @@ bool buf_page_io_complete(buf_page_t *bpage, bool evict, IORequest *type,
       /* Pages must be uncompressed for crash recovery. */
       ut_a(uncompressed);
       recv_recover_page(true, (buf_block_t *)bpage);
-    }
-
-    if (uncompressed && !Compression::is_compressed_page(frame) &&
-        !recv_no_ibuf_operations &&
-        fil_page_get_type(frame) == FIL_PAGE_INDEX && page_is_leaf(frame) &&
-        !fsp_is_system_temporary(bpage->id.space()) &&
-        !fsp_is_undo_tablespace(bpage->id.space()) && !bpage->was_stale()) {
+    } else if (uncompressed && !Compression::is_compressed_page(frame) &&
+               fil_page_get_type(frame) == FIL_PAGE_INDEX &&
+               page_is_leaf(frame) &&
+               !fsp_is_system_temporary(bpage->id.space()) &&
+               !fsp_is_undo_tablespace(bpage->id.space()) &&
+               !bpage->was_stale()) {
       ibuf_merge_or_delete_for_page((buf_block_t *)bpage, bpage->id,
                                     &bpage->size, true);
     }
@@ -6101,11 +6093,9 @@ static void buf_refresh_io_stats(buf_pool_t *buf_pool) {
 /** Invalidates file pages in one buffer pool instance
 @param[in]      buf_pool        buffer pool instance */
 static void buf_pool_invalidate_instance(buf_pool_t *buf_pool) {
-  ulint i;
-
   ut_ad(!mutex_own(&buf_pool->LRU_list_mutex));
 
-  for (i = BUF_FLUSH_LRU; i < BUF_FLUSH_N_TYPES; i++) {
+  for (size_t i = BUF_FLUSH_LRU; i < BUF_FLUSH_N_TYPES; i++) {
     /* As this function is called during startup and during redo application
     phase during recovery, a flush might be requested either by
     recv_writer thread (which is not started yet, or paused by writer_mutex), or
@@ -6120,6 +6110,10 @@ static void buf_pool_invalidate_instance(buf_pool_t *buf_pool) {
     buf_flush_await_no_flushing(buf_pool, static_cast<buf_flush_t>(i));
   }
 
+  /* It is crucial that the BP must contain only pages in replaceable state,
+  before we attempt to free them using buf_LRU_scan_and_free_block(), because
+  this function skips over pages which aren't replaceable, and we promise to
+  our caller that all pages will be removed from BP.*/
   ut_d(buf_assert_all_are_replaceable(buf_pool));
 
   while (buf_LRU_scan_and_free_block(buf_pool, true)) {
@@ -6889,14 +6883,9 @@ void buf_print_io(FILE *file) /*!< in/out: buffer where to print */
   ut::free(pool_info);
 }
 
-/** Refreshes the statistics used to print per-second averages. */
-void buf_refresh_io_stats_all(void) {
-  for (ulint i = 0; i < srv_buf_pool_instances; i++) {
-    buf_pool_t *buf_pool;
-
-    buf_pool = buf_pool_from_array(i);
-
-    buf_refresh_io_stats(buf_pool);
+void buf_refresh_io_stats_all() {
+  for (size_t i = 0; i < srv_buf_pool_instances; i++) {
+    buf_refresh_io_stats(buf_pool_from_array(i));
   }
 }
 

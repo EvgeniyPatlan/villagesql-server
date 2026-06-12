@@ -552,8 +552,8 @@ static int federated_done(void *) {
   @retval false OK
   @retval true  There was an error appending to the string.
 
-  @note This function is based upon the append_identifier() function
-        in sql_show.cc except that quoting always occurs.
+  @note See similar function append_identifier()
+  in sql_show.cc that always quotes based on sql mode.
 */
 
 static bool append_ident(String *string, const char *name, size_t length,
@@ -1594,9 +1594,11 @@ int ha_federated::close(void) {
   THD *thd = current_thd;
   DBUG_TRACE;
 
-  free_result();
-
+  for (MYSQL_RES *result : results) {
+    mysql_free_result(result);
+  }
   results.clear();
+  stored_result = nullptr;
 
   /*
     Check to verify whether the connection is still alive or not.
@@ -2762,9 +2764,8 @@ int ha_federated::reset(void) {
   replace_duplicates = false;
 
   /* Free stored result sets. */
-  for (MYSQL_RES **result = results.begin(); result != results.end();
-       ++result) {
-    mysql_free_result(*result);
+  for (MYSQL_RES *result : results) {
+    mysql_free_result(result);
   }
   results.clear();
 

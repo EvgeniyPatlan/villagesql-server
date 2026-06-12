@@ -55,6 +55,7 @@
 #include "sql/join_optimizer/access_path.h"
 #include "sql/join_optimizer/bit_utils.h"
 #include "sql/join_optimizer/walk_access_paths.h"
+#include "sql/json_duality_view/dml.h"  // jdv_delete
 #include "sql/key_spec.h"
 #include "sql/mem_root_array.h"
 #include "sql/mysqld.h"       // stage_...
@@ -73,6 +74,7 @@
 #include "sql/sql_const.h"
 #include "sql/sql_error.h"
 #include "sql/sql_executor.h"
+#include "sql/sql_foreign_key_constraint.h"
 #include "sql/sql_lex.h"
 #include "sql/sql_list.h"
 #include "sql/sql_opt_exec_shared.h"
@@ -89,7 +91,7 @@
 #include "sql/trigger_def.h"
 #include "sql/uniques.h"  // Unique
 
-class COND_EQUAL;
+struct COND_EQUAL;
 class Item_exists_subselect;
 class Opt_trace_context;
 class Select_lex_visitor;
@@ -118,6 +120,12 @@ bool DeleteCurrentRowAndProcessTriggers(THD *thd, TABLE *table,
                                           TRG_ACTION_BEFORE,
                                           /*old_row_is_record1=*/false)) {
       return true;
+    }
+  }
+
+  if (use_sql_fk_checks_for_table(thd, table)) {
+    if (check_all_child_fk_ref(thd, table, enum_fk_dml_type::FK_DELETE)) {
+      return thd->is_error();
     }
   }
 
@@ -245,6 +253,8 @@ bool Sql_cmd_delete::delete_from_single_table(THD *thd) {
       table->triggers->has_triggers(TRG_EVENT_DELETE, TRG_ACTION_AFTER);
   unit->set_limit(thd, query_block);
 
+  ulonglong jdv_affected_rows = 0;
+
   AccessPath *range_scan = nullptr;
   join_type type = JT_UNKNOWN;
 
@@ -300,7 +310,7 @@ bool Sql_cmd_delete::delete_from_single_table(THD *thd) {
     IGNORE keyword within federated storage engine. If federated engine is
     removed in the future, use of HA_EXTRA_IGNORE_DUP_KEY and
     HA_EXTRA_NO_IGNORE_DUP_KEY flag should be removed from
-    delete_from_single_table(), DeleteRowsIterator::Init() and
+    delete_from_single_table(), DeleteRowsIterator::DoInit() and
     handler::ha_reset().
   */
   if (lex->is_ignore()) table->file->ha_extra(HA_EXTRA_IGNORE_DUP_KEY);
@@ -612,13 +622,34 @@ bool Sql_cmd_delete::delete_from_single_table(THD *thd) {
 
       assert(!thd->is_error());
 
-      if (DeleteCurrentRowAndProcessTriggers(thd, table, has_before_triggers,
-                                             has_after_triggers,
-                                             &deleted_rows)) {
-        error = 1;
-        break;
-      }
+      if (table_list->is_json_duality_view()) {
+        if (deleted_rows != 0 ||
+            table_list->field_translation->item == nullptr) {
+          my_error(ER_JDV_OPERATION_NOT_SUPPORTED, MYF(0),
+                   "Multiple object delete");
+          error = 1;
+          break;
+        }
 
+        DBUG_LOG("jdv_dml", "DML-DELETE: "
+                                << " table_list->field_translation->name: "
+                                << table_list->field_translation->name
+                                << " ->type():"
+                                << table_list->field_translation->item->type());
+        if (jdv::jdv_delete(thd, table_list, &jdv_affected_rows)) {
+          assert(thd->is_error());
+          error = 1;
+          break;
+        }
+        deleted_rows++;
+      } else {
+        if (DeleteCurrentRowAndProcessTriggers(thd, table, has_before_triggers,
+                                               has_after_triggers,
+                                               &deleted_rows)) {
+          error = 1;
+          break;
+        }
+      }
       if (!--limit && using_limit) {
         error = -1;
         break;
@@ -650,6 +681,14 @@ bool Sql_cmd_delete::delete_from_single_table(THD *thd) {
 
 cleanup:
   assert(!lex->is_explain());
+
+  if (table_list->is_json_duality_view()) {
+    if (error < 0) {
+      my_ok(thd, jdv_affected_rows);
+    }
+    // For JSON duality view, event is already written to binlog.
+    return error > 0;
+  }
 
   if (!transactional_table && deleted_rows > 0)
     thd->get_transaction()->mark_modified_non_trans_table(
@@ -725,6 +764,11 @@ bool Sql_cmd_delete::prepare_inner(THD *thd) {
     if (select->check_view_privileges(thd, DELETE_ACL, SELECT_ACL)) return true;
   }
 
+  if (table_list->is_json_duality_view() &&
+      jdv::jdv_prepare_delete(thd, table_list, is_single_table_plan())) {
+    return true;
+  }
+
   /*
     Deletability test is spread across several places:
     - Target table or view must be updatable (checked below)
@@ -782,6 +826,12 @@ bool Sql_cmd_delete::prepare_inner(THD *thd) {
   // flattening even if features specific to single-table DELETE (that is, ORDER
   // BY and LIMIT) are used.
   if (lex->using_hypergraph_optimizer()) {
+    if (!multitable) {
+      Table_ref *const delete_table_ref = table_list->updatable_base_table();
+      TABLE *const table = delete_table_ref->table;
+      if (select->active_options() & OPTION_QUICK)
+        (void)table->file->ha_extra(HA_EXTRA_QUICK);
+    }
     multitable = true;
   }
 
@@ -908,8 +958,10 @@ bool Sql_cmd_delete::execute_inner(THD *thd) {
     my_ok(thd);
     return false;
   }
-  return multitable ? Sql_cmd_dml::execute_inner(thd)
-                    : delete_from_single_table(thd);
+  return (multitable &&
+          !lex->query_block->get_table_list()->is_json_duality_view())
+             ? Sql_cmd_dml::execute_inner(thd)
+             : delete_from_single_table(thd);
 }
 
 /***************************************************************************
@@ -1004,7 +1056,7 @@ bool CheckSqlSafeUpdate(THD *thd, const JOIN *join) {
   return false;
 }
 
-bool DeleteRowsIterator::Init() {
+bool DeleteRowsIterator::DoInit() {
   if (CheckSqlSafeUpdate(thd(), m_join)) {
     return true;
   }
@@ -1192,7 +1244,7 @@ bool DeleteRowsIterator::DoDelayedDeletesFromTable(TABLE *table) {
   return local_error;
 }
 
-int DeleteRowsIterator::Read() {
+int DeleteRowsIterator::DoRead() {
   bool local_error = false;
 
   // First process all the rows returned by the join. Delete immediately from

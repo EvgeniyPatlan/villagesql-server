@@ -74,6 +74,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "sql/table.h"
 
 #include <algorithm>
+#include <atomic>
 #include <iterator>
 #include <memory> /* std::unique_ptr */
 #include <set>
@@ -319,11 +320,6 @@ parent table will fail, and user has to drop excessive foreign constraint
 before proceeds. */
 constexpr uint32_t FK_MAX_CASCADE_DEL = 15;
 
-/** Maximum number of rows version allowed when columns are added/dropped
-INSTANTly. After this limit is reached, any attempt to do ADD/DROP INSTANT
-column will result in error. */
-const uint8_t MAX_ROW_VERSION = 64;
-
 /** Adds a virtual column definition to a table.
 @param[in,out]  table           table
 @param[in]      heap            temporary memory heap, or NULL. It is
@@ -426,10 +422,10 @@ reasonably unique temporary file name.
 char *dict_mem_create_temporary_tablename(mem_heap_t *heap, const char *dbtab,
                                           table_id_t id);
 
-static inline bool is_valid_row_version(const uint8_t version) {
+static inline bool is_valid_row_version(const row_version_t version) {
   /* NOTE : 0 is also a valid row versions for rows which are inserted after
   upgrading from earlier INSTANT implemenation */
-  if (version <= MAX_ROW_VERSION) {
+  if (std::cmp_less_equal(version, MAX_ROW_VERSION)) {
     return true;
   }
 
@@ -550,10 +546,10 @@ struct dict_col_t {
   uint32_t phy_pos{UINT32_UNDEFINED};
 
   /* Row version in which this column was added INSTANTly to the table */
-  uint8_t version_added{UINT8_UNDEFINED};
+  row_version_t version_added{INVALID_ROW_VERSION};
 
   /* Row version in which this column was dropped INSTANTly from the table */
-  uint8_t version_dropped{UINT8_UNDEFINED};
+  row_version_t version_dropped{INVALID_ROW_VERSION};
 
  public:
   bool stored_by_extn() const {
@@ -592,19 +588,19 @@ struct dict_col_t {
   void set_phy_pos(uint32_t pos) { phy_pos = pos; }
 
   bool is_instant_added() const {
-    if (version_added != UINT8_UNDEFINED && version_added > 0) {
+    if (version_added != INVALID_ROW_VERSION && version_added > 0) {
       return true;
     }
     return false;
   }
 
-  uint8_t get_version_added() const {
+  row_version_t get_version_added() const {
     ut_ad(is_instant_added());
     return version_added;
   }
 
-  void set_version_added(uint8_t version) {
-    ut_ad(version == UINT8_UNDEFINED || is_valid_row_version(version));
+  void set_version_added(row_version_t version) {
+    ut_ad(version == INVALID_ROW_VERSION || is_valid_row_version(version));
     version_added = version;
   }
 
@@ -621,19 +617,19 @@ struct dict_col_t {
   }
 
   bool is_instant_dropped() const {
-    if (version_dropped != UINT8_UNDEFINED && version_dropped > 0) {
+    if (version_dropped != INVALID_ROW_VERSION && version_dropped > 0) {
       return true;
     }
     return false;
   }
 
-  uint8_t get_version_dropped() const {
+  row_version_t get_version_dropped() const {
     ut_ad(is_instant_dropped());
     return version_dropped;
   }
 
-  void set_version_dropped(uint8_t version) {
-    ut_ad(version == UINT8_UNDEFINED || is_valid_row_version(version));
+  void set_version_dropped(row_version_t version) {
+    ut_ad(version == INVALID_ROW_VERSION || is_valid_row_version(version));
     version_dropped = version;
   }
 
@@ -747,7 +743,7 @@ struct dict_col_t {
   /** Check if column is dropped before the given version.
   @param[in]    version row version
   @return true if the column is dropped before or in the version. */
-  bool is_dropped_in_or_before(uint8_t version) const {
+  bool is_dropped_in_or_before(row_version_t version) const {
     ut_ad(is_valid_row_version(version));
 
     if (!is_instant_dropped()) {
@@ -760,7 +756,7 @@ struct dict_col_t {
   /** Check if column is added after the current version.
   @param[in]    version row version
   @return true if column is added after the current row version. */
-  bool is_added_after(uint8_t version) const {
+  bool is_added_after(row_version_t version) const {
     ut_ad(is_valid_row_version(version));
 
     if (!is_instant_added()) {
@@ -773,7 +769,7 @@ struct dict_col_t {
   /** Check if a column is visible in given version.
   @param[in]      version         row version
   return true if column is visible in version. */
-  bool is_visible_in_version(uint8_t version) const {
+  bool is_visible_in_version(row_version_t version) const {
     ut_ad(is_valid_row_version(version));
     return (!is_added_after(version) && !is_dropped_in_or_before(version));
   }
@@ -1035,6 +1031,31 @@ class last_ops_cur_t {
   bool invalid;
 };
 
+/** Data structure storing index statistics for query optimization. */
+struct dict_index_stats_t {
+#ifndef UNIV_HOTBACKUP
+  /** approximate number of different key values for this index, for each
+  n-column prefix where 1 <= n <= dict_get_n_unique(index) (the array is
+  indexed from 0 to n_uniq-1); we periodically calculate new estimates */
+  uint64_t *n_diff_key_vals;
+
+  /** number of pages that were sampled  to calculate each of
+  n_diff_key_vals[], e.g. stat_n_sample_sizes[3] pages were sampled to get
+  the number n_diff_key_vals[3]. */
+  uint64_t *n_sample_sizes;
+
+  /* approximate number of non-null key values for this index, for each column
+  where 1 <= n <= dict_get_n_unique(index) (the array is indexed from 0 to
+  n_uniq-1); This is used when innodb_stats_method is "nulls_ignored". */
+  uint64_t *n_non_null_key_vals;
+
+  /** approximate index size in database pages */
+  ulint index_size;
+#endif /* !UNIV_HOTBACKUP */
+  /** approximate number of leaf pages in the index tree */
+  ulint n_leaf_pages;
+};
+
 /** "GEN_CLUST_INDEX" is the name reserved for InnoDB default
 system clustered index when there is no primary key. */
 const char innobase_index_reserve_name[] = "GEN_CLUST_INDEX";
@@ -1195,30 +1216,12 @@ struct dict_index_t {
   /** the log of modifications during online index creation;
   valid when online_status is ONLINE_INDEX_CREATION */
   row_log_t *online_log;
+#endif /* !UNIV_HOTBACKUP */
 
   /*----------------------*/
   /** Statistics for query optimization */
   /** @{ */
-  /** approximate number of different key values for this index, for each
-  n-column prefix where 1 <= n <= dict_get_n_unique(index) (the array is
-  indexed from 0 to n_uniq-1); we periodically calculate new estimates */
-  uint64_t *stat_n_diff_key_vals;
-
-  /** number of pages that were sampled  to calculate each of
-  stat_n_diff_key_vals[], e.g. stat_n_sample_sizes[3] pages were sampled to get
-  the number stat_n_diff_key_vals[3]. */
-  uint64_t *stat_n_sample_sizes;
-
-  /* approximate number of non-null key values for this index, for each column
-  where 1 <= n <= dict_get_n_unique(index) (the array is indexed from 0 to
-  n_uniq-1); This is used when innodb_stats_method is "nulls_ignored". */
-  uint64_t *stat_n_non_null_key_vals;
-
-  /** approximate index size in database pages */
-  ulint stat_index_size;
-#endif /* !UNIV_HOTBACKUP */
-  /** approximate number of leaf pages in the index tree */
-  ulint stat_n_leaf_pages;
+  dict_index_stats_t stats;
   /** @} */
 
   /** cache the last insert position. Currently limited to auto-generated
@@ -1443,7 +1446,7 @@ struct dict_index_t {
   void create_nullables(uint32_t current_row_version);
 
   /** Return nullable in a specific row version */
-  uint32_t get_nullable_in_version(uint8_t version) const {
+  uint32_t get_nullable_in_version(row_version_t version) const {
     ut_ad(is_valid_row_version(version));
 
     return nullables[version];
@@ -1537,9 +1540,9 @@ struct dict_index_t {
     return get_field(pos)->get_phy_pos();
   }
 
-  uint16_t get_field_phy_pos(ulint pos, uint8_t version) const {
+  uint16_t get_field_phy_pos(ulint pos, row_version_t version) const {
     uint16_t phy_pos = get_field(pos)->get_phy_pos();
-    if (version == UINT8_UNDEFINED) {
+    if (version == INVALID_ROW_VERSION) {
       return phy_pos;
     }
 
@@ -1642,6 +1645,10 @@ struct dict_index_t {
   /** Get the space id of the tablespace to which this index belongs.
   @return the space id. */
   space_id_t space_id() const { return space; }
+
+  /** Check if it is a full-text search (FTS) index
+  @return true if this is a FTS index, false otherwise. */
+  bool is_fts_index() const { return type & DICT_FTS; }
 };
 
 /** The status of online index creation */
@@ -2117,6 +2124,9 @@ struct dict_table_t {
   reason s_cols is a part of dict_table_t */
   dict_s_col_list *s_cols;
 
+  /** Check if the given column is a stored generated column. */
+  dict_s_col_t *is_stored_gcol(dict_col_t *col) const;
+
   /** Column names packed in a character string
   "name1\0name2\0...nameN\0". Until the string contains n_cols, it will
   be allocated from a temporary heap. The final string will be allocated
@@ -2182,11 +2192,6 @@ struct dict_table_t {
   bool in_dirty_dict_tables_list;
 #endif /* UNIV_DEBUG */
 
-  /** Maximum recursive level we support when loading tables chained
-  together with FK constraints. If exceeds this level, we will stop
-  loading child table into memory along with its parent table. */
-  unsigned fk_max_recusive_level : 8;
-
   /** Count of how many foreign key check operations are currently being
   performed on the table. We cannot drop the table while there are
   foreign key checks running on it. */
@@ -2229,16 +2234,26 @@ struct dict_table_t {
   "dict_table_t::stat_clustered_index_size",
   "dict_table_t::stat_sum_of_other_index_sizes",
   "dict_table_t::stat_modified_counter (*)",
-  "dict_table_t::indexes*::stat_n_diff_key_vals[]",
-  "dict_table_t::indexes*::stat_index_size",
-  "dict_table_t::indexes*::stat_n_leaf_pages".
+  "dict_table_t::indexes*::stats::n_diff_key_vals[]",
+  "dict_table_t::indexes*::stats::index_size",
+  "dict_table_t::indexes*::stats::n_leaf_pages".
   (*) Those are not always protected for
   performance reasons. */
   rw_lock_t *stats_latch;
 
+  /** Creation state of 'stats_compute_mutex'. */
+  std::atomic<os_once::state_t> stats_compute_mutex_created;
+
+  /** Mutex protecting table and index statistics calculation process. */
+  ib_mutex_t *stats_compute_mutex;
+
   /** true if statistics have been calculated the first time after
   database startup or table creation. */
   unsigned stat_initialized : 1;
+
+  /** true if statistics have been updated in the background and not yet
+  collected by the optimizer */
+  std::atomic<bool> stats_updated = false;
 
   /** Timestamp of last recalc of the stats. */
   std::chrono::steady_clock::time_point stats_last_recalc;
@@ -2319,8 +2334,8 @@ detect this and will eventually quit sooner. */
 
   /** The state of the background stats thread wrt this table.
   See BG_STAT_NONE, BG_STAT_IN_PROGRESS and BG_STAT_SHOULD_QUIT.
-  Writes are covered by dict_sys->mutex. Dirty reads are possible. */
-  byte stats_bg_flag;
+  Writes are covered by dict_sys->mutex. It is read without mutex. */
+  std::atomic<int8_t> stats_bg_flag;
 
   /** @} */
 #endif /* !UNIV_HOTBACKUP */
@@ -2732,6 +2747,17 @@ detect this and will eventually quit sooner. */
   inline bool support_instant_add_drop() const;
 };
 
+inline dict_s_col_t *dict_table_t::is_stored_gcol(dict_col_t *col) const {
+  if (s_cols != nullptr) {
+    for (auto &stored_gcol : *s_cols) {
+      if (stored_gcol.m_col == col) {
+        return &stored_gcol;
+      }
+    }
+  }
+  return nullptr;
+}
+
 static inline void DICT_TF2_FLAG_SET(dict_table_t *table, uint32_t flag) {
   table->flags2 |= flag;
 }
@@ -3117,6 +3143,17 @@ inline bool dict_table_autoinc_own(const dict_table_t *table) {
   return (mutex_own(table->autoinc_mutex));
 }
 #endif /* UNIV_DEBUG */
+
+#ifndef UNIV_HOTBACKUP
+/** Data structure storing index statistics. Used as
+temporary state during statistics calculation. The final version of statistics
+for reading by optimizer are stored in dict_index_t::stats. */
+struct dict_index_constructed_stats_t {
+  dict_index_stats_t stats;
+  unsigned type : DICT_IT_BITS;
+  unsigned n_uniq : 10;
+};
+#endif /* !UNIV_HOTBACKUP */
 
 #include "dict0mem.ic"
 

@@ -738,10 +738,10 @@ dberr_t Builder::init(Cursor &cursor, size_t n_threads) noexcept {
     }
   }
 
-  if (cursor.m_row_heap.get() == nullptr) {
+  if (cursor.m_row_heap.is_null()) {
     cursor.m_row_heap.create(sizeof(mrec_buf_t), UT_LOCATION_HERE);
 
-    if (cursor.m_row_heap.get() == nullptr) {
+    if (cursor.m_row_heap.is_null()) {
       set_error(DB_OUT_OF_MEMORY);
       set_next_state();
       return get_error();
@@ -802,7 +802,7 @@ dberr_t Builder::get_virtual_column(Copy_ctx &ctx, const dict_field_t *ifield,
     src_field = dtuple_get_nth_v_field(ctx.m_row.m_ptr, v_col->v_pos);
 
     if (ctx.m_n_mv_rows_to_add == 0) {
-      auto p = m_v_heap.get();
+      auto p = m_v_heap.is_null() ? nullptr : m_v_heap.get();
 
       src_field = innobase_get_computed_value(
           ctx.m_row.m_ptr, v_col, m_ctx.m_new_table, &p, key_buffer->heap(),
@@ -833,7 +833,7 @@ dberr_t Builder::get_virtual_column(Copy_ctx &ctx, const dict_field_t *ifield,
       src_field->len = mv->data_len[n_added];
     }
   } else {
-    auto p = m_v_heap.get();
+    auto p = m_v_heap.is_null() ? nullptr : m_v_heap.get();
 
     src_field = innobase_get_computed_value(
         ctx.m_row.m_ptr, v_col, m_ctx.m_new_table, &p, nullptr, m_ctx.thd(),
@@ -923,7 +923,7 @@ dberr_t Builder::copy_columns(Copy_ctx &ctx, size_t &mv_rows_added,
 
       if (field->len != UNIV_SQL_NULL && col->mtype == DATA_MYSQL &&
           col->len != field->len) {
-        if (m_conv_heap.get() != nullptr) {
+        if (!m_conv_heap.is_null()) {
           convert(m_ctx.m_old_table->first_index(), src_field, field, col->len,
                   page_size,
                   IF_DEBUG(dict_table_is_sdi(m_ctx.m_old_table->id), )
@@ -1098,8 +1098,7 @@ dberr_t Builder::copy_row(Copy_ctx &ctx, size_t &mv_rows_added) noexcept {
     format. There is an assert ut_ad(size < UNIV_PAGE_SIZE) in
     rec_offs_data_size(). It may hit the assert before attempting to
     insert the row. */
-    if (unlikely(m_conv_heap.get() != nullptr &&
-                 ctx.m_data_size > UNIV_PAGE_SIZE)) {
+    if (unlikely(!m_conv_heap.is_null() && ctx.m_data_size > UNIV_PAGE_SIZE)) {
       ctx.m_n_rows_added = 0;
       return DB_TOO_BIG_RECORD;
     }
@@ -1128,7 +1127,7 @@ dberr_t Builder::copy_row(Copy_ctx &ctx, size_t &mv_rows_added) noexcept {
     ctx.m_n_fields = 0;
     ++ctx.m_n_rows_added;
 
-    if (m_conv_heap.get() != nullptr) {
+    if (!m_conv_heap.is_null()) {
       mem_heap_empty(m_conv_heap.get());
     }
 
@@ -1208,7 +1207,9 @@ dberr_t Builder::key_buffer_sort(size_t thread_id) noexcept {
     key_buffer->sort(&dup);
 
     if (dup.m_n_dup > 0) {
-      set_error(DB_DUPLICATE_KEY);
+      if (set_error(DB_DUPLICATE_KEY)) {
+        dup.report();
+      }
       return get_error();
     }
   } else {
@@ -1435,7 +1436,9 @@ dberr_t Builder::add_to_key_buffer(Copy_ctx &ctx,
     fields. Which is fine for key comparison, but not enough for reporting. */
     if (m_prev_fields != nullptr &&
         Key_sort_buffer::compare(fields, m_prev_fields, &m_clust_dup) == 0) {
-      set_error(DB_DUPLICATE_KEY);
+      if (set_error(DB_DUPLICATE_KEY)) {
+        m_clust_dup.report();
+      }
       return get_error();
     }
 
@@ -1723,10 +1726,11 @@ dberr_t Builder::dtuple_copy_blobs(dtuple_t *dtuple, ulint *offsets,
   return DB_SUCCESS;
 }
 
-dberr_t Builder::check_duplicates(Thread_ctxs &dupcheck, Dup *dup) noexcept {
+dberr_t Builder::check_duplicates(Thread_ctxs &dupcheck) noexcept {
   Merge_cursor cursor(this, nullptr, m_local_stage);
   const auto buffer_size = m_ctx.scan_buffer_size(m_thread_ctxs.size());
 
+  Dup dup = {m_index, m_ctx.m_table, m_ctx.m_col_map, 0};
   size_t n_files_to_check{};
 
   for (auto thread_ctx : dupcheck) {
@@ -1752,7 +1756,7 @@ dberr_t Builder::check_duplicates(Thread_ctxs &dupcheck, Dup *dup) noexcept {
 
   /* For secondary indexes we have to compare all the columns for the index,
   this includes the cluster index primary key columns too. */
-  Compare_key compare_key(m_index, dup, !m_sort_index->is_clustered());
+  Compare_key compare_key(m_index, &dup, !m_sort_index->is_clustered());
 
   const auto n_compare = dict_index_get_n_unique_in_tree(m_index);
 
@@ -1767,6 +1771,9 @@ dberr_t Builder::check_duplicates(Thread_ctxs &dupcheck, Dup *dup) noexcept {
         return DB_CORRUPTION;
       }
       if (cmp == 0) {
+        if (set_error(DB_DUPLICATE_KEY)) {
+          dup.report();
+        }
         return DB_DUPLICATE_KEY;
       }
     }
@@ -1875,7 +1882,6 @@ dberr_t Builder::create_merge_sort_tasks() noexcept {
 
   Thread_ctxs dupcheck{};
   size_t n_runs_to_merge{};
-  Dup dup = {m_index, m_ctx.m_table, m_ctx.m_col_map, 0};
 
   for (auto thread_ctx : m_thread_ctxs) {
     ut_a(thread_ctx->m_file.m_n_recs == 0);
@@ -1912,7 +1918,7 @@ dberr_t Builder::create_merge_sort_tasks() noexcept {
            (n_single == 0 && n_multiple + n_empty == dupcheck.size()));
     }
 #endif /* UNIV_DEBUG */
-    auto err = check_duplicates(dupcheck, &dup);
+    auto err = check_duplicates(dupcheck);
 
     if (err != DB_SUCCESS) {
       return err;

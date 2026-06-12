@@ -2,12 +2,20 @@
 .\"     Title: ndb_config
 .\"    Author: [FIXME: author] [see http://docbook.sf.net/el/author]
 .\" Generator: DocBook XSL Stylesheets v1.79.1 <http://docbook.sf.net/>
+<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 .\"      Date: 03/23/2026
+=======
+.\"      Date: 03/25/2026
+>>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 .\"    Manual: MySQL Database System
-.\"    Source: MySQL 8.4
+.\"    Source: MySQL 9.7
 .\"  Language: English
 .\"
+<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 .TH "NDB_CONFIG" "1" "03/23/2026" "MySQL 8\&.4" "MySQL Database System"
+=======
+.TH "NDB_CONFIG" "1" "03/25/2026" "MySQL 9\&.7" "MySQL Database System"
+>>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -278,20 +286,20 @@ $> \fBndb_config \-\-config\-binary\-file=\&.\&./mysql\-cluster/ndb_50_config\&.
 config of [DB] node id 5 that is different from default 
 CONFIG_PARAMETER,ACTUAL_VALUE,DEFAULT_VALUE 
 NodeId,5,(mandatory) 
-BackupDataDir,/local/data/8\&.4,(null) 
-DataDir,/local/data/8\&.4,\&. 
+BackupDataDir,/local/data/9\&.7,(null) 
+DataDir,/local/data/9\&.7,\&. 
 DataMemory,2G,98M 
-FileSystemPath,/local/data/8\&.4,(null) 
+FileSystemPath,/local/data/9\&.7,(null) 
 HostName,127\&.0\&.0\&.1,localhost 
 Nodegroup,0,(null) 
 ThreadConfig,,(null) 
 config of [DB] node id 6 that is different from default 
 CONFIG_PARAMETER,ACTUAL_VALUE,DEFAULT_VALUE 
 NodeId,6,(mandatory) 
-BackupDataDir,/local/data/8\&.4,(null) 
-DataDir,/local/data/8\&.4\&. 
+BackupDataDir,/local/data/9\&.7,(null) 
+DataDir,/local/data/9\&.7\&. 
 DataMemory,2G,98M 
-FileSystemPath,/local/data/8\&.4,(null) 
+FileSystemPath,/local/data/9\&.7,(null) 
 HostName,127\&.0\&.0\&.1,localhost 
 Nodegroup,0,(null) 
 ThreadConfig,,(null)
@@ -323,11 +331,11 @@ HostName= 127\&.0\&.0\&.1
 [ndbd]
 NodeId= 5
 HostName= 127\&.0\&.0\&.1
-DataDir= /local/data/8\&.4
+DataDir= /local/data/9\&.7
 [ndbd]
 NodeId= 6
 HostName= 127\&.0\&.0\&.1
-DataDir= /local/data/8\&.4
+DataDir= /local/data/9\&.7
 .fi
 .if n \{\
 .RE

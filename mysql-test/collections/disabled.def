@@ -48,11 +48,28 @@ innodb.slow_shutdown                              : Bug#31763837 mtr hits this d
 innodb.instant_ddl_recovery_old                   : WL#12527 Redo format has changed - crashed_datadir.zip needs to be recreated.
 innodb.log_logical_size                           : Bug#35543413 Test is shaky - needs to be fixed.
 innodb.set_concurrency_in_readonly                : Bug#35573783 innodb.set_concurrency_in_readonly is failing in trunk
+innodb.innodb_upd_stats_if_needed_not_inited      : WL#11249 SQL Engine foreign key replaces InnoDB FK handling.
 
 # Tests that run ALTER on the "mysql" database
 innodb.mysql_ts_alter_encrypt_1                 : BUG#29531106 - ATTACHABLE_TRX(): ASSERTION `!M_THD->TRANSACTION_ROLLBACK_REQUEST' FAILED
 component_keyring_file.mysql_ts_alter_encrypt_1 : BUG#29531106 - ATTACHABLE_TRX(): ASSERTION `!M_THD->TRANSACTION_ROLLBACK_REQUEST' FAILED
 
+# Tests disabled because they don't accept the 9.0 version
+innodb.portability_tablespace_linux         : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+innodb.portability_tablespace_windows       : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+
+main.partition_prefixkey_upgrade            : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.dd_upgrade_error_cs                    : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.dd_upgrade_cs                          : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.dd_upgrade_error_ci                    : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.dd_upgrade_ci                          : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.dd_upgrade_error_debug                 : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.dd_schema_definition_after_upgrade_80_debug : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.mysql_inplace_upgrade                  : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.mysql_80_inplace_upgrade               : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.upgrade_with_float_auto_increment      : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+main.read_only_ddl                          : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
+encryption.upgrade                          : Bug#36312666 Several InnoDB testcases fail after the change to 9.0
 
 # main suite tests
 main.ds_mrr-big @solaris : BUG#14168107 Test leads to timeout on Solaris on slow sparc servers.
@@ -97,12 +114,8 @@ rpl_nogtid.rpl_nogtid_encryption_read             : Bug#36172046 Update rpl_nogt
 rpl.rpl_io_thd_wait_for_disk_space_stress : BUG#23581287 Disabled until bug is fixed.
 rpl.rpl_writeset_add_unique_key : Bug#33134835 RPL_WRITESET_ADD_UNIQUE_KEY FAILS SPORADICALLY
 
-# secondary_engine tests
-secondary_engine.query_preparation : BUG#36306426 Disabled until bug is fixed
-
 # sys_vars tests
 sys_vars.max_execution_time_basic @freebsd : BUG#31041720
-sys_vars.innodb_log_writer_threads_basic : Bug#32129814 SYS_VARS.INNODB_LOG_WRITER_THREADS_BASIC TIMES OUT SPORADICALLY ON PB2
 
 # sysschema suite tests
 sysschema.v_wait_classes_global_by_avg_latency : BUG#21550054 Test fails too often.
@@ -126,6 +139,7 @@ group_replication.gr_xa_commit_one_phase_failure_before_gtid_externalization @wi
 group_replication.gr_xa_prepare_failure_before_gtid_externalization @windows : BUG#34155238 Disabled until bug is fixed
 group_replication.gr_xa_rollback_failure_before_gtid_externalization @windows : BUG#34155238 Disabled until bug is fixed
 
+<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 # engines/rr_trx suite: This is a stress test suite designed to run via
 # run_stress_tx_rr.pl, not as standalone MTR tests. The init test creates
 # shared schema that rr_* tests depend on, but normal MTR restarts the
@@ -147,3 +161,9 @@ engines/rr_trx.rr_sc_sum_total : BUG#0 Stress-only suite, not standalone MTR tes
 engines/rr_trx.rr_u_10-19 : BUG#0 Stress-only suite, not standalone MTR tests
 engines/rr_trx.rr_u_10-19_nolimit : BUG#0 Stress-only suite, not standalone MTR tests
 engines/rr_trx.rr_u_4 : BUG#0 Stress-only suite, not standalone MTR tests
+=======
+rpl_nogtid.rpl_nogtid_rollback_on_anonymous_gtid : Bug#37582501 Replication tests break MTA asserts with user viable scenarios
+
+#Daily test failures
+rpl.rpl_row_idempotency : WL#11249 old error - timeout
+>>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857

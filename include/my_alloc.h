@@ -200,7 +200,7 @@ struct MEM_ROOT {
 
     // Initialize all elements.
     for (size_t i = 0; i < num; ++i) {
-      new (&ret[i]) T(args...);
+      ::new (&ret[i]) T(args...);
     }
 
     return ret;
@@ -396,6 +396,9 @@ struct MEM_ROOT {
     return false;
   }
 
+  bool IsSingleBlock() const {
+    return m_current_block != nullptr && m_current_block->prev == nullptr;
+  }
   /// @}
 
  private:

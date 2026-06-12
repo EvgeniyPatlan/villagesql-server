@@ -22,8 +22,8 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 #include "mysql/binlog/event/compression/factory.h"
-#include <my_byteorder.h>
 #include <algorithm>
+#include "my_byteorder.h"
 #include "mysql/binlog/event/compression/none_comp.h"
 #include "mysql/binlog/event/compression/none_dec.h"
 #include "mysql/binlog/event/compression/zstd_comp.h"
@@ -41,7 +41,7 @@ std::unique_ptr<Compressor> Factory::build_compressor(
     default:
       break;
   }
-  return std::unique_ptr<Compressor>();
+  return {};
 }
 
 std::unique_ptr<Decompressor> Factory::build_decompressor(
@@ -54,7 +54,7 @@ std::unique_ptr<Decompressor> Factory::build_decompressor(
     default:
       break;
   }
-  return std::unique_ptr<Decompressor>();
+  return {};
 }
 
 }  // namespace mysql::binlog::event::compression

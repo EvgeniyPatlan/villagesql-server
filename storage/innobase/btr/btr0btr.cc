@@ -3918,12 +3918,7 @@ bool btr_index_rec_validate(const rec_t *rec,          /*!< in: index record */
 
   n = dict_index_get_n_fields(index);
 
-  if (!page_is_comp(page) &&
-      (rec_get_n_fields_old(rec, index) != n
-       /* a record for older SYS_INDEXES table
-       (missing merge_threshold column) is acceptable. */
-       && !(index->id == DICT_INDEXES_ID &&
-            rec_get_n_fields_old(rec, index) == n - 1))) {
+  if (!page_is_comp(page) && rec_get_n_fields_old(rec, index) != n) {
     btr_index_rec_validate_report(page, rec, index);
 
     ib::error(ER_IB_MSG_37) << "Has " << rec_get_n_fields_old(rec, index)
@@ -4879,7 +4874,7 @@ void BFT::children_to_visit(buf_block_t *block) {
   if (block->is_leaf()) {
     return;
   }
-  Scoped_heap scoped_heap{};
+  Scoped_heap scoped_heap{2048, UT_LOCATION_HERE};
   mem_heap_t *heap = scoped_heap.get();
   ulint *offsets = nullptr;
   page_cur_t cur;
