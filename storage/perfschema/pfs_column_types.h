@@ -252,20 +252,13 @@ enum enum_object_type : char {
   OBJECT_TYPE_RESOURCE_GROUPS = 17,
   OBJECT_TYPE_FOREIGN_KEY = 18,
   OBJECT_TYPE_CHECK_CONSTRAINT = 19,
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-  OBJECT_TYPE_EXTENSION = 20
-=======
-  OBJECT_TYPE_LIBRARY = 20
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
+  OBJECT_TYPE_LIBRARY = 20,
+  OBJECT_TYPE_EXTENSION = 21
 };
 /** Integer, first value of @sa enum_object_type. */
 #define FIRST_OBJECT_TYPE (static_cast<int>(OBJECT_TYPE_EVENT))
 /** Integer, last value of @sa enum_object_type. */
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 #define LAST_OBJECT_TYPE (static_cast<int>(OBJECT_TYPE_EXTENSION))
-=======
-#define LAST_OBJECT_TYPE (static_cast<int>(OBJECT_TYPE_LIBRARY))
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 /** Integer, number of values of @sa enum_object_type. */
 #define COUNT_OBJECT_TYPE (LAST_OBJECT_TYPE - FIRST_OBJECT_TYPE + 1)
 
