@@ -1,0 +1,69 @@
+# ALTER EXTENSION ... UPDATE TO acquires the standard DDL locks
+# (global shared read lock, backup lock, exclusive extension MDL lock) and
+# validates the extension name before reporting "not yet supported".
+#
+# Bad-name validation runs before any lock acquisition.
+
+--source include/have_debug_sync.inc
+--source include/count_sessions.inc
+
+--echo #
+--echo # Test 1: Bad-name validation runs before locks
+--echo #
+--error ER_VILLAGESQL_GENERIC_ERROR
+ALTER EXTENSION `1bad_name` UPDATE TO '1.0';
+
+--echo #
+--echo # Test 2: ALTER reaches the not-yet-supported error after locks succeed
+--echo #
+--error ER_VILLAGESQL_GENERIC_ERROR
+ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
+
+--echo #
+--echo # Test 3: ALTER blocks on the exclusive extension MDL lock when another
+--echo # connection holds it (UNINSTALL paused after lock acquisition)
+--echo #
+INSTALL EXTENSION vsql_simple;
+
+connect (con1,localhost,root);
+--echo # con1: UNINSTALL paused after acquiring MDL X lock
+SET DEBUG_SYNC= 'uninstall_after_extension_lock SIGNAL uninstall_has_lock WAIT_FOR continue_uninstall';
+--send UNINSTALL EXTENSION vsql_simple
+
+connection default;
+--echo # default: Wait for UNINSTALL to acquire exclusive lock
+SET DEBUG_SYNC= 'now WAIT_FOR uninstall_has_lock';
+
+--echo # default: ALTER from con2 must block waiting for the X lock
+connect (con2,localhost,root);
+SET DEBUG_SYNC= 'mdl_acquire_lock_wait SIGNAL alter_waiting';
+--send ALTER EXTENSION vsql_simple UPDATE TO '0.0.1'
+
+connection default;
+--echo # default: Wait for ALTER to block on MDL
+SET DEBUG_SYNC= 'now WAIT_FOR alter_waiting';
+
+--echo # default: Show that UNINSTALL holds EXCLUSIVE and ALTER is pending
+SELECT OBJECT_TYPE, OBJECT_NAME, LOCK_TYPE, LOCK_STATUS
+FROM performance_schema.metadata_locks
+WHERE OBJECT_TYPE = 'EXTENSION' AND OBJECT_NAME = 'vsql_simple'
+ORDER BY LOCK_STATUS DESC;
+
+--echo # default: Let UNINSTALL finish
+SET DEBUG_SYNC= 'now SIGNAL continue_uninstall';
+
+connection con1;
+--echo # con1: UNINSTALL completes
+reap;
+
+connection con2;
+--echo # con2: ALTER now proceeds and fails with the not-yet-supported error
+--error ER_VILLAGESQL_GENERIC_ERROR
+reap;
+
+disconnect con1;
+disconnect con2;
+
+connection default;
+SET DEBUG_SYNC= 'RESET';
+--source include/wait_until_count_sessions.inc

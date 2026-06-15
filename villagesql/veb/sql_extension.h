@@ -17,6 +17,8 @@
 #ifndef VILLAGESQL_VEB_SQL_EXTENSION_H_
 #define VILLAGESQL_VEB_SQL_EXTENSION_H_
 
+#include <string>
+
 #include "include/lex_string.h"
 #include "include/my_sqlcommand.h"
 #include "my_io.h"
@@ -65,8 +67,11 @@ class Sql_cmd_install_extension : public Sql_cmd {
   bool execute(THD *thd) override;
 
  private:
-  bool execute_install(THD *thd);
-  bool execute_update(THD *thd);
+  // execute() handles the shared DDL prologue (binlog/autocommit guards, name
+  // validation, lock acquisition) and dispatches into one of the two paths
+  // below. Both run with the extension MDL held exclusively.
+  bool execute_install(THD *thd, const std::string &extension_name);
+  bool execute_update(THD *thd, const std::string &extension_name);
 
   LEX_CSTRING m_name;
   LEX_CSTRING m_version;

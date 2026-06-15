@@ -90,20 +90,14 @@ bool load_veb_and_so(THD *thd, const std::string &extension_name,
 //   while determining the set of extensions that must be locked.
 // - This locking order is deadlock-safe, provided the uninstall command does
 //   not itself execute any DDL on dependent objects.
+// Shared prologue for INSTALL EXTENSION and ALTER EXTENSION ... UPDATE TO.
+// Sets up the DDL guards (binlog, autocommit, dd cache releaser), validates
+// the extension name, and acquires the three locks (global shared read,
+// shared backup, exclusive extension MDL). RAII guards live in this frame so
+// they remain active across the dispatch into execute_install / execute_update
+// and are released when execute() returns.
 bool Sql_cmd_install_extension::execute(THD *thd) {
-  if (m_update) return execute_update(thd);
-  return execute_install(thd);
-}
-
-bool Sql_cmd_install_extension::execute_update(THD *thd) {
-  villagesql_error("ALTER EXTENSION ... UPDATE TO is not yet supported",
-                   MYF(0));
-  (void)thd;
-  return true;
-}
-
-bool Sql_cmd_install_extension::execute_install(THD *thd) {
-  // We do not replicate the INSTALL EXTENSION statement
+  // We do not replicate INSTALL EXTENSION or ALTER EXTENSION ... UPDATE TO.
   const Disable_binlog_guard binlog_guard(thd);
 
   std::string extension_name(m_name.str, m_name.length);
@@ -115,13 +109,13 @@ bool Sql_cmd_install_extension::execute_install(THD *thd) {
   const Disable_autocommit_guard autocommit_guard(thd);
   const dd::cache::Dictionary_client::Auto_releaser releaser(thd->dd_client());
 
-  LogVSQL(INFORMATION_LEVEL, "Installing extension: '%s'",
-          extension_name.c_str());
+  LogVSQL(INFORMATION_LEVEL, "%s extension: '%s'",
+          m_update ? "Updating" : "Installing", extension_name.c_str());
 
   if (validate_extension_name(thd, extension_name))
     return end_transaction(thd, true);
 
-  // Acquire global shared read lock to check and prevent installation in
+  // Acquire global shared read lock to check and prevent the operation in
   // "read only mode". Acquire shared backup lock to synchronize with final
   // phase of backup operation.
   if (acquire_shared_global_read_lock(thd, thd->variables.lock_wait_timeout) ||
@@ -129,13 +123,26 @@ bool Sql_cmd_install_extension::execute_install(THD *thd) {
     return true;
 
   // Acquire X MDL lock with statement duration on the normalized extension
-  // name to prevent concurrent install/uninstall operations on the same
-  // extension.
+  // name to prevent concurrent install/uninstall/update operations on the
+  // same extension.
   if (villagesql::Metadata_modifier::lock_extension_exclusive(
           thd, extension_name, MDL_STATEMENT)) {
     return true;
   }
 
+  if (m_update) return execute_update(thd, extension_name);
+  return execute_install(thd, extension_name);
+}
+
+bool Sql_cmd_install_extension::execute_update(
+    THD *thd, const std::string & /*extension_name*/) {
+  villagesql_error("ALTER EXTENSION ... UPDATE TO is not yet supported",
+                   MYF(0));
+  return end_transaction(thd, true);
+}
+
+bool Sql_cmd_install_extension::execute_install(
+    THD *thd, const std::string &extension_name) {
   auto &victionary = villagesql::VictionaryClient::instance();
 
   // Early check: fail fast if extension already exists (from in-memory cache).

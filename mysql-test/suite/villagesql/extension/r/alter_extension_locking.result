@@ -1,0 +1,39 @@
+#
+# Test 1: Bad-name validation runs before locks
+#
+ALTER EXTENSION `1bad_name` UPDATE TO '1.0';
+ERROR HY000: Extension name '1bad_name' must start with a letter
+#
+# Test 2: ALTER reaches the not-yet-supported error after locks succeed
+#
+ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
+ERROR HY000: ALTER EXTENSION ... UPDATE TO is not yet supported
+#
+# Test 3: ALTER blocks on the exclusive extension MDL lock when another
+# connection holds it (UNINSTALL paused after lock acquisition)
+#
+INSTALL EXTENSION vsql_simple;
+# con1: UNINSTALL paused after acquiring MDL X lock
+SET DEBUG_SYNC= 'uninstall_after_extension_lock SIGNAL uninstall_has_lock WAIT_FOR continue_uninstall';
+UNINSTALL EXTENSION vsql_simple;
+# default: Wait for UNINSTALL to acquire exclusive lock
+SET DEBUG_SYNC= 'now WAIT_FOR uninstall_has_lock';
+# default: ALTER from con2 must block waiting for the X lock
+SET DEBUG_SYNC= 'mdl_acquire_lock_wait SIGNAL alter_waiting';
+ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
+# default: Wait for ALTER to block on MDL
+SET DEBUG_SYNC= 'now WAIT_FOR alter_waiting';
+# default: Show that UNINSTALL holds EXCLUSIVE and ALTER is pending
+SELECT OBJECT_TYPE, OBJECT_NAME, LOCK_TYPE, LOCK_STATUS
+FROM performance_schema.metadata_locks
+WHERE OBJECT_TYPE = 'EXTENSION' AND OBJECT_NAME = 'vsql_simple'
+ORDER BY LOCK_STATUS DESC;
+OBJECT_TYPE	OBJECT_NAME	LOCK_TYPE	LOCK_STATUS
+EXTENSION	vsql_simple	EXCLUSIVE	PENDING
+EXTENSION	vsql_simple	EXCLUSIVE	GRANTED
+# default: Let UNINSTALL finish
+SET DEBUG_SYNC= 'now SIGNAL continue_uninstall';
+# con1: UNINSTALL completes
+# con2: ALTER now proceeds and fails with the not-yet-supported error
+ERROR HY000: ALTER EXTENSION ... UPDATE TO is not yet supported
+SET DEBUG_SYNC= 'RESET';
