@@ -1737,43 +1737,6 @@ static bool print_default_clause(THD *thd, Field *field, String *def_value,
   if (field->gcol_info || !has_default) return false;
 
   def_value->length(0);
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-  if (has_default) {
-    if (field->has_insert_default_general_value_expression()) {
-      def_value->append("(");
-      char buffer[128];
-      String s(buffer, sizeof(buffer), system_charset_info);
-      field->m_default_val_expr->print_expr(thd, &s);
-      def_value->append(s);
-      def_value->append(")");
-    } else if (field->has_insert_default_datetime_value_expression()) {
-      /*
-        We are using CURRENT_TIMESTAMP instead of NOW because it is the SQL
-        standard.
-      */
-      def_value->append(STRING_WITH_LEN("CURRENT_TIMESTAMP"));
-      if (field->decimals() > 0)
-        def_value->append_parenthesized(field->decimals());
-      // Not null by default and not a BLOB
-    } else if (!field->is_null() && field_type != FIELD_TYPE_BLOB) {
-      char tmp[MAX_FIELD_WIDTH];
-      String type(tmp, sizeof(tmp), field->charset());
-      // Wrap bit values in b'...'
-      if (field_type == MYSQL_TYPE_BIT) {
-        const longlong dec = field->val_int();
-        char *ptr = longlong2str(dec, tmp + 2, 2);
-        const uint32 length = (uint32)(ptr - tmp);
-        tmp[0] = 'b';
-        tmp[1] = '\'';
-        tmp[length] = '\'';
-        type.length(length + 1);
-        quoted = false;
-      } else {
-        // VillageSQL: val_external_str handles both custom and regular types
-        field->val_external_str(&type);
-      }
-=======
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
   if (field->has_insert_default_general_value_expression()) {
     def_value->append("(");
@@ -1824,7 +1787,8 @@ static bool print_default_clause(THD *thd, Field *field, String *def_value,
       type.length(length + 1);
       quoted = false;
     } else {
-      field->val_str(&type);
+      // VillageSQL: val_external_str handles both custom and regular types
+      field->val_external_str(&type);
     }
 
     if (type.length()) {
