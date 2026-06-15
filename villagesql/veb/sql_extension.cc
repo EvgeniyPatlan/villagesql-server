@@ -91,7 +91,15 @@ bool load_veb_and_so(THD *thd, const std::string &extension_name,
 // - This locking order is deadlock-safe, provided the uninstall command does
 //   not itself execute any DDL on dependent objects.
 bool Sql_cmd_install_extension::execute(THD *thd) {
+  if (m_update) return execute_update(thd);
   return execute_install(thd);
+}
+
+bool Sql_cmd_install_extension::execute_update(THD *thd) {
+  villagesql_error("ALTER EXTENSION ... UPDATE TO is not yet supported",
+                   MYF(0));
+  (void)thd;
+  return true;
 }
 
 bool Sql_cmd_install_extension::execute_install(THD *thd) {

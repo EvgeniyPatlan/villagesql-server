@@ -1,0 +1,2 @@
+ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
+ERROR HY000: ALTER EXTENSION ... UPDATE TO is not yet supported
