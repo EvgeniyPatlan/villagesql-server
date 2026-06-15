@@ -2057,17 +2057,12 @@ class Item : public Parse_tree_node {
   */
   virtual String *val_str_ascii(String *str);
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
   // VillageSQL: Get formatted string for custom types. Default implementation
   // calls val_str() to get binary data, then decodes using DecodeString().
   virtual String *val_external_str(String *str);
 
-  /*
-    Return decimal representation of item with fixed point.
-=======
   /**
     Evaluate item and return result as a decimal value.
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
     @param decimal_buffer buffer which can be used by Item for returning value
                           (but need not be)
@@ -6349,19 +6344,9 @@ class Item_ref : public Item_ident {
     assert(m_ref_item != nullptr);
     if (result_type() == ROW_RESULT) ref_item()->bring_value();
   }
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 
   // VillageSQL: Forward TypeContext from the referenced item
   VILLAGESQL_FORWARD_TYPE_CONTEXT(ref_item())
-
-  bool get_time(MYSQL_TIME *ltime) override {
-    assert(fixed);
-    const bool result = ref_item()->get_time(ltime);
-    null_value = ref_item()->null_value;
-    return result;
-  }
-=======
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
   bool basic_const_item() const override { return false; }
 
