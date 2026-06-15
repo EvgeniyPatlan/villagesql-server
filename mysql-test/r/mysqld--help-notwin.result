@@ -1924,11 +1924,7 @@ performance-schema-max-socket-classes 10
 performance-schema-max-socket-instances -1
 performance-schema-max-sql-text-length 1024
 performance-schema-max-stage-classes 175
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-performance-schema-max-statement-classes 1086
-=======
-performance-schema-max-statement-classes 234
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
+performance-schema-max-statement-classes 1092
 performance-schema-max-statement-stack 10
 performance-schema-max-table-handles -1
 performance-schema-max-table-instances -1

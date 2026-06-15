@@ -1,3 +1,9 @@
+# TODO(villagesql-rebase): UNVERIFIED. information_schema_cs runs only on a
+# case-sensitive filesystem (skipped on macOS), so this .result could not be
+# recorded during the 9.7 merge. VillageSQL adds 2 I_S objects (the EXTENSIONS
+# system view + the EXTENSION_REGISTRATION fill-table), so the expected
+# information_schema table count is ~55, not the 53 below (which is vanilla 9.7's).
+# Re-record on Linux CI.
 set @orig_sql_mode= @@sql_mode;
 DROP TABLE IF EXISTS t0,t1,t2,t3,t4,t5;
 DROP VIEW IF EXISTS v1;
@@ -908,11 +914,7 @@ table_schema IN ('mysql', 'information_schema', 'test', 'mysqltest')
 AND table_name not like 'ndb%' AND table_name COLLATE utf8mb3_general_ci not like 'innodb_%'
 GROUP BY TABLE_SCHEMA;
 TABLE_SCHEMA	count(*)
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-information_schema	48
-=======
 information_schema	53
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 mysql	35
 create table t1 (i int, j int);
 create trigger trg1 before insert on t1 for each row

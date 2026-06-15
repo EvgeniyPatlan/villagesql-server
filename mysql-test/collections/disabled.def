@@ -139,7 +139,6 @@ group_replication.gr_xa_commit_one_phase_failure_before_gtid_externalization @wi
 group_replication.gr_xa_prepare_failure_before_gtid_externalization @windows : BUG#34155238 Disabled until bug is fixed
 group_replication.gr_xa_rollback_failure_before_gtid_externalization @windows : BUG#34155238 Disabled until bug is fixed
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 # engines/rr_trx suite: This is a stress test suite designed to run via
 # run_stress_tx_rr.pl, not as standalone MTR tests. The init test creates
 # shared schema that rr_* tests depend on, but normal MTR restarts the
@@ -161,9 +160,8 @@ engines/rr_trx.rr_sc_sum_total : BUG#0 Stress-only suite, not standalone MTR tes
 engines/rr_trx.rr_u_10-19 : BUG#0 Stress-only suite, not standalone MTR tests
 engines/rr_trx.rr_u_10-19_nolimit : BUG#0 Stress-only suite, not standalone MTR tests
 engines/rr_trx.rr_u_4 : BUG#0 Stress-only suite, not standalone MTR tests
-=======
+
 rpl_nogtid.rpl_nogtid_rollback_on_anonymous_gtid : Bug#37582501 Replication tests break MTA asserts with user viable scenarios
 
 #Daily test failures
 rpl.rpl_row_idempotency : WL#11249 old error - timeout
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857

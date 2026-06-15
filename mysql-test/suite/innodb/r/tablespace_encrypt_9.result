@@ -111,11 +111,7 @@ CREATE TABLESPACE temp_ts ADD DATAFILE 'temp_ts.ibd';
 # connection con3
 SELECT connection_id();
 connection_id()
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-12
-=======
-11
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
+13
 # Run a DDL with this connection con3
 ALTER TABLESPACE temp_ts ENCRYPTION='Y';
 set global innodb_buf_flush_list_now = 1;
