@@ -16,9 +16,14 @@ INSERT IGNORE INTO t_implicit_default VALUES (1, NULL, NULL);
 SELECT * FROM t_implicit_default;
 DROP TABLE t_implicit_default;
 
-# Test that both DOUBLE and COMPLEX reject empty strings consistently
+# Test that both DOUBLE and COMPLEX reject empty strings consistently.
+# MySQL 9.7 (Bug#36035064) made Field_double::store(const char*) report
+# ER_TRUNCATED_WRONG_VALUE_FOR_FIELD (1366) for non-numeric strings instead of
+# the generic WARN_DATA_TRUNCATED (1265) used in 8.4. The COMPLEX type already
+# returned 1366, so after the merge both types reject empty strings with the
+# same error -- the consistency this test asserts is now genuinely true.
 CREATE TABLE t_empty (id INT, val_double DOUBLE, val_complex COMPLEX);
---error 1265
+--error 1366
 INSERT INTO t_empty VALUES (1, '', '(1,2)');
 --error 1366
 INSERT INTO t_empty VALUES (2, 3.14, '');
