@@ -762,17 +762,14 @@ class Item_func_comparison : public Item_bool_func2 {
   bool is_null() override;
 
   bool cast_incompatible_args(uchar *) override;
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 
   // Handle custom type injection for comparisons
   bool fix_fields(THD *thd, Item **ref) override;
-=======
   float get_filtering_effect(THD *thd, table_map filter_for_table,
                              table_map read_tables,
                              const MY_BITMAP *fields_to_ignore,
                              double rows_in_table) override;
   bool gc_subst_analyzer(uchar **) override { return true; }
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 };
 
 /**

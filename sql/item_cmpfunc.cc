@@ -1292,7 +1292,6 @@ bool Arg_comparator::set_cmp_func(Item_func *owner_arg, Item **left_arg,
     return false;
   }
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
   // Check for custom types - these need special comparison like JSON.
   // Custom types can't be compared byte-by-byte; they require semantic
   // comparison via compare_binary_string() which calls TryCompareCustomType().
@@ -1307,12 +1306,6 @@ bool Arg_comparator::set_cmp_func(Item_func *owner_arg, Item **left_arg,
     }
   }
 
-  /*
-    Checks whether at least one of the arguments is DATE/DATETIME/TIMESTAMP
-    and the other one is also DATE/DATETIME/TIMESTAMP or a constant string.
-  */
-  if (can_compare_as_dates(*left, *right)) {
-=======
   if ((*left)->data_type() == MYSQL_TYPE_TIME &&
       (*right)->data_type() == MYSQL_TYPE_TIME) {
     // Compare TIME values
@@ -1337,7 +1330,6 @@ bool Arg_comparator::set_cmp_func(Item_func *owner_arg, Item **left_arg,
       At least one of the arguments is DATETIME/TIMESTAMP and the other
       one is also DATETIME/TIMESTAMP or a constant string.
     */
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
     left_cache = nullptr;
     right_cache = nullptr;
     ulonglong numeric_datetime = static_cast<ulonglong>(MYSQL_TIMESTAMP_ERROR);
