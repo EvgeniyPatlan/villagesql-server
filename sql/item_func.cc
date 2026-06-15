@@ -155,12 +155,9 @@
 #include "template_utils.h"
 #include "template_utils.h"  // pointer_cast
 #include "thr_mutex.h"
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
+#include "vector-common/vector_constants.h"  // get_dimensions
 #include "villagesql/types/util.h"
 #include "villagesql/vdf/vdf_handler.h"
-=======
-#include "vector-common/vector_constants.h"  // get_dimensions
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
 using std::max;
 using std::min;
@@ -5001,20 +4998,22 @@ bool udf_handler::fix_fields(THD *thd, Item_result_field *func, uint arg_count,
       used_tables_cache |= item->used_tables();
       f_args.arg_type[i] = item->result_type();
     }
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
     // Allocate buffers based on calling convention
     const bool will_be_vdf =
         u_d->calling_convention == UdfCallingConvention::VDF;
     if (will_be_vdf) {
-      // VDF: allocate buffers for argument marshaling
-      if (!(buffers = pointer_cast<String *>(
-                (*THR_MALLOC)->Alloc(sizeof(String) * arg_count)))) {
+      // VDF: allocate buffers for argument marshaling. arg_buffers is unused by
+      // the VDF path but must be allocated alongside buffers: clean_buffers()
+      // frees buffers[i] and arg_buffers[i] together under a single
+      // (buffers == nullptr) guard, so they must be an allocate-together pair.
+      if (!(buffers = (*THR_MALLOC)->ArrayAlloc<String>(arg_count)) ||
+          !(arg_buffers = (*THR_MALLOC)->ArrayAlloc<String>(arg_count))) {
         return true;
       }
     } else {
       // Classic UDF: allocate UDF_ARGS buffers
-      if (!(buffers = pointer_cast<String *>(
-                (*THR_MALLOC)->Alloc(sizeof(String) * arg_count))) ||
+      if (!(buffers = (*THR_MALLOC)->ArrayAlloc<String>(arg_count)) ||
+          !(arg_buffers = (*THR_MALLOC)->ArrayAlloc<String>(arg_count)) ||
           !(f_args.args =
                 (char **)(*THR_MALLOC)->Alloc(arg_count * sizeof(char *))) ||
           !(f_args.lengths =
@@ -5028,38 +5027,12 @@ bool udf_handler::fix_fields(THD *thd, Item_result_field *func, uint arg_count,
           !(f_args.attribute_lengths =
                 (ulong *)(*THR_MALLOC)->Alloc(arg_count * sizeof(long))) ||
           !(m_args_extension.charset_info =
-                (const CHARSET_INFO **)(*THR_MALLOC)
-                    ->Alloc(f_args.arg_count * sizeof(CHARSET_INFO *)))) {
+                (*THR_MALLOC)
+                    ->ArrayAlloc<const CHARSET_INFO *>(f_args.arg_count))) {
         return true;
       }
     }
   }
-  for (uint i = 0; i < arg_count; i++) {
-    (void)::new (buffers + i) String;
-  }
-=======
-
-    if (!(buffers = (*THR_MALLOC)->ArrayAlloc<String>(arg_count)) ||
-        !(arg_buffers = (*THR_MALLOC)->ArrayAlloc<String>(arg_count)) ||
-        !(f_args.args =
-              (char **)(*THR_MALLOC)->Alloc(arg_count * sizeof(char *))) ||
-        !(f_args.lengths =
-              (ulong *)(*THR_MALLOC)->Alloc(arg_count * sizeof(long))) ||
-        !(f_args.maybe_null =
-              (char *)(*THR_MALLOC)->Alloc(arg_count * sizeof(char))) ||
-        !(num_buffer = (char *)(*THR_MALLOC)
-                           ->Alloc(arg_count * ALIGN_SIZE(sizeof(double)))) ||
-        !(f_args.attributes =
-              (char **)(*THR_MALLOC)->Alloc(arg_count * sizeof(char *))) ||
-        !(f_args.attribute_lengths =
-              (ulong *)(*THR_MALLOC)->Alloc(arg_count * sizeof(long))) ||
-        !(m_args_extension.charset_info =
-              (*THR_MALLOC)
-                  ->ArrayAlloc<const CHARSET_INFO *>(f_args.arg_count))) {
-      return true;
-    }
-  }
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
   if (func->resolve_type(thd)) return true;
 
@@ -5327,13 +5300,9 @@ my_decimal *udf_handler::val_decimal(bool *null_value, my_decimal *dec_buf) {
 
   assert(is_initialized());
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
   // TODO(villagesql-ga): Handle decimal
 
-  if (get_arguments()) {
-=======
   if (u_d->type != UDFTYPE_AGGREGATE && get_arguments()) {
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
     *null_value = true;
     return nullptr;
   }
@@ -5364,14 +5333,11 @@ void udf_handler::clear() {
 
 bool udf_handler::add(bool *null_value) {
   assert(is_initialized());
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
   if (m_vdf) {
     m_vdf->accumulate(null_value);
-    return;
+    return false;
   }
-=======
   assert(error == 0 || error == 1);
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
   if (get_arguments()) {
     *null_value = true;
     return static_cast<bool>(error);
