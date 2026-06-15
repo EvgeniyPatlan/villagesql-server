@@ -485,13 +485,10 @@ const char *ut_strerr(dberr_t num) {
       return "Data is not sorted.";
     case DB_BULK_TOO_BIG_RECORD:
       return "Row is too big for LOAD BULK DATA operation.";
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
     case DB_VILLAGESQL_ERROR:
       return "VillageSQL: Error in custom type operation.";
-=======
     case DB_BULK_GCOL_INVALID_DATA:
       return "Data for generated column is invalid";
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
     case DB_ERROR_UNSET:;
       /* Fall through. */
 
