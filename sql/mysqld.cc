@@ -9168,49 +9168,22 @@ static void calculate_mysql_home_from_my_progname() {
 
 Manifest_file_option_parser_helper::Manifest_file_option_parser_helper(
     int argc, char **argv)
-    : save_datadir_{0}, save_plugindir_{0}, valid_(false) {
+    : save_datadir_{0}, save_plugindir_{0}, save_vebdir_{0}, valid_(false) {
   char *ptr, **res, *datadir = nullptr, *plugindir = nullptr,
-                    *basedir = nullptr, *local_mysql_home_ptr = nullptr;
+                    *vebdir = nullptr, *basedir = nullptr,
+                    *local_mysql_home_ptr = nullptr;
   char local_datadir_buffer[FN_REFLEN] = {0},
        local_plugindir_buffer[FN_REFLEN] = {0},
+       local_vebdir_buffer[FN_REFLEN] = {0},
        local_mysql_home[FN_REFLEN] = {0};
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-  This helper class sets them temporarily by reading configurations
-  and resets them in destructor.
-*/
-class Plugin_and_data_dir_option_parser final {
- public:
-  Plugin_and_data_dir_option_parser(int argc, char **argv)
-      : datadir_(nullptr),
-        plugindir_(nullptr),
-        vebdir_(nullptr),
-        save_homedir_{0},
-        save_plugindir_{0},
-        save_vebdir_{0},
-        valid_(false) {
-    char *ptr, **res, *datadir = nullptr, *plugindir = nullptr,
-                      *vebdir = nullptr;
-    char dir[FN_REFLEN] = {0}, local_datadir_buffer[FN_REFLEN] = {0},
-         local_plugindir_buffer[FN_REFLEN] = {0},
-         local_vebdir_buffer[FN_REFLEN] = {0};
-    const char *dirs = nullptr;
-
-    my_option datadir_options[] = {
-        {"datadir", 0, "", &datadir, nullptr, nullptr, GET_STR, OPT_ARG, 0, 0,
-         0, nullptr, 0, nullptr},
-        {"plugin_dir", 0, "", &plugindir, nullptr, nullptr, GET_STR, OPT_ARG, 0,
-         0, 0, nullptr, 0, nullptr},
-        {"veb_dir", 0, "", &vebdir, nullptr, nullptr, GET_STR, OPT_ARG, 0, 0, 0,
-         nullptr, 0, nullptr},
-        {nullptr, 0, nullptr, nullptr, nullptr, nullptr, GET_NO_ARG, NO_ARG, 0,
-         0, 0, nullptr, 0, nullptr}};
-=======
   my_option dir_options[] = {
       {"datadir", 'h', "", &datadir, nullptr, nullptr, GET_STR, REQUIRED_ARG, 0,
        0, 0, nullptr, 0, nullptr},
       {"plugin_dir", 0, "", &plugindir, nullptr, nullptr, GET_STR, REQUIRED_ARG,
        0, 0, 0, nullptr, 0, nullptr},
+      {"veb_dir", 0, "", &vebdir, nullptr, nullptr, GET_STR, REQUIRED_ARG, 0, 0,
+       0, nullptr, 0, nullptr},
       {"basedir", 'b', "", &basedir, nullptr, nullptr, GET_STR, REQUIRED_ARG, 0,
        0, 0, nullptr, 0, nullptr},
       {nullptr, 0, nullptr, nullptr, nullptr, nullptr, GET_NO_ARG, NO_ARG, 0, 0,
@@ -9227,7 +9200,6 @@ class Plugin_and_data_dir_option_parser final {
   memset(ptr, 0, (sizeof(char *) * (argc + 1)));
   res = (char **)(ptr);
   memcpy((uchar *)res, (char *)(argv), (argc) * sizeof(char *));
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
   my_getopt_skip_unknown = true;
   if (my_handle_options(&argc, &res, dir_options, nullptr, nullptr, true)) {
@@ -9273,40 +9245,17 @@ class Plugin_and_data_dir_option_parser final {
   } else {
     convert_dirname(local_plugindir_buffer, get_relative_path(PLUGINDIR),
                     NullS);
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-    (void)my_load_path(local_plugindir_buffer, local_plugindir_buffer,
-                       mysql_home);
-    plugindir_ = my_strdup(PSI_INSTRUMENT_ME, local_plugindir_buffer, MYF(0));
-
-    convert_dirname(local_vebdir_buffer,
-                    vebdir ? vebdir : get_relative_path(VEBDIR), NullS);
-    (void)my_load_path(local_vebdir_buffer, local_vebdir_buffer, mysql_home);
-    vebdir_ = my_strdup(PSI_INSTRUMENT_ME, local_vebdir_buffer, MYF(0));
-
-    /* Backup mysql_real_data_home */
-    if (mysql_real_data_home[0])
-      memcpy(save_homedir_, mysql_real_data_home, strlen(mysql_real_data_home));
-    if (datadir_ != nullptr)
-      memcpy(mysql_real_data_home, datadir_, strlen(datadir_));
-
-    /* Backup opt_plugin_dir */
-    if (opt_plugin_dir[0])
-      memcpy(save_plugindir_, opt_plugin_dir,
-             std::min(static_cast<size_t>(FN_REFLEN), strlen(opt_plugin_dir)));
-    if (plugindir_ != nullptr)
-      memcpy(opt_plugin_dir, plugindir_, strlen(plugindir_));
-
-    // Backup opt_veb_dir
-    if (opt_veb_dir[0])
-      memcpy(save_vebdir_, opt_veb_dir,
-             std::min(static_cast<size_t>(FN_REFLEN), strlen(opt_veb_dir)));
-    if (vebdir_ != nullptr) memcpy(opt_veb_dir, vebdir_, strlen(vebdir_));
-
-    valid_ = true;
-=======
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
   }
   (void)my_load_path(local_plugindir_buffer, local_plugindir_buffer,
+                     local_mysql_home_ptr);
+
+  /* Compute veb dir (VillageSQL) ============== */
+  if (vebdir != nullptr && vebdir[0] != 0) {
+    convert_dirname(local_vebdir_buffer, vebdir, NullS);
+  } else {
+    convert_dirname(local_vebdir_buffer, get_relative_path(VEBDIR), NullS);
+  }
+  (void)my_load_path(local_vebdir_buffer, local_vebdir_buffer,
                      local_mysql_home_ptr);
 
   /* Backup mysql_real_data_home */
@@ -9322,47 +9271,23 @@ class Plugin_and_data_dir_option_parser final {
   strncpy(opt_plugin_dir, local_plugindir_buffer, opt_plugin_dir_size - 1);
   opt_plugin_dir[opt_plugin_dir_size - 1] = 0;
 
+  /* Backup opt_veb_dir (VillageSQL) */
+  memcpy(save_vebdir_, opt_veb_dir, opt_veb_dir_size);
+  /* Copy the string ensuring it is always 0 terminated */
+  strncpy(opt_veb_dir, local_vebdir_buffer, opt_veb_dir_size - 1);
+  opt_veb_dir[opt_veb_dir_size - 1] = 0;
+
   valid_ = true;
 }
 
 Manifest_file_option_parser_helper ::~Manifest_file_option_parser_helper() {
   if (valid_) {
     valid_ = false;
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-    if (datadir_ != nullptr) {
-      memset(mysql_real_data_home, 0, sizeof(mysql_real_data_home));
-      memcpy(mysql_real_data_home, save_homedir_, strlen(save_homedir_));
-      my_free(datadir_);
-    }
-    if (plugindir_ != nullptr) {
-      memset(opt_plugin_dir, 0, sizeof(opt_plugin_dir));
-      memcpy(opt_plugin_dir, save_plugindir_, strlen(save_plugindir_));
-      my_free(plugindir_);
-    }
-    if (vebdir_ != nullptr) {
-      memset(opt_veb_dir, 0, sizeof(opt_veb_dir));
-      memcpy(opt_veb_dir, save_vebdir_, strlen(save_vebdir_));
-      my_free(vebdir_);
-    }
-  }
-
-  bool valid() const { return valid_; }
-
- private:
-  char *datadir_;
-  char *plugindir_;
-  char *vebdir_;
-  char save_homedir_[FN_REFLEN + 1];
-  char save_plugindir_[FN_REFLEN + 1];
-  char save_vebdir_[FN_REFLEN + 1];
-  bool valid_;
-};
-=======
     memcpy(mysql_real_data_home, save_datadir_, mysql_real_data_home_size);
     memcpy(opt_plugin_dir, save_plugindir_, opt_plugin_dir_size);
+    memcpy(opt_veb_dir, save_vebdir_, opt_veb_dir_size);
   }
 }
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
 #ifdef _WIN32
 int win_main(int argc, char **argv)

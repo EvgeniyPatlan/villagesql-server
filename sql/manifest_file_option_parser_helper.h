@@ -28,6 +28,9 @@
 #define FN_REFLEN 512
 extern char mysql_real_data_home[FN_REFLEN];
 extern char opt_plugin_dir[FN_REFLEN];
+// VillageSQL: the VEB (extension bundle) directory is resolved alongside the
+// data and plugin dirs so early manifest-component loading sees it.
+extern char opt_veb_dir[FN_REFLEN];
 
 /**
   Helper class for loading keyring component
@@ -50,8 +53,10 @@ class Manifest_file_option_parser_helper final {
   static constexpr size_t mysql_real_data_home_size{
       std::size(mysql_real_data_home)};
   static constexpr size_t opt_plugin_dir_size{std::size(opt_plugin_dir)};
+  static constexpr size_t opt_veb_dir_size{std::size(opt_veb_dir)};
   char save_datadir_[mysql_real_data_home_size];
   char save_plugindir_[opt_plugin_dir_size];
+  char save_vebdir_[opt_veb_dir_size];
   bool valid_;
 
   static bool get_one_option(int optid, const struct my_option *opt,
