@@ -1458,10 +1458,6 @@ CHARSET_INFO *warn_on_deprecated_user_defined_collation(
 %token<lexer.keyword> MANUAL_SYM                 1212   /* MYSQL */
 %token<lexer.keyword> BERNOULLI_SYM              1213  /* SQL-2016-N */
 %token<lexer.keyword> TABLESAMPLE_SYM            1214  /* SQL-2016-R */
-// TODO(villagesql-rebase): Check if token number needs updating during MySQL rebase
-%token<lexer.keyword> EXTENSION_SYM              1215  /* VILLAGESQL */
-%token                DOUBLE_COLON               1216  /* VILLAGESQL OPERATOR */
-%token<lexer.keyword> VERSION_SYM                1217  /* VILLAGESQL */
 
 %token<lexer.keyword> VECTOR_SYM      1215     /* MYSQL */
 %token<lexer.keyword> PARAMETERS_SYM  1216     /* MYSQL */
@@ -1499,6 +1495,24 @@ CHARSET_INFO *warn_on_deprecated_user_defined_collation(
 %token<lexer.keyword> POLICY_SYM        1241     /* MYSQL */
 %token GRAMMAR_SELECTOR_MASKING_EXPR 1242  /* synthetic token: starts data
                                               masking expression */
+
+//
+// VillageSQL parser tokens.
+//
+// Final state we maintain: all upstream MySQL tokens keep their assigned codes
+// (currently up to 1242); VillageSQL's tokens form this contiguous block placed
+// immediately AFTER the last upstream token, taking the next consecutive codes.
+// Codes must stay below MY_MAX_TOKEN in sql/gen_lex_token.cc (currently 1251),
+// which sizes a fixed token array — so a reserved high range (cf. the
+// SQLCOM_VSQL_FIRST=1024 convention) is NOT viable for parser tokens.
+//
+// TODO(villagesql-rebase): upstream assigns token codes sequentially and grows
+// into this range. On each MySQL rebase: find the new highest upstream token,
+// renumber this block to start right after it, and bump MY_MAX_TOKEN if the
+// block would reach it.
+%token<lexer.keyword> EXTENSION_SYM              1243  /* VILLAGESQL */
+%token                DOUBLE_COLON               1244  /* VILLAGESQL OPERATOR */
+%token<lexer.keyword> VERSION_SYM                1245  /* VILLAGESQL */
 
 /*
   NOTE! When adding new non-standard keywords, make sure they are added to the
