@@ -297,14 +297,12 @@ static Field *create_tmp_field_from_item(Item *item, TABLE *table) {
 
   new_field->init(table);
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
   // VillageSQL: Copy type_context for custom types so charset_for_protocol()
   // works correctly in derived tables
   if (item->has_type_context()) {
     new_field->set_type_context(item->get_type_context());
   }
 
-=======
   if (item->type() == Item::FIELD_ITEM) {
     Item_field *item_field = down_cast<Item_field *>(item);
     Table_ref *tr = item_field->m_table_ref;
@@ -317,7 +315,6 @@ static Field *create_tmp_field_from_item(Item *item, TABLE *table) {
       new_field->orig_table_name = tr->table_name;
     }
   }
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
   if (item->type() == Item::NULL_ITEM)
     new_field->is_created_from_null_item = true;
   return new_field;

@@ -3752,11 +3752,8 @@ void Query_tables_list::reset_query_tables_list(bool init) {
   sroutines_list.clear();
   sroutines_list_own_last = sroutines_list.next;
   sroutines_list_own_elements = 0;
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
   croutines_list.clear();
-=======
   has_stored_functions = false;
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
   binlog_stmt_flags = 0;
   stmt_accessed_table_flag = 0;
   lock_tables_state = LTS_NOT_LOCKED;

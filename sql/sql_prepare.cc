@@ -192,12 +192,9 @@ When one supplies long data for a placeholder:
 #include "sql/transaction.h"  // trans_rollback_implicit
 #include "sql_string.h"
 #include "string_with_len.h"
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
+#include "template_utils.h"
 #include "villagesql/types/util.h"
 #include "violite.h"
-=======
-#include "template_utils.h"
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
 namespace resourcegroups {
 class Resource_group;
