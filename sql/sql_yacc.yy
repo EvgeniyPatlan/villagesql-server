@@ -16514,11 +16514,8 @@ ident_keywords_unambiguous:
         | VALUE_SYM
         | VARIABLES
         | VCPU_SYM
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-        | VERSION_SYM
-=======
         | VERIFY_KEY_CONSTRAINTS_SYM
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
+        | VERSION_SYM
         | VIEW_SYM
         | VISIBLE_SYM
         | WAIT_SYM
@@ -18726,7 +18723,6 @@ sf_tail:
                                         &sp->m_return_field_def))
               MYSQL_YYABORT;
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
             // VillageSQL: store custom return type context on the return field
             // def (for dd_routine.cc during CREATE FUNCTION) and acquire a
             // client-managed ref (keeps TypeContext alive beyond parse
@@ -18739,10 +18735,6 @@ sf_tail:
                       $10->get_type_context());
             }
 
-            memset(&lex->sp_chistics, 0, sizeof(st_sp_chistics));
-
-=======
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
             // Default language is SQL
             lex->sp_chistics.language = {"SQL",3};
           }
