@@ -1,11 +1,8 @@
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-MYSQL_VERSION_MAJOR=8
-MYSQL_VERSION_MINOR=4
-MYSQL_VERSION_PATCH=9
-=======
 MYSQL_VERSION_MAJOR=9
 MYSQL_VERSION_MINOR=7
 MYSQL_VERSION_PATCH=0
-MYSQL_VERSION_EXTRA=
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
+# MYSQL_VERSION_EXTRA is intentionally omitted. VillageSQL sets EXTRA_VERSION
+# from VSQL_VERSION in cmake/mysql_version.cmake: it includes the VillageSQL
+# version before reading this file, and MYSQL_GET_CONFIG_VALUE skips variables
+# that are already set, so a MYSQL_VERSION_EXTRA here would be ignored anyway.
 MYSQL_VERSION_MATURITY="LTS"
