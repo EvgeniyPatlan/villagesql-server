@@ -8067,16 +8067,10 @@ bool Item::send(Protocol *protocol, String *buffer) {
     case MYSQL_TYPE_BIT:
     case MYSQL_TYPE_NEWDECIMAL:
     case MYSQL_TYPE_JSON: {
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
       // VillageSQL: val_external_str handles both custom and regular types
       const String *res = val_external_str(buffer);
-      assert(null_value == (res == nullptr));
-      if (res != nullptr) {
-=======
-      const String *res = val_str(buffer);
       if (current_thd->is_error()) return true;
-      if (res != nullptr)
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
+      if (res != nullptr) {
         return protocol->store_string(res->ptr(), res->length(),
                                       res->charset());
       }
@@ -11357,6 +11351,20 @@ static enum_field_types real_data_type(Item *item) {
 
 bool Item_aggregate_type::unify_types(const char *op_string, Item **items,
                                       size_t count) {
+  // VillageSQL: validate and propagate the custom type context across the
+  // set-operation (UNION/INTERSECT/EXCEPT) branches. MaybeValidateUnionType-
+  // Compatibility() does both: it copies the custom type context onto this
+  // result-column accumulator from the first contributing branch (so the output
+  // is decoded via val_external_str() rather than emitted as raw bytes), and it
+  // rejects mixed/different custom types. The per-branch join_types() path that
+  // invoked it was replaced by this batched call in MySQL 9.7's query_term
+  // refactor, so invoke it here for each branch, before type aggregation.
+  // TODO(villagesql-rebase): re-check after MySQL set-operation refactors.
+  for (size_t idx = 0; idx < count; ++idx) {
+    if (villagesql::MaybeValidateUnionTypeCompatibility(this, items[idx]))
+      return true;
+  }
+
   if (aggregate_type(op_string, items, count)) return true;
   /*
     For items of type Item_aggregate_type with data type geometry,
@@ -11398,18 +11406,8 @@ bool Item_aggregate_type::unify_types(Item *item) {
               decimals, (item_name.is_set() ? item_name.ptr() : "<NULL>")));
   DBUG_PRINT("info:", ("in type %d len %d, dec %d", real_data_type(item),
                        item->max_length, item->decimals));
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 
   if (villagesql::MaybeValidateUnionTypeCompatibility(this, item)) return true;
-
-  /*
-    aggregate_type() will modify the data type of this item. Create a copy of
-    this item containing the original data type and other properties to ensure
-    correct conversion from existing item types to aggregated type.
-  */
-  Item *item_copy = new Item_metadata_copy(this);
-=======
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
   Item *args[2] = {this, item};
   if (aggregate_type("UNION", args, 2)) return true;
