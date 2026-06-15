@@ -745,7 +745,8 @@ int PFS_object_row::make_row(PFS_program *pfs) {
 }
 
 int PFS_column_row::make_row(const MDL_key *mdl) {
-  static_assert(MDL_key::NAMESPACE_END == 19,
+  // 20 = upstream base (18) + VillageSQL EXTENSION + 9.7 LIBRARY namespaces.
+  static_assert(MDL_key::NAMESPACE_END == 20,
                 "Adjust performance schema when changing enum_mdl_namespace");
 
   bool with_schema = false;
