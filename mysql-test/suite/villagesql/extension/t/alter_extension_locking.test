@@ -7,6 +7,11 @@
 --source include/have_debug_sync.inc
 --source include/count_sessions.inc
 
+# ALTER EXTENSION requires offline_mode = ON. Set it for the duration of the
+# test so we exercise behavior past the offline-mode precondition.
+SET GLOBAL offline_mode = ON;
+INSTALL EXTENSION vsql_simple;
+
 --echo #
 --echo # Test 1: Bad-name validation runs before locks
 --echo #
@@ -23,7 +28,6 @@ ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
 --echo # Test 3: ALTER blocks on the exclusive extension MDL lock when another
 --echo # connection holds it (UNINSTALL paused after lock acquisition)
 --echo #
-INSTALL EXTENSION vsql_simple;
 
 connect (con1,localhost,root);
 --echo # con1: UNINSTALL paused after acquiring MDL X lock
@@ -57,7 +61,8 @@ connection con1;
 reap;
 
 connection con2;
---echo # con2: ALTER now proceeds and fails with the not-yet-supported error
+--echo # con2: ALTER now proceeds; the extension was just uninstalled, so it
+--echo # fails with the "extension is not installed" precondition error
 --error ER_VILLAGESQL_GENERIC_ERROR
 reap;
 
@@ -66,4 +71,5 @@ disconnect con2;
 
 connection default;
 SET DEBUG_SYNC= 'RESET';
+SET GLOBAL offline_mode = OFF;
 --source include/wait_until_count_sessions.inc

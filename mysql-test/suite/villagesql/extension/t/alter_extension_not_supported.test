@@ -1,5 +1,11 @@
 # ALTER EXTENSION ... UPDATE TO 'x.y.z' parses but is not yet implemented;
 # the server should reject it at execute time with a clear error.
 
+SET GLOBAL offline_mode = ON;
+INSTALL EXTENSION vsql_simple;
+
 --error ER_VILLAGESQL_GENERIC_ERROR
 ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
+
+UNINSTALL EXTENSION vsql_simple;
+SET GLOBAL offline_mode = OFF;

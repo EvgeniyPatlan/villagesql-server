@@ -1,3 +1,5 @@
+SET GLOBAL offline_mode = ON;
+INSTALL EXTENSION vsql_simple;
 #
 # Test 1: Bad-name validation runs before locks
 #
@@ -12,7 +14,6 @@ ERROR HY000: ALTER EXTENSION ... UPDATE TO is not yet supported
 # Test 3: ALTER blocks on the exclusive extension MDL lock when another
 # connection holds it (UNINSTALL paused after lock acquisition)
 #
-INSTALL EXTENSION vsql_simple;
 # con1: UNINSTALL paused after acquiring MDL X lock
 SET DEBUG_SYNC= 'uninstall_after_extension_lock SIGNAL uninstall_has_lock WAIT_FOR continue_uninstall';
 UNINSTALL EXTENSION vsql_simple;
@@ -34,6 +35,8 @@ EXTENSION	vsql_simple	EXCLUSIVE	GRANTED
 # default: Let UNINSTALL finish
 SET DEBUG_SYNC= 'now SIGNAL continue_uninstall';
 # con1: UNINSTALL completes
-# con2: ALTER now proceeds and fails with the not-yet-supported error
-ERROR HY000: ALTER EXTENSION ... UPDATE TO is not yet supported
+# con2: ALTER now proceeds; the extension was just uninstalled, so it
+# fails with the "extension is not installed" precondition error
+ERROR HY000: ALTER EXTENSION ... UPDATE TO failed: extension 'vsql_simple' is not installed
 SET DEBUG_SYNC= 'RESET';
+SET GLOBAL offline_mode = OFF;

@@ -33,6 +33,8 @@
 #include "sql/iterators/row_iterator.h"
 #include "sql/lock.h"
 #include "sql/mdl.h"
+#include "sql/mysqld.h"
+#include "sql/mysqld_thd_manager.h"
 #include "sql/protocol_callback.h"
 #include "sql/sql_backup_lock.h"
 #include "sql/sql_base.h"
@@ -64,8 +66,8 @@ char *opt_veb_dir_ptr;
 char opt_veb_dir[FN_REFLEN];
 
 namespace {
-// Helpers below execute_install. Forward-declared so the install path can
-// call them without reordering this file.
+// Helpers below execute_install. Forward-declared so the install/update
+// paths can call them without reordering this file.
 bool validate_extension_name(THD *thd, const std::string &extension_name);
 bool resolve_veb_version(THD *thd, const std::string &extension_name,
                          const LEX_CSTRING &m_version, bool require_explicit,
@@ -76,6 +78,7 @@ bool load_veb_and_so(THD *thd, const std::string &extension_name,
                      std::string &sha256_hash,
                      villagesql::services::LoadReason load_reason =
                          villagesql::services::LoadReason::kInstall);
+bool check_no_active_connections(THD *thd);
 }  // namespace
 
 // EXTENSION MDL locks (defined in sql/mdl.h):
@@ -135,7 +138,52 @@ bool Sql_cmd_install_extension::execute(THD *thd) {
 }
 
 bool Sql_cmd_install_extension::execute_update(
-    THD *thd, const std::string & /*extension_name*/) {
+    THD *thd, const std::string &extension_name) {
+  // Shared prologue (binlog guard, autocommit, releaser, name validation,
+  // global read lock, backup lock, exclusive extension MDL) ran in execute().
+  //
+  // UPDATE always requires an explicit version.
+  std::string veb_version;
+  std::string version;
+  if (resolve_veb_version(thd, extension_name, m_version,
+                          /*require_explicit=*/true, veb_version, version))
+    return end_transaction(thd, true);
+
+  // Require offline_mode = ON. This blocks any *new* non-admin connection
+  // from authenticating for the duration of the update, so no new session
+  // can pick up a stale TypeContext or VDF reference once we start mutating
+  // the victionary. It does not affect connections that are already open
+  // (see check_no_active_connections below).
+  if (!mysqld_offline_mode()) {
+    villagesql_error(
+        "Updating an extension requires the server to be in offline mode. "
+        "Run SET GLOBAL offline_mode = ON before updating.",
+        MYF(0));
+    return end_transaction(thd, true);
+  }
+
+  // offline_mode only gates *new* connections; existing non-admin sessions
+  // continue to run until they finish or are killed. Refuse to proceed
+  // until those have drained, so no live session holds a stale TypeContext
+  // or VDF reference.
+  if (check_no_active_connections(thd)) return end_transaction(thd, true);
+
+  auto &victionary = villagesql::VictionaryClient::instance();
+
+  // Early check: fail fast if extension is not installed.
+  // NOTE: We must release the read lock BEFORE calling end_transaction.
+  {
+    auto read_lock = victionary.get_read_lock();
+    if (!victionary.extensions().get_committed(
+            villagesql::ExtensionKey(extension_name))) {
+      villagesql_error(
+          "ALTER EXTENSION ... UPDATE TO failed: extension '%s' is not "
+          "installed",
+          MYF(0), extension_name.c_str());
+    }
+  }
+  if (thd->is_error()) return end_transaction(thd, true);
+
   villagesql_error("ALTER EXTENSION ... UPDATE TO is not yet supported",
                    MYF(0));
   return end_transaction(thd, true);
@@ -420,6 +468,70 @@ bool load_veb_and_so(THD *thd, const std::string &extension_name,
     return true;
   }
 
+  return false;
+}
+
+// Counts threads that could hold live extension references during ALTER.
+//
+// Two separate buckets:
+// - Non-admin client connections (no CONNECTION_ADMIN). offline_mode = ON
+//   stops *new* ones; existing sessions must drain before ALTER proceeds.
+// - Replication applier threads (thd->slave_thread in MySQL core API).
+//   Replication bypasses offline_mode, and an applier in the middle of a
+//   DML on a custom-typed column holds the same TypeContext / VDF
+//   references a client would. The admin must STOP REPLICA before ALTER.
+//
+// The calling THD itself is excluded.
+//
+// NOTE: connections already marked KILL_CONNECTION by `offline_mode = ON`
+// are still counted. The kill signal is asynchronous; until the session
+// processes it on its next I/O, it remains on the THD list with live
+// TypeContext / VDF references. Skipping marked-for-kill sessions would
+// let ALTER proceed while a stale session is still alive.
+class Count_threads : public Do_THD_Impl {
+ public:
+  explicit Count_threads(THD *calling_thd) : m_calling_thd(calling_thd) {}
+
+  void operator()(THD *thd) override {
+    if (thd == m_calling_thd) return;
+    mysql_mutex_lock(&thd->LOCK_thd_data);
+    if (thd->slave_thread) {
+      m_replica_count++;
+    } else if (!thd->is_connection_admin()) {
+      m_non_admin_count++;
+    }
+    mysql_mutex_unlock(&thd->LOCK_thd_data);
+  }
+
+  uint non_admin_count() const { return m_non_admin_count; }
+  uint replica_count() const { return m_replica_count; }
+
+ private:
+  THD *m_calling_thd;
+  uint m_non_admin_count{0};
+  uint m_replica_count{0};
+};
+
+// Returns true (with thd error set) if any thread that could hold live
+// extension references is still running — either a non-admin client
+// connection or a replication applier thread.
+bool check_no_active_connections(THD *thd) {
+  Count_threads counter(thd);
+  Global_THD_manager::get_instance()->do_for_all_thd(&counter);
+  if (counter.replica_count() > 0) {
+    villagesql_error(
+        "Cannot update extension: replication applier thread is running. "
+        "STOP REPLICA before running ALTER EXTENSION.",
+        MYF(0));
+    return true;
+  }
+  if (counter.non_admin_count() > 0) {
+    villagesql_error(
+        "Cannot update extension: %u non-admin connection(s) are still active. "
+        "Kill them before running ALTER EXTENSION, or wait for them to finish.",
+        MYF(0), counter.non_admin_count());
+    return true;
+  }
   return false;
 }
 

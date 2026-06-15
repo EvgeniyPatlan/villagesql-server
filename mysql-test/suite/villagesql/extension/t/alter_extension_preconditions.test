@@ -1,0 +1,79 @@
+# Preconditions for ALTER EXTENSION ... UPDATE TO. These fire after the
+# DDL locks have been acquired (see alter_extension_locking.test) and before
+# any catalog mutation.
+
+--source include/have_debug_sync.inc
+--source include/count_sessions.inc
+
+INSTALL EXTENSION vsql_simple;
+
+--echo #
+--echo # Test 1: offline_mode must be ON
+--echo #
+--error ER_VILLAGESQL_GENERIC_ERROR
+ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
+
+--echo #
+--echo # Test 2: no non-admin connections may be open while ALTER runs
+--echo #
+# Setting offline_mode = ON synchronously signals KILL_CONNECTION on every
+# non-admin session, so by the time `SET GLOBAL` returns, those sessions
+# are either gone or marked-for-kill (and Count_non_admin_conn skips them).
+# To exercise the check, we pause the offline_mode handler *before* it
+# runs killall_non_super_threads, leaving the non-admin session alive and
+# unmarked while ALTER runs.
+
+# Create a user with no privileges (no CONNECTION_ADMIN). The session's
+# privilege snapshot is taken at authentication time, so the user must
+# already lack CONNECTION_ADMIN before connect.
+CREATE USER 'alter_test_user'@'localhost' IDENTIFIED BY 'pw';
+connect (con_user,localhost,alter_test_user,pw);
+
+# A helper connection that will set offline_mode = ON and get paused
+# inside handle_offline_mode before killall_non_super_threads runs.
+connect (con_offline,localhost,root);
+SET DEBUG_SYNC=
+  'after_lock_offline_mode_acquire SIGNAL offline_paused WAIT_FOR offline_continue';
+--send SET GLOBAL offline_mode = ON
+
+connection default;
+SET DEBUG_SYNC= 'now WAIT_FOR offline_paused';
+
+--echo # default: offline_mode is now ON but the non-admin session has not
+--echo # been killed yet — ALTER should fail at the active-connections check
+--replace_regex /[0-9]+ non-admin/N non-admin/
+--error ER_VILLAGESQL_GENERIC_ERROR
+ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
+
+# Let the offline_mode handler finish (will kill con_user).
+SET DEBUG_SYNC= 'now SIGNAL offline_continue';
+connection con_offline;
+reap;
+
+connection default;
+disconnect con_offline;
+disconnect con_user;
+SET DEBUG_SYNC= 'RESET';
+--source include/wait_until_count_sessions.inc
+
+--echo #
+--echo # Test 3: extension must be installed (the .veb stays on disk after
+--echo # UNINSTALL, so resolve_veb_version succeeds and the not-installed
+--echo # check fires on the missing catalog entry)
+--echo #
+UNINSTALL EXTENSION vsql_simple;
+--error ER_VILLAGESQL_GENERIC_ERROR
+ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
+
+--echo #
+--echo # Test 4: all preconditions met — control reaches the trailing
+--echo # "not yet supported" error
+--echo #
+INSTALL EXTENSION vsql_simple;
+--error ER_VILLAGESQL_GENERIC_ERROR
+ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
+
+# Cleanup
+UNINSTALL EXTENSION vsql_simple;
+SET GLOBAL offline_mode = OFF;
+DROP USER 'alter_test_user'@'localhost';
