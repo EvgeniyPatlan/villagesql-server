@@ -2331,7 +2331,6 @@ class Item_udf_func : public Item_func {
   Item_result result_type() const override { return udf.result_type(); }
   void print(const THD *thd, String *str,
              enum_query_type query_type) const override;
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 
   const CHARSET_INFO *charset_for_protocol() override {
     // For custom types, use utf8mb4_bin to tell client to display as text
@@ -2340,8 +2339,6 @@ class Item_udf_func : public Item_func {
     return Item_func::charset_for_protocol();
   }
 
-=======
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
   bool check_function_as_value_generator(uchar *checker_args) override {
     // Only allow VDFs explicitly declared deterministic by the extension
     // author. Classic UDFs are always disallowed (non-deterministic or
