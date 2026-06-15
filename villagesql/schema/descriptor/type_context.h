@@ -286,15 +286,13 @@ class TypeContext {
   bool is_variable_length() const { return descriptor_->is_variable_length(); }
 
   // Declared length of the backing field for this type instantiation.
-  // Fixed-length and parameter-resolved types store exactly persisted_length
-  // bytes. A variable-length type whose length is decided per value (no
-  // resolved size: either a bare type with no parameters, or one whose
-  // resolve_params returns -1) is backed by a variable-length field sized to
-  // the descriptor's max_persisted_length upper bound.
+  // Fixed-length types store exactly persisted_length bytes.
+  // A variable-length type length is decided per value (backed by a
+  // variable-length field sized to the descriptor's max_persisted_length
+  // upper bound).
   int64_t field_buffer_length() const {
-    if (is_variable_length() && persisted_length_ <= 0)
-      return descriptor_->max_persisted_length();
-    return persisted_length_;
+    return is_variable_length() ? descriptor_->max_persisted_length()
+                                : persisted_length_;
   }
 
   // Bound type operations. These combine the TypeFunction from the descriptor
