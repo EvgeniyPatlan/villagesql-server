@@ -198,27 +198,7 @@ class Create_field {
   /// Will be converted to m_engine_attribute for persistence
   LEX_CSTRING m_external_format = EMPTY_CSTR;
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-  Create_field()
-      : after(nullptr),
-        is_explicit_collation(false),
-        geom_type(Field::GEOM_GEOMETRY),
-        custom_type_context(nullptr),
-        is_nullable(false),
-        is_zerofill(false),
-        is_unsigned(false),
-        /*
-          Initialize treat_bit_as_char for all field types even if
-          it is only used for MYSQL_TYPE_BIT. This avoids bogus
-          valgrind warnings in optimized builds.
-        */
-        treat_bit_as_char(false),
-        pack_length_override(0),
-        stored_in_db(false),
-        m_default_val_expr(nullptr) {}
-=======
   Create_field() = default;
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
   Create_field(Field *field, Field *orig_field);
 
   /* Used to make a clone of this object for ALTER/CREATE TABLE */
