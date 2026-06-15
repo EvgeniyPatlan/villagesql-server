@@ -59,11 +59,8 @@
 #include "string_with_len.h"
 #include "typelib.h"
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 #include "villagesql/schema/systable/helpers.h"
 
-void prepare_sp_chistics_from_dd_routine(const dd::Routine *routine,
-=======
 #include <my_rapidjson_size_t.h>  // NOLINT(misc-include-cleaner)
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
@@ -106,7 +103,6 @@ static std::vector<imported_library> get_imported_libraries(
 }
 
 void prepare_sp_chistics_from_dd_routine(THD *thd, const dd::Routine *routine,
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
                                          st_sp_chistics *sp_chistics) {
   DBUG_TRACE;
 

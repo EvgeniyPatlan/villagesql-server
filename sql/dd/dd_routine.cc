@@ -61,15 +61,13 @@
 #include "sql_string.h"
 #include "typelib.h"
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 #include "villagesql/schema/systable/helpers.h"
-=======
+
 #include <my_rapidjson_size_t.h>  // NOLINT(misc-include-cleaner)
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
 struct CHARSET_INFO;
 
