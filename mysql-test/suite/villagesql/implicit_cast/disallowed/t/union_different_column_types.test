@@ -1,4 +1,9 @@
-# Test UNION with different column types
+# Test set operations (UNION/INTERSECT/EXCEPT) with different column types.
+# Mixing a custom type with a non-custom type, or with a different custom type,
+# must be rejected for every set operation, not just UNION. (MySQL 9.7's
+# query_term refactor routes all of them through the batched
+# Item_aggregate_type::unify_types(), which must run the custom-type
+# compatibility check.)
 
 --source include/villagesql/install_complex_extension.inc
 
@@ -39,6 +44,26 @@ SELECT val FROM t_complex UNION SELECT val FROM t_complex_same UNION SELECT val 
 
 # UNION with VDF function converting string to COMPLEX (same type as column)
 SELECT val FROM t_complex UNION SELECT vsql_complex.COMPLEX::from_string(val) FROM t_string ORDER BY val;
+
+# INTERSECT between COMPLEX and DECIMAL
+--error ER_VILLAGESQL_GENERIC_ERROR
+SELECT val FROM t_complex INTERSECT SELECT val FROM t_numeric;
+
+# INTERSECT between COMPLEX and COMPLEX2 (different custom types)
+--error ER_VILLAGESQL_GENERIC_ERROR
+SELECT val FROM t_complex INTERSECT SELECT val FROM t_complex2_type;
+
+# EXCEPT between COMPLEX and DECIMAL
+--error ER_VILLAGESQL_GENERIC_ERROR
+SELECT val FROM t_complex EXCEPT SELECT val FROM t_numeric;
+
+# EXCEPT between COMPLEX and COMPLEX2 (different custom types)
+--error ER_VILLAGESQL_GENERIC_ERROR
+SELECT val FROM t_complex EXCEPT SELECT val FROM t_complex2_type;
+
+# INTERSECT/EXCEPT between same COMPLEX types must be allowed
+SELECT val FROM t_complex INTERSECT SELECT val FROM t_complex_same ORDER BY val;
+SELECT val FROM t_complex EXCEPT SELECT val FROM t_complex_same ORDER BY val;
 
 DROP TABLE t_complex;
 DROP TABLE t_numeric;
