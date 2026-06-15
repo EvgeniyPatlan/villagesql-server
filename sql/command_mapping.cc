@@ -43,6 +43,13 @@ class Command_maps final {
     sql_commands[SQLCOM_INSTALL_EXTENSION] = "install_extension";
     sql_commands[SQLCOM_UNINSTALL_EXTENSION] = "uninstall_extension";
 
+    // Coverage for the SQLCOM_END "no command" slot: the server calls
+    // get_sql_command_string() outside of any command, when
+    // thd->lex->sql_command == SQLCOM_END (upstream WL#16572). The array is
+    // sized [SQLCOM_END + 1] so this index is in bounds. VSQL's command gap
+    // means it can't be set by the positional initializer, so set it here.
+    sql_commands[SQLCOM_END] = "";
+
     // Verify every MySQL and VSQL command has a name string.
     for (unsigned int i = 0; i < (unsigned int)SQLCOM_MYSQL_COUNT; i++)
       assert(sql_commands[i] != nullptr);
@@ -221,16 +228,21 @@ const char *Command_maps::sql_commands[] = {"select",
                                             "restart_server",
                                             "create_srs",
                                             "drop_srs",
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-                                            "show_parse_tree"};
-=======
                                             "show_parse_tree",
                                             "create_library",
                                             "drop_library",
                                             "show_create_library",
-                                            ""};
-// keep the empty string last and add new elements before it.
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
+                                            "alter_library",
+                                            "show_status_library",
+                                            "create_masking_policy",
+                                            "drop_masking_policy",
+                                            "show_create_masking_policy"};
+// TODO(villagesql-rebase): this array is indexed by enum_sql_command and the
+// constructor asserts every native command (0..SQLCOM_MYSQL_COUNT) has a name.
+// When upstream adds new SQLCOM_* commands before SQLCOM_MYSQL_COUNT, add a
+// matching name here in enum order, or the constructor assert will fire.
+// Upstream keeps a trailing "" for the SQLCOM_END slot; because VSQL commands
+// create a gap, that slot is set by index in the constructor instead.
 
 Command_maps *g_command_maps{nullptr};
 }  // namespace
