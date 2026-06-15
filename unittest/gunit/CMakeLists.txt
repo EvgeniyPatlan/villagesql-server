@@ -362,12 +362,8 @@ MYSQL_ADD_EXECUTABLE(merge_small_tests-t ${ALL_SMALL_TESTS}
   COMPILE_DEFINITIONS ${DISABLE_PSI_DEFINITIONS}
   ENABLE_EXPORTS
   EXCLUDE_FROM_GCOV
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-  LINK_LIBRARIES sqlgunitlib gunit_small extra::rapidjson extra::boost server_unittest_library
-=======
   LINK_LIBRARIES sqlgunitlib gunit_small extra::rapidjson extra::boost
-    library_mysys
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
+    server_unittest_library library_mysys
   )
 IF(TARGET merge_small_tests-t)
   DOWNGRADE_STRINGOP_WARNINGS(merge_small_tests-t)
@@ -480,11 +476,8 @@ ADD_SUBDIRECTORY(libs/math)
 ADD_SUBDIRECTORY(libs/meta)
 ADD_SUBDIRECTORY(libs/ranges)
 ADD_SUBDIRECTORY(libs/serialization)
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 ADD_SUBDIRECTORY(villagesql)
-=======
 ADD_SUBDIRECTORY(libs/sets)
 ADD_SUBDIRECTORY(libs/strconv)
 ADD_SUBDIRECTORY(libs/utils)
 ADD_SUBDIRECTORY(libs/uuids)
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
