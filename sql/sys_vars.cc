@@ -7689,9 +7689,6 @@ Sys_var_bool Sys_restrict_fk_on_non_standard_key(
     NON_PERSIST SESSION_VAR(restrict_fk_on_non_standard_key), CMD_LINE(OPT_ARG),
     DEFAULT(true), NO_MUTEX_GUARD, NOT_IN_BINLOG,
     ON_CHECK(restrict_fk_on_non_standard_key_check), ON_UPDATE(nullptr));
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-}  // namespace
-=======
 
 Sys_var_bool Sys_innodb_native_foreign_keys(
     "innodb_native_foreign_keys",
@@ -7755,4 +7752,3 @@ Sys_var_flagset Sys_debug_a_global_flagset(
     NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(nullptr), ON_UPDATE(nullptr));
 }  // namespace
 #endif /* NDEBUG */
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857

@@ -35,11 +35,7 @@ void aggregated_stats_buffer::flush() {
   com_stmt_reset = 0ULL;
   com_stmt_reprepare = 0ULL;
   com_stmt_send_long_data = 0ULL;
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
   for (std::size_t i = 0; i < SQLCOM_COMPACT_COUNT; i++) com_stat[i] = 0ULL;
-=======
-  for (auto &i : com_stat) i = 0ULL;
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
   table_open_cache_hits = 0ULL;
   table_open_cache_misses = 0ULL;
   table_open_cache_overflows = 0ULL;
