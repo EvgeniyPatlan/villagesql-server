@@ -447,7 +447,7 @@ static constexpr const char kTVectorTypeName[] = "TVECTOR";
 constexpr int64_t kTVectorMaxPersistedLength = kTVectorMaxDimension * 8;
 
 constexpr auto TVECTOR = vsql::make_type<kTVectorTypeName>()
-                             .variable_length_type()
+                             .persisted_length(-1)
                              .max_decode_buffer_length(16)
                              .max_persisted_length(kTVectorMaxPersistedLength)
                              .params<TVectorParams, &TVectorParams::parse,

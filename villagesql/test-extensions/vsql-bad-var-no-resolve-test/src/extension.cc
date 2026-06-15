@@ -13,10 +13,10 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA
 
-// Bad-registration test extension: declares a variable-length type via
-// variable_length_type() but does not declare a max_persisted_length upper
-// bound. The server must reject this at INSTALL EXTENSION time with a clear
-// error from build_type_descriptor_v4.
+// Bad-registration test extension: declares a type with
+// persisted_length = -1 (variable-length / parameterized) but does not
+// provide resolve_params. The server must reject this at INSTALL EXTENSION
+// time with a clear error from build_type_descriptor_v3.
 
 #include <villagesql/vsql.h>
 
@@ -46,7 +46,7 @@ int bad_var_compare(vsql::CustomArg a, vsql::CustomArg b) {
 static constexpr const char kBadVarTypeName[] = "BAD_VAR_NO_RESOLVE";
 
 constexpr auto BAD_VAR_NO_RESOLVE = vsql::make_type<kBadVarTypeName>()
-                                        .variable_length_type()
+                                        .persisted_length(-1)
                                         .max_decode_buffer_length(16)
                                         .from_string<&bad_var_encode>()
                                         .to_string<&bad_var_decode>()

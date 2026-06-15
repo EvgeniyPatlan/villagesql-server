@@ -389,7 +389,7 @@ constexpr auto NO_DEFAULT_TYPE = vsql::make_type<kNoDefaultTypeName>()
 
 constexpr auto NO_DEFAULT_PARAM_TYPE =
     vsql::make_type<kNoDefaultParamTypeName>()
-        .variable_length_type()
+        .persisted_length(-1)
         .max_decode_buffer_length(16)
         .max_persisted_length(kNoDefaultSize)
         .params<NoDefaultParams, &NoDefaultParams::parse,
@@ -403,7 +403,7 @@ constexpr auto NO_DEFAULT_PARAM_TYPE =
 
 constexpr auto LARGE_DECODE_TYPE =
     vsql::make_type<kLargeDecodeTypeName>()
-        .variable_length_type()
+        .persisted_length(-1)
         .max_decode_buffer_length(1)
         .max_persisted_length(kLargeDecodePersistedLen)
         .params<LargeDecodeParams, &LargeDecodeParams::parse,
@@ -625,7 +625,7 @@ static constexpr const char kPVecTypeName[] = "PVEC";
 
 constexpr auto PVEC =
     vsql::make_type<kPVecTypeName>()
-        .variable_length_type()
+        .persisted_length(-1)
         .max_decode_buffer_length(16)
         .max_persisted_length(kPVecMaxPersistedLen)
         .params<PVecParams, &PVecParams::parse, &PVecParams::to_strings>()
