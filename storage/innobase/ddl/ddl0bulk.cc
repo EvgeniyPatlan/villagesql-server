@@ -1124,7 +1124,8 @@ dberr_t fill_tuple_up_to_n_cols(dtuple_t *tuple, const row_prebuilt_t *prebuilt,
 
         if (cmp_data_data(fld1->type.mtype, fld1->type.prtype, true,
                           static_cast<const byte *>(fld1->data),
-                          dfield_get_len(fld1), data2, data2_len) != 0) {
+                          dfield_get_len(fld1), data2, data2_len, nullptr) !=
+                0) {
           return DB_BULK_GCOL_INVALID_DATA;
         }
       }
@@ -1170,7 +1171,8 @@ dberr_t fill_tuple_up_to_n_cols(dtuple_t *tuple, const row_prebuilt_t *prebuilt,
         const byte *data1 = static_cast<const byte *>(fld1->data);
 
         if (cmp_data_data(fld1->type.mtype, fld1->type.prtype, true, data1,
-                          dfield_get_len(fld1), data2, data2_len) != 0) {
+                          dfield_get_len(fld1), data2, data2_len, nullptr) !=
+                0) {
           if (fld1->type.mtype == DATA_FLOAT) {
             /* In the case of FLOAT data type, the value in the CSV file
             could be rounded up/down and might not match with re-calculated
