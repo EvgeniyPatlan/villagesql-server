@@ -476,16 +476,9 @@ dict_index_t *FTS::create_index(dict_index_t *index, dict_table_t *table,
   ulint col_prtype = idx_field->col->prtype | DATA_NOT_NULL;
 
   dict_mem_fill_column_struct(field->col, 0, col_mtype, col_prtype, col_len,
-                              true, UINT32_UNDEFINED, UINT8_UNDEFINED,
-                              UINT8_UNDEFINED);
+                              true, UINT32_UNDEFINED, INVALID_ROW_VERSION,
+                              INVALID_ROW_VERSION);
   field->col->mbminmaxlen = idx_field->col->mbminmaxlen;
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-=======
-  field->fixed_len = 0;
-  field->col->set_version_added(INVALID_ROW_VERSION);
-  field->col->set_version_dropped(INVALID_ROW_VERSION);
-  field->col->set_phy_pos(UINT32_UNDEFINED);
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
   /* Doc ID */
   field = new_index->get_field(1);
@@ -530,15 +523,9 @@ dict_index_t *FTS::create_index(dict_index_t *index, dict_table_t *table,
   col_prtype = (DATA_NOT_NULL | DATA_BINARY_TYPE);
 
   dict_mem_fill_column_struct(field->col, 0, col_mtype, col_prtype, col_len,
-                              true, UINT32_UNDEFINED, UINT8_UNDEFINED,
-                              UINT8_UNDEFINED);
+                              true, UINT32_UNDEFINED, INVALID_ROW_VERSION,
+                              INVALID_ROW_VERSION);
   field->col->mbminmaxlen = 0;
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-=======
-  field->col->set_version_added(INVALID_ROW_VERSION);
-  field->col->set_version_dropped(INVALID_ROW_VERSION);
-  field->col->set_phy_pos(UINT32_UNDEFINED);
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
   /* The third field is on the word's position in the original doc */
   field = new_index->get_field(2);
@@ -555,15 +542,9 @@ dict_index_t *FTS::create_index(dict_index_t *index, dict_table_t *table,
   col_prtype = DATA_NOT_NULL;
 
   dict_mem_fill_column_struct(field->col, 0, col_mtype, col_prtype, col_len,
-                              true, UINT32_UNDEFINED, UINT8_UNDEFINED,
-                              UINT8_UNDEFINED);
+                              true, UINT32_UNDEFINED, INVALID_ROW_VERSION,
+                              INVALID_ROW_VERSION);
   field->col->mbminmaxlen = 0;
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-=======
-  field->col->set_version_added(INVALID_ROW_VERSION);
-  field->col->set_version_dropped(INVALID_ROW_VERSION);
-  field->col->set_phy_pos(UINT32_UNDEFINED);
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
   return new_index;
 }

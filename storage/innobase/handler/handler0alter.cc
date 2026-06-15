@@ -4778,19 +4778,14 @@ template <typename Table>
         dict_mem_table_add_col(
             ctx->new_table, ctx->heap, field->field_name, col_type,
             dtype_form_prtype(field_type, charset_no), col_len,
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-            !field->is_hidden_by_system(), UINT32_UNDEFINED, UINT8_UNDEFINED,
-            UINT8_UNDEFINED);
+            !field->is_hidden_by_system(), UINT32_UNDEFINED,
+            INVALID_ROW_VERSION, INVALID_ROW_VERSION);
 
         // Check and load custom column properties for the added column.
         auto col_no = ctx->new_table->n_def - 1;
         auto *table = ctx->new_table;
         villagesql::innodb::Custom_column::load(table, table->get_col(col_no),
                                                 field, nullptr);
-=======
-            !field->is_hidden_by_system(), UINT32_UNDEFINED,
-            INVALID_ROW_VERSION, INVALID_ROW_VERSION);
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
       }
     }
 

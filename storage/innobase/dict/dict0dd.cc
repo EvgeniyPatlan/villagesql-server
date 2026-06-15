@@ -3648,15 +3648,11 @@ static inline void fill_dict_existing_column(
 
     dict_mem_table_add_col(m_table, heap, field->field_name, mtype, prtype,
                            col_len, !field->is_hidden_by_system(), phy_pos,
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-                           (uint8_t)v_added, UINT8_UNDEFINED);
+                           (row_version_t)v_added, INVALID_ROW_VERSION);
     // Check and load custom column properties for the added column.
     auto col_no = m_table->n_def - 1;
     villagesql::innodb::Custom_column::load(m_table, m_table->get_col(col_no),
                                             field, column);
-=======
-                           (row_version_t)v_added, INVALID_ROW_VERSION);
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
   } else {
     dict_mem_table_add_v_col(m_table, heap, field->field_name, mtype, prtype,
                              col_len, pos,
