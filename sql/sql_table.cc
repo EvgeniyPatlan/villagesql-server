@@ -12194,21 +12194,20 @@ bool mysql_create_like_table(THD *thd, Table_ref *table, Table_ref *src_table,
         goto err;
     }
 
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
-    if (villagesql::Metadata_modifier::store(thd) || trans_commit_stmt(thd) ||
-        trans_commit_implicit(thd))
-      goto err;
-
-    if (post_ddl_ht) post_ddl_ht->post_ddl(thd);
-=======
     /* When this function is used in the bulk load statement context we commit
      and rollback in the main statement in sql_load. Same goes for post_ddl,
      skip it here. */
+    // TODO(villagesql-rebase): VSQL's Metadata_modifier::store() is coupled with
+    // the DDL commit here. Upstream 9.7 wrapped commit+post_ddl in
+    // skip_post_ddl_operations (bulk load defers them to sql_load). Verify the
+    // bulk-load + custom-type path: when skipped, VSQL metadata is not stored
+    // here either — confirm that is correct (no custom-type DDL via bulk load).
     if (!skip_post_ddl_operations) {
-      if (trans_commit_stmt(thd) || trans_commit_implicit(thd)) goto err;
+      if (villagesql::Metadata_modifier::store(thd) || trans_commit_stmt(thd) ||
+          trans_commit_implicit(thd))
+        goto err;
       if (post_ddl_ht) post_ddl_ht->post_ddl(thd);
     }
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
   }
   return false;
 
