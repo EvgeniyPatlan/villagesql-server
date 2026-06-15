@@ -91,10 +91,7 @@
 #include "string_with_len.h"
 #include "template_utils.h"  // pointer_cast
 #include "typelib.h"
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
 #include "villagesql/types/util.h"
-=======
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
 namespace dd {
 class Spatial_reference_system;

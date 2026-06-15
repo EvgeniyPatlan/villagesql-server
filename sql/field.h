@@ -63,18 +63,15 @@
 #include "sql/table.h"
 #include "sql_string.h"  // String
 #include "template_utils.h"
-<<<<<<< 03d249ddfb1799b24d422eaf31a18170c9b59400
+#include "vector-common/vector_constants.h"  // max_dimensions
 #include "villagesql/schema/descriptor/type_context.h"
+
+using sql_mode_t = uint64_t;
 
 namespace villagesql {
 class TypeDecoder;
 class TypeEncoder;
 }  // namespace villagesql
-=======
-#include "vector-common/vector_constants.h"  // max_dimensions
-
-using sql_mode_t = uint64_t;
->>>>>>> 845d525d49c8027a4d0cdcc43372c96ba295c857
 
 class Create_field;
 class CostOfItem;
