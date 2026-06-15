@@ -124,7 +124,8 @@ struct TypeObject {
 template <bool HasFromString = false, bool HasToString = false,
           bool HasCompare = false, typename ParamsType = void,
           bool HasIntToParams = false, bool HasResolveParams = false,
-          bool HasMaxPersistedLength = false, typename EFT = std::tuple<>,
+          bool HasMaxPersistedLength = false, bool HasVariableLength = false,
+          typename EFT = std::tuple<>,
           const char *Name = nullptr>
 class TypeBuilder {
  public:
@@ -135,6 +136,18 @@ class TypeBuilder {
 
   constexpr TypeBuilder &max_decode_buffer_length(int64_t len) {
     state_.desc.vef_desc.max_decode_buffer_length = len;
+    return *this;
+  }
+
+  // Marks the type as variable-length: its persisted size is decided per value
+  // (like a typed array) instead of being a single fixed
+  // footprint.
+  // Variable-length types must declare max_persisted_length() as the upper
+  // bound on the backing field. variable-length is a VEF_PROTOCOL_4 feature;
+  // build() raises the type's protocol to VEF_PROTOCOL_4 so the server reads
+  // the variable_length flag (earlier protocols do not carry it).
+  constexpr TypeBuilder &variable_length_type() {
+    state_.desc.vef_desc.variable_length = true;
     return *this;
   }
 
@@ -389,8 +402,17 @@ class TypeBuilder {
         ".max_persisted_length(N) before build() — required so constant-string "
         "type parameter inference can size its encode buffer. Pass the upper "
         "bound of persisted_length across all valid parameterizations.");
-    return TypeObject<EFT>{state_.desc, embedded_funcs_, state_.params_init_fn,
-                           state_.params_to_strings_init_fn};
+    // variable-length types are a VEF_PROTOCOL_4 feature. Raise the protocol
+    // here, at the single order-independent finalization point, so that calling
+    // variable_length_type() before or after the V3 setters can never leave the
+    // type below V4 (a later V3 setter would otherwise clobber the bump).
+    detail::TypeBuilderState s = state_;
+    if (s.desc.vef_desc.variable_length &&
+        s.desc.vef_desc.protocol < VEF_PROTOCOL_4) {
+      s.desc.vef_desc.protocol = VEF_PROTOCOL_4;
+    }
+    return TypeObject<EFT>{s.desc, embedded_funcs_, s.params_init_fn,
+                           s.params_to_strings_init_fn};
   }
 
   // Cross-specialization and make_type access.

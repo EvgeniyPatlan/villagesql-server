@@ -431,7 +431,7 @@ static constexpr const char kTarrayTypeName[] = "TARRAY";
 
 constexpr auto TARRAY =
     vsql::make_type<kTarrayTypeName>()
-        .persisted_length(-1)
+        .variable_length_type()
         .max_persisted_length(kTarrayMaxLen)
         .max_decode_buffer_length(kTarrayMaxLen / kElemInt16 * 8 + 2)
         .params<TarrayParams, &TarrayParams::parse, &TarrayParams::to_strings>()

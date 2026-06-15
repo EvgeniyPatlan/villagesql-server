@@ -74,7 +74,7 @@ class PT_custom_type : public PT_type {
 
     // Validate length specification against type characteristics
     if (nullptr != length_spec &&
-        type_context->descriptor()->persisted_length() != -1) {
+        !type_context->descriptor()->is_variable_length()) {
       // Fixed-length type with length specification - this is an error
       std::string qname = type_context->qualified_name();
       thd->syntax_error_at(pos,
@@ -152,9 +152,9 @@ class PT_custom_type : public PT_type {
       return nullptr;
     }
 
-    // Handle variable-length types (persisted_length == -1)
+    // Handle variable-length types
     if (type_context != nullptr &&
-        type_context->descriptor()->persisted_length() == -1) {
+        type_context->descriptor()->is_variable_length()) {
       auto *descriptor = type_context->descriptor();
       if (length != nullptr) {
         // TYPE(N) syntax used - convert N to parameters via callbacks

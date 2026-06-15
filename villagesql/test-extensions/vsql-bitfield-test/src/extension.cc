@@ -194,7 +194,7 @@ void bitfield_popcount(vsql::CustomArg in, vsql::IntResult out) {
 static constexpr const char kBitfieldTypeName[] = "BITFIELD";
 
 constexpr auto BITFIELD = vsql::make_type<kBitfieldTypeName>()
-                              .persisted_length(-1)
+                              .variable_length_type()
                               .max_persisted_length(kBitfieldMaxLen)
                               .max_decode_buffer_length(kBitfieldMaxText)
                               .from_string<&bitfield_from_string>()
