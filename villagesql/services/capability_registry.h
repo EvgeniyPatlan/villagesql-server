@@ -30,7 +30,7 @@ extern bool vsql_allow_preview_extensions;
 
 namespace villagesql::services {
 
-enum class LoadReason { kStartup, kInstall };
+enum class LoadReason { kStartup, kInstall, kUpdate };
 enum class UnloadReason { kShutdown, kUninstall };
 
 // Context passed to on_populate. capability_config is filled in by

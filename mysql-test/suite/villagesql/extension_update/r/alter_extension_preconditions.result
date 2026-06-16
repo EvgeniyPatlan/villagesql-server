@@ -27,12 +27,12 @@ UNINSTALL EXTENSION vsql_simple;
 ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
 ERROR HY000: ALTER EXTENSION ... UPDATE TO failed: extension 'vsql_simple' is not installed
 #
-# Test 4: all preconditions met — control reaches the trailing
-# "not yet supported" error
+# Test 4: all preconditions met — ALTER succeeds. Updating to the
+# same version is a degenerate no-op-style swap that exercises the
+# full happy path without testing version-bump semantics.
 #
 INSTALL EXTENSION vsql_simple;
 ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
-ERROR HY000: ALTER EXTENSION ... UPDATE TO is not yet supported
 UNINSTALL EXTENSION vsql_simple;
 SET GLOBAL offline_mode = OFF;
 DROP USER 'alter_test_user'@'localhost';

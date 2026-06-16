@@ -34,6 +34,12 @@ vsql_add_test_extension(vsql-preview-ping-v2-test      vsql_preview_ping_v2_test
 vsql_add_test_extension(vsql-sys-var-rollback-test     vsql_sys_var_rollback_test)
 vsql_add_test_extension(vsql-noop-test                 vsql_noop_test)
 
+# Paired versions of the update_test extension. Exercise ALTER EXTENSION
+# UPDATE TO with binary-compatible storage and different VDF/to_string
+# behavior between versions.
+vsql_add_test_extension(update-test-v1                 update_test  VERSION 1.0.0)
+vsql_add_test_extension(update-test-v2                 update_test  VERSION 2.0.0)
+
 # Built against the frozen stable v3 SDK so the variable-length type registers
 # at VEF_PROTOCOL_3 and is rejected by build_type_descriptor_v3 (missing
 # resolve_params) -- a path the current dev SDK can no longer produce.

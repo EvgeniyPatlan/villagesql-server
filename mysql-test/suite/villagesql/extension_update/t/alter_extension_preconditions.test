@@ -66,11 +66,11 @@ UNINSTALL EXTENSION vsql_simple;
 ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
 
 --echo #
---echo # Test 4: all preconditions met — control reaches the trailing
---echo # "not yet supported" error
+--echo # Test 4: all preconditions met — ALTER succeeds. Updating to the
+--echo # same version is a degenerate no-op-style swap that exercises the
+--echo # full happy path without testing version-bump semantics.
 --echo #
 INSTALL EXTENSION vsql_simple;
---error ER_VILLAGESQL_GENERIC_ERROR
 ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
 
 # Cleanup

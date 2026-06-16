@@ -17,6 +17,8 @@ SET(VILLAGESQL_VEB_SOURCES
   extension_uninstall_checks.cc
   register.cc
   sql_extension.cc
+  sql_extension_register.cc
+  sql_extension_update.cc
   validate.cc
   veb_file.cc
   veb_register_type_v1.cc

@@ -1,6 +1,6 @@
 # ALTER EXTENSION ... UPDATE TO acquires the standard DDL locks
 # (global shared read lock, backup lock, exclusive extension MDL lock) and
-# validates the extension name before reporting "not yet supported".
+# validates the extension name before doing anything else.
 #
 # Bad-name validation runs before any lock acquisition.
 
@@ -19,9 +19,10 @@ INSTALL EXTENSION vsql_simple;
 ALTER EXTENSION `1bad_name` UPDATE TO '1.0';
 
 --echo #
---echo # Test 2: ALTER reaches the not-yet-supported error after locks succeed
+--echo # Test 2: ALTER succeeds when all preconditions are met. Updating
+--echo # to the same version is a degenerate no-op-style swap that exercises
+--echo # the full happy path past the lock acquisition.
 --echo #
---error ER_VILLAGESQL_GENERIC_ERROR
 ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
 
 --echo #

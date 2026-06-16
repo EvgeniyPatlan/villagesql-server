@@ -200,6 +200,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ut0ut.h"
 #include "villagesql/custom_column.h"
 #include "villagesql/include/error.h"
+#include "villagesql/include/storage_hooks.h"
 #include "villagesql/schema/util.h"
 #else
 #include <typelib.h>
@@ -5435,6 +5436,15 @@ static PSI_meter_info_v1 inno_meter[] = {
      std::size(data_metrics)}};
 #endif /* HAVE_PSI_METRICS_INTERFACE */
 
+// Thunk for the villagesql storage-invalidation hook. Forwards to the
+// InnoDB-side primitive that marks each named dict_table_t with
+// discard_after_ddl. Registered at innodb_init time on
+// villagesql::g_storage_invalidate_tables.
+static void innobase_villagesql_invalidate_tables(
+    const std::vector<villagesql::QualifiedTableName> &tables) {
+  villagesql::innodb::mark_dict_tables_for_discard(tables);
+}
+
 /** Initialize the InnoDB storage engine plugin.
 @param[in,out]  p       InnoDB handlerton
 @return error code
@@ -5444,6 +5454,9 @@ static int innodb_init(void *p) {
 
   vef_storage_api_wrapper_init();
   acquire_plugin_services();
+
+  villagesql::g_storage_invalidate_tables =
+      innobase_villagesql_invalidate_tables;
 
   handlerton *innobase_hton = (handlerton *)p;
   innodb_hton_ptr = innobase_hton;

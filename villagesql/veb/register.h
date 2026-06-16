@@ -37,6 +37,12 @@ namespace veb {
 // REQUIRES: Caller must hold victionary write lock.
 // Returns false on success, true on error; error_out is set to a descriptive
 // message.
+//
+// Collision checks use the THD-aware lookup so that pending changes already
+// queued on this THD (e.g. the UPDATE path's prior MarkForDeletion calls)
+// are visible and do not cause false "already exists" errors. For INSTALL
+// (no prior MarkForDeletion in the same statement) this is equivalent to a
+// committed-only view.
 bool register_validated_extension(THD &thd, ValidatedRegistration validated,
                                   std::string &error_out);
 

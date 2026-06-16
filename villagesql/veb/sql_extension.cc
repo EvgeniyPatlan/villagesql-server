@@ -65,6 +65,17 @@
 char *opt_veb_dir_ptr;
 char opt_veb_dir[FN_REFLEN];
 
+namespace villagesql {
+// Phase 2 of ALTER EXTENSION ... UPDATE TO, defined in
+// sql_extension_update.cc. Called after the prologue (locks, preconditions,
+// VEB load) has succeeded. Takes ownership of the loaded registration and
+// hash; on any error path unloads the new .so before returning.
+bool execute_upgrade(THD *thd, const std::string &extension_name,
+                     const std::string &new_version,
+                     veb::ExtensionRegistration &&new_registration,
+                     std::string &&new_sha256_hash);
+}  // namespace villagesql
+
 namespace {
 // Helpers below execute_install. Forward-declared so the install/update
 // paths can call them without reordering this file.
@@ -184,9 +195,17 @@ bool Sql_cmd_install_extension::execute_update(
   }
   if (thd->is_error()) return end_transaction(thd, true);
 
-  villagesql_error("ALTER EXTENSION ... UPDATE TO is not yet supported",
-                   MYF(0));
-  return end_transaction(thd, true);
+  villagesql::veb::ExtensionRegistration registration;
+  std::string sha256_hash;
+  if (load_veb_and_so(thd, extension_name, veb_version, registration,
+                      sha256_hash, villagesql::services::LoadReason::kUpdate))
+    return end_transaction(thd, true);
+
+  // Hand off to sql_extension_update.cc for the compatibility checks and
+  // the actual victionary swap.
+  return villagesql::execute_upgrade(thd, extension_name, version,
+                                     std::move(registration),
+                                     std::move(sha256_hash));
 }
 
 bool Sql_cmd_install_extension::execute_install(
@@ -242,6 +261,11 @@ bool Sql_cmd_install_extension::execute_install(
     return end_transaction(thd, true);
   }
 
+  // TODO(villagesql): the parse + register + MarkForInsertion sequence below
+  // duplicates mark_extension_for_insertion in sql_extension_register.cc.
+  // Reuse the helper here once INSTALL is restructured to share the code path
+  // with UPDATE (preview-capability registration would need to move alongside
+  // or remain inline).
   bool mark_success = true;
   {
     auto write_lock = victionary.get_write_lock();
@@ -653,6 +677,15 @@ bool remove_extension_from_victionary(
   // Check for active references to VDFs, TypeContexts, and TypeDescriptors.
   // A use_count > 1 means something other than Victionary holds a reference
   // (e.g., an executing query).
+  //
+  // TODO(villagesql-beta): this only catches in-flight VDF references. There
+  // is no check for persisted VDF dependents — deterministic VDFs can appear
+  // in generated columns, functional indexes, CHECK constraints, and DEFAULT
+  // expressions, and villagesql does not track those references in any system
+  // table (VDFs resolve at parse time only). Uninstalling such an extension
+  // silently invalidates the persisted expressions. The same gap exists in
+  // ALTER EXTENSION ... UPDATE TO (see check_update_compatibility). Fix
+  // requires a new custom_vdf_uses-style system table populated at DDL time.
   const auto &all_funcs = victionary.funcs().get_all_committed();
   for (const auto *func : all_funcs) {
     if (func->extension_name() == extension_name &&
@@ -699,6 +732,10 @@ bool remove_extension_from_victionary(
       }
     }
   }
+
+  // TODO(villagesql): the inline deletion loops below duplicate
+  // mark_extension_for_deletion in sql_extension_register.cc. Reuse the helper
+  // here once UNINSTALL is restructured to share the code path with UPDATE.
 
   // Delete TypeContexts for this extension (we do it before TypeDescriptors
   // since TypeContext holds a raw pointer to TypeDescriptor, but under the

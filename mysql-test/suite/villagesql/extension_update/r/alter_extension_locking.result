@@ -6,10 +6,11 @@ INSTALL EXTENSION vsql_simple;
 ALTER EXTENSION `1bad_name` UPDATE TO '1.0';
 ERROR HY000: Extension name '1bad_name' must start with a letter
 #
-# Test 2: ALTER reaches the not-yet-supported error after locks succeed
+# Test 2: ALTER succeeds when all preconditions are met. Updating
+# to the same version is a degenerate no-op-style swap that exercises
+# the full happy path past the lock acquisition.
 #
 ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
-ERROR HY000: ALTER EXTENSION ... UPDATE TO is not yet supported
 #
 # Test 3: ALTER blocks on the exclusive extension MDL lock when another
 # connection holds it (UNINSTALL paused after lock acquisition)

@@ -29,6 +29,7 @@
 #include "storage/innobase/include/dict0dd.h"
 #include "storage/innobase/include/dict0dict.h"
 #include "storage/innobase/include/dict0mem.h"
+#include "storage/innobase/include/dict0priv.h"
 #include "storage/innobase/include/ha_prototypes.h"
 #include "storage/innobase/include/log0chkp.h"
 #include "storage/innobase/include/mem0mem.h"
@@ -1102,6 +1103,35 @@ dberr_t Custom_column::allocate_fetch(const dict_table_t *table,
   data_len = new_len;
 
   return DB_SUCCESS;
+}
+
+void mark_dict_tables_for_discard(
+    const std::vector<std::pair<std::string, std::string>> &tables) {
+  // dict_sys may not be initialized (e.g. during early startup).
+  if (dict_sys == nullptr) return;
+  if (tables.empty()) return;
+
+  // Look up each (db, table) in the dict cache and set discard_after_ddl
+  // on any matching dict_table_t. The next ha_innobase::open will see the
+  // flag, evict the stale entry, and reload from the data dictionary --
+  // releasing its shared_ptr<TypeContext> reference (which pins a function
+  // pointer into the about-to-be-unloaded .so).
+  //
+  // Mirrors the innobase_discard_table primitive used by in-place ALTER
+  // TABLE, minus the stats-drop side effect.
+  dict_sys_mutex_enter();
+  for (const auto &[db, name] : tables) {
+    // InnoDB-internal name format is "db/name". InnoDB does its own
+    // lowercase folding on lower_case_file_system systems; we pass the
+    // names exactly as the catalog stored them and let the lookup
+    // normalize.
+    std::string key = db + "/" + name;
+    dict_table_t *table = dict_table_check_if_in_cache_low(key.c_str());
+    if (table != nullptr) {
+      table->discard_after_ddl = true;
+    }
+  }
+  dict_sys_mutex_exit();
 }
 
 }  // namespace innodb

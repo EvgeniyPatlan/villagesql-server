@@ -41,7 +41,7 @@ extern char opt_veb_dir[FN_REFLEN];
 //   INSTALL EXTENSION name VERSION 'x.y.z'
 //     -- installs the named version
 //   ALTER EXTENSION name UPDATE TO 'x.y.z'
-//     -- not yet supported; rejected at execute time
+//     -- replaces the currently-installed extension; requires offline_mode = ON
 class Sql_cmd_install_extension : public Sql_cmd {
  public:
   // version: requested VEB-manifest version (m_version.str == nullptr if no
@@ -50,8 +50,8 @@ class Sql_cmd_install_extension : public Sql_cmd {
   // versioned VEB present, or {name}.veb if it exists.
   //
   // update: true when the statement is `ALTER EXTENSION ... UPDATE TO`.
-  // Dispatched to execute_update, which currently rejects with a
-  // "not yet supported" error.
+  // Dispatched to execute_update, which replaces the currently-installed
+  // extension with a new version.
   explicit Sql_cmd_install_extension(const LEX_CSTRING &name,
                                      const LEX_CSTRING &version,
                                      bool update = false)
@@ -61,7 +61,7 @@ class Sql_cmd_install_extension : public Sql_cmd {
     return SQLCOM_INSTALL_EXTENSION;
   }
 
-  // Install a new extension.
+  // Install a new extension, or alter an existing one when m_update is true.
   // @param thd  Thread context
   // @returns false if success, true otherwise
   bool execute(THD *thd) override;

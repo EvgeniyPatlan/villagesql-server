@@ -1,6 +1,0 @@
-SET GLOBAL offline_mode = ON;
-INSTALL EXTENSION vsql_simple;
-ALTER EXTENSION vsql_simple UPDATE TO '0.0.1';
-ERROR HY000: ALTER EXTENSION ... UPDATE TO is not yet supported
-UNINSTALL EXTENSION vsql_simple;
-SET GLOBAL offline_mode = OFF;

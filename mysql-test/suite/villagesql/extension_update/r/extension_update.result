@@ -1,0 +1,48 @@
+# Install v1 of update_test extension
+INSTALL EXTENSION update_test VERSION '1.0.0';
+# Verify v1 is installed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+update_test	1.0.0
+# Create table and insert rows using the COUNTER type
+CREATE TABLE t (id INT PRIMARY KEY, val update_test.COUNTER);
+INSERT INTO t VALUES (1, '10');
+INSERT INTO t VALUES (2, '20');
+INSERT INTO t VALUES (3, '5');
+# v1: to_string produces "v1:N", counter_double returns N*2
+SELECT id, update_test.counter_to_string(val) AS str,
+update_test.counter_double(val) AS doubled
+FROM t ORDER BY id;
+id	str	doubled
+1	v1:10	20
+2	v1:20	40
+3	v1:5	10
+# Update requires offline_mode = ON; without it the command must fail
+Attempting to update update_test to 2.0.0 (expecting error)
+ERROR HY000: Updating an extension requires the server to be in offline mode. Run SET GLOBAL offline_mode = ON before updating.
+# Enter offline mode and update
+SET GLOBAL offline_mode = ON;
+Updated update_test to 2.0.0
+SET GLOBAL offline_mode = OFF;
+# Verify v2 is now installed
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+update_test	2.0.0
+# v2: to_string produces "v2:N", counter_double returns N*3
+# The stored binary data is unchanged, only the interpretation changes
+SELECT id, update_test.counter_to_string(val) AS str,
+update_test.counter_double(val) AS doubled
+FROM t ORDER BY id;
+id	str	doubled
+1	v2:10	30
+2	v2:20	60
+3	v2:5	15
+# Clean up
+DROP TABLE t;
+UNINSTALL EXTENSION update_test;
+SELECT extension_name, extension_version FROM INFORMATION_SCHEMA.EXTENSIONS;
+EXTENSION_NAME	EXTENSION_VERSION
+INSTALL EXTENSION update_test;
+ERROR HY000: Multiple versions of extension 'update_test' found in 'VEBDIR'; specify a version with INSTALL EXTENSION update_test VERSION 'x.y.z'
+INSTALL EXTENSION update_test VERSION '2.0.0';
+UNINSTALL EXTENSION update_test;

@@ -42,7 +42,7 @@ bool register_validated_extension(THD &thd, ValidatedRegistration validated,
             type_name.c_str(), ext_name.c_str());
 
     const TypeDescriptor *existing =
-        victionary.type_descriptors().get_committed(descriptor.key());
+        victionary.type_descriptors().get(&thd, descriptor.key().str());
     if (existing) {
       error_out = "type '" + type_name + "' already exists";
       LogVSQL(ERROR_LEVEL, "Extension '%s': %s", ext_name.c_str(),
@@ -70,7 +70,7 @@ bool register_validated_extension(THD &thd, ValidatedRegistration validated,
             func_name.c_str(), ext_name.c_str());
 
     const FuncDescriptor *existing =
-        victionary.funcs().get_committed(descriptor.key());
+        victionary.funcs().get(&thd, descriptor.key().str());
     if (existing) {
       error_out = "VDF '" + func_name + "' already exists";
       LogVSQL(ERROR_LEVEL, "Extension '%s': %s", ext_name.c_str(),

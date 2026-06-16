@@ -15,6 +15,7 @@
 
 SET(VILLAGESQL_COMMON_SOURCES
   semver.cc
+  storage_hooks.cc
 )
 
 # Object library for compilation into sql_main (avoids circular dependencies)

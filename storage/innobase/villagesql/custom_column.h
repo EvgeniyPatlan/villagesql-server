@@ -18,7 +18,9 @@
 #define STORAGE_INNOBASE_VILLAGESQL_CUSTOM_COLUMN_H_
 
 #include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "db0err.h"
 #include "mem0mem.h"
@@ -281,6 +283,23 @@ class Custom_column {
   std::shared_ptr<const TypeContext> type_context_;
   StorageCtx *storage_ctx_ = nullptr;
 };
+
+// Mark each named table's dict_table_t with discard_after_ddl=true so that
+// the next ha_innobase::open evicts and reloads it from the data dictionary.
+// Called by ALTER EXTENSION UPDATE after the catalog commit and before the
+// SQL-layer table-share flush. The caller (villagesql) supplies the list,
+// derived from a single villagesql.custom_columns walk, so the share flush
+// can reuse it.
+//
+// Mirrors the innobase_discard_table primitive used by in-place ALTER TABLE.
+// Safe to call after the main ALTER transaction has committed. Locks
+// dict_sys->mutex internally.
+//
+// Each entry's first member is the database name and second is the table
+// name; the function constructs the InnoDB-internal "db/table" identifier
+// internally.
+void mark_dict_tables_for_discard(
+    const std::vector<std::pair<std::string, std::string>> &tables);
 
 }  // namespace innodb
 }  // namespace villagesql
