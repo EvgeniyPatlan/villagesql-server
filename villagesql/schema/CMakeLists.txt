@@ -30,6 +30,7 @@ SET(VILLAGESQL_SCHEMA_SOURCES
   systable/custom_sp_params.cc
   systable/extensions.cc
   systable/helpers.cc
+  systable/pending_action.cc
   systable/properties.cc
 )
 

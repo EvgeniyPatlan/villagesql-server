@@ -43,22 +43,27 @@ class Sql_cmd_install_extension : public Sql_cmd {
   // {name}.veb if it exists.
   //
   // update_version: true when the statement updates an already-installed
-  // extension to a different version. Dispatched to execute_update_version,
-  // which currently rejects with a "not yet supported" error.
+  // extension to a different version. Dispatched to execute_update_version.
   //
   // at_restart: when update_version is true, indicates the version change
   // should be deferred until the next server restart rather than applied
   // live. Today this is always true when update_version is true; the flag
   // is kept separate so a future live-update path reuses
   // execute_update_version with the flag unset.
+  //
+  // reset_pending: true when the statement clears any pending action on the
+  // extension (`ALTER EXTENSION foo VERSION RESET`). Mutually exclusive with
+  // update_version. Dispatched to execute_reset_pending.
   explicit Sql_cmd_install_extension(const LEX_CSTRING &name,
                                      const LEX_CSTRING &version,
                                      bool update_version = false,
-                                     bool at_restart = false)
+                                     bool at_restart = false,
+                                     bool reset_pending = false)
       : m_name(name),
         m_version(version),
         m_update_version(update_version),
-        m_at_restart(at_restart) {}
+        m_at_restart(at_restart),
+        m_reset_pending(reset_pending) {}
 
   enum_sql_command sql_command_code() const override {
     return SQLCOM_INSTALL_EXTENSION;
@@ -72,11 +77,13 @@ class Sql_cmd_install_extension : public Sql_cmd {
  private:
   bool execute_install(THD *thd);
   bool execute_update_version(THD *thd);
+  bool execute_reset_pending(THD *thd);
 
   LEX_CSTRING m_name;
   LEX_CSTRING m_version;
   bool m_update_version;
   bool m_at_restart;
+  bool m_reset_pending;
 };
 
 // This class implements the UNINSTALL EXTENSION statement.

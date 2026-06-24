@@ -17,9 +17,11 @@
 #ifndef VILLAGESQL_SCHEMA_SYSTABLE_EXTENSIONS_H_
 #define VILLAGESQL_SCHEMA_SYSTABLE_EXTENSIONS_H_
 
+#include <optional>
 #include <string>
 
 #include "villagesql/schema/systable/helpers.h"
+#include "villagesql/schema/systable/pending_action.h"
 
 // Forward declarations
 struct TABLE;
@@ -69,6 +71,12 @@ struct ExtensionEntry {
   std::string extension_version;
   std::string veb_sha256;
 
+  // Pending deferred action for this extension. Absent (std::nullopt) when
+  // no action is pending; present when one has been queued for the next
+  // restart. The PendingAction class encapsulates the wire format and the
+  // typed accessors; callers should not depend on the storage layout.
+  std::optional<PendingAction> pending_action;
+
   // Full constructor with all fields
   ExtensionEntry(ExtensionKey key, std::string version, std::string sha256)
       : extension_version(std::move(version)),
@@ -85,6 +93,9 @@ struct ExtensionEntry {
 
   // Accessor for key component (delegate to key)
   const std::string &extension_name() const { return key_.extension_name(); }
+
+  // Convenience: true if a deferred action is pending for this extension.
+  bool has_pending_action() const { return pending_action.has_value(); }
 
  protected:
   void set_key(ExtensionKey key) { key_ = std::move(key); }
