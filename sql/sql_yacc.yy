@@ -18307,6 +18307,15 @@ alter_extension_stmt:
                 to_lex_cstring($3), to_lex_cstring($5),
                 /*update_version=*/true, /*at_restart=*/true);
           }
+        | ALTER EXTENSION_SYM IDENT_sys VERSION_SYM RESET_SYM
+          {
+            LEX *lex= Lex;
+            lex->sql_command= SQLCOM_INSTALL_EXTENSION;
+            lex->m_sql_cmd= new (YYMEM_ROOT) Sql_cmd_install_extension(
+                to_lex_cstring($3), NULL_CSTR,
+                /*update_version=*/false, /*at_restart=*/false,
+                /*reset_pending=*/true);
+          }
         ;
 
 uninstall:

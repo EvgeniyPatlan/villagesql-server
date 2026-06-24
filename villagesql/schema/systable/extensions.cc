@@ -39,6 +39,13 @@ bool TableTraits<ExtensionEntry>::read_from_table(TABLE &table,
   // veb_sha256 (field 2)
   read_string_field(field[2], entry.veb_sha256);
 
+  std::string err;
+  if (PendingAction::ReadFromTable(table, entry.pending_action, err)) {
+    LogVSQL(ERROR_LEVEL, "extension '%s': %s", entry.extension_name().c_str(),
+            err.c_str());
+    return true;
+  }
+
   return false;  // Success
 }
 
@@ -58,6 +65,15 @@ bool TableTraits<ExtensionEntry>::write_to_table(TABLE &table,
   // veb_sha256 (field 2) - required
   field[2]->store(entry.veb_sha256.c_str(), entry.veb_sha256.length(),
                   &my_charset_utf8mb4_bin);
+
+  {
+    std::string err;
+    if (PendingAction::StoreToTable(table, entry.pending_action, err)) {
+      LogVSQL(ERROR_LEVEL, "extension '%s': %s", entry.extension_name().c_str(),
+              err.c_str());
+      return true;
+    }
+  }
 
   // Write the row - use ha_write_row for INSERT
   int error = table.file->ha_write_row(table.record[0]);
@@ -116,6 +132,14 @@ bool TableTraits<ExtensionEntry>::update_in_table(TABLE &table,
                   entry.extension_version.length(), &my_charset_utf8mb4_bin);
   field[2]->store(entry.veb_sha256.c_str(), entry.veb_sha256.length(),
                   &my_charset_utf8mb4_bin);
+  {
+    std::string err;
+    if (PendingAction::StoreToTable(table, entry.pending_action, err)) {
+      LogVSQL(ERROR_LEVEL, "extension '%s': %s", entry.extension_name().c_str(),
+              err.c_str());
+      return true;
+    }
+  }
 
   // Update the row
   error = table.file->ha_update_row(table.record[1], table.record[0]);
