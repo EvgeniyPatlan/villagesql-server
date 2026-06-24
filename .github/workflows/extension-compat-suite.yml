@@ -73,8 +73,8 @@ jobs:
         run: |
           # Delegate all matrix logic to the script so it can be tested locally:
           #   PLATFORM_FILTER=macos-arm64 ABI_FILTER=stable \
-          #     ./scripts/villagesql_build-compat-matrix.sh
-          mapfile -t MATRICES < <(./scripts/villagesql_build-compat-matrix.sh)
+          #     ./scripts/ci_helpers/villagesql_build-compat-matrix.sh
+          mapfile -t MATRICES < <(./scripts/ci_helpers/villagesql_build-compat-matrix.sh)
           BUILD_MATRIX="${MATRICES[0]}"
           TEST_MATRIX="${MATRICES[1]}"
 

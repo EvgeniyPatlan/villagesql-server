@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 # Builds the JSON matrices used by extension-compat-suite.yml.
 #
-# TODO(villagesql-beta): this and the other Actions-only scripts (e.g.
-# should_run_all_tests.sh) should move into scripts/ci_helpers/ alongside the
-# slash-command/extension-compat helpers; left here for now to keep this PR's
-# diff focused. Update the workflow reference when moved.
-#
 # Outputs two JSON values to stdout (one per line):
 #   1. build-matrix  — platforms for the build-server job (no abi dimension;
 #                      the server binary is ABI-agnostic)
@@ -19,9 +14,9 @@
 #                       (default: villagesql/dev_server/bundled_extensions.txt)
 #
 # Usage (from repo root):
-#   ./scripts/villagesql_build-compat-matrix.sh
-#   PLATFORM_FILTER=macos-arm64 ABI_FILTER=stable ./scripts/villagesql_build-compat-matrix.sh
-#   EXTENSION_FILTER=vsql-ai ./scripts/villagesql_build-compat-matrix.sh
+#   ./scripts/ci_helpers/villagesql_build-compat-matrix.sh
+#   PLATFORM_FILTER=macos-arm64 ABI_FILTER=stable ./scripts/ci_helpers/villagesql_build-compat-matrix.sh
+#   EXTENSION_FILTER=vsql-ai ./scripts/ci_helpers/villagesql_build-compat-matrix.sh
 
 set -euo pipefail
 
