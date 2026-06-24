@@ -51,6 +51,7 @@
 #include "villagesql/services/sys_var_access.h"
 #include "villagesql/veb/register.h"
 #include "villagesql/veb/sql_extension.h"
+#include "villagesql/veb/sql_extension_update_apply.h"
 #include "villagesql/veb/validate.h"
 
 #include <archive.h>
@@ -742,6 +743,22 @@ static bool load_one_extension(THD *thd, const std::string &extension_name,
     return true;
   }
 
+  // From here on, *registration owns process-global state (dlopen'd .so
+  // and populated capabilities). Any failure must unload it before
+  // returning true to avoid leaking the registration to the caller.
+  bool keep_loaded = false;
+  auto unload_on_failure = create_scope_guard([&]() {
+    if (keep_loaded) return;
+    LogVSQL(INFORMATION_LEVEL,
+            "Unloading partially-registered VEF extension '%s' after load "
+            "failure",
+            extension_name.c_str());
+    unload_vef_extension(
+        {.reason = villagesql::services::UnloadReason::kShutdown, .thd = thd},
+        *registration);
+    *registration = ExtensionRegistration{};
+  });
+
   std::string reg_error;
   std::optional<ValidatedRegistration> validated = parse_extension_registration(
       *registration, extension_name, expected_version, reg_error);
@@ -783,6 +800,9 @@ static bool load_one_extension(THD *thd, const std::string &extension_name,
   LogVSQL(INFORMATION_LEVEL,
           "Successfully registered VEF extension '%s' from '%s'",
           extension_name.c_str(), so_path.c_str());
+  // Suppress the unload-on-failure scope guard set up above: the caller
+  // now owns *registration and is responsible for its lifetime.
+  keep_loaded = true;
   return false;
 }
 
@@ -801,25 +821,68 @@ bool load_installed_extensions(THD *thd) {
   int success_count = 0;
   std::set<std::string> installed_extensions;
 
-  // Collected during the main pass: entries that had a pending action this
-  // restart didn't apply, paired with the new pending_action value
-  // (annotated with a "not yet implemented" failure) to persist after the
-  // loop. Kept by value so we don't depend on the victionary cache after
-  // the lock is released.
-  struct PendingFailureToPersist {
-    ExtensionKey key;
-    PendingAction updated;
-    std::string original_extension_version;
-    std::string original_veb_sha256;
+  // Phase 2 of ALTER EXTENSION ... AT RESTART. Decide which pending actions
+  // to apply this restart, stage the catalog mutations in the uncommitted
+  // view, and then proceed with the regular per-extension load loop reading
+  // the staged values via `victionary.extensions().get(thd, key)`. On the
+  // first pass, if any use_target load fails we unload any target loads
+  // that succeeded for earlier extensions, rollback all uncommitted ops,
+  // re-stage MarkFailed-only records for every pending row, and retry.
+  //
+  // TODO(villagesql-preview): add an operator-facing boot flag
+  // (e.g. --vsql-skip-pending-extension-updates) that, when set, makes
+  // DecideAllPending treat every pending action as use_current with a
+  // "skipped by operator request" failure_msg. Useful when a queued
+  // update's target package is suspect and the operator wants the
+  // server up at the current version so they can RESET UPDATE via SQL.
+  //
+  // TODO(villagesql-preview): consider a second boot flag
+  // (e.g. --vsql-fail-on-pending-extension-update-failure) that makes
+  // any apply failure cause startup to fail rather than falling back to
+  // the current version. Strict-mode option for deployments that want
+  // to be loud about update failures instead of soft-failing.
+  std::vector<villagesql::veb::ApplyDecision> decisions;
+  {
+    auto lock_guard = victionary.get_write_lock();
+    decisions = villagesql::veb::DecideAllPending(thd, victionary);
+    villagesql::veb::ApplyCrossExtensionPolicy(
+        &decisions, villagesql::veb::CrossExtensionPolicy::kIndependent);
+    if (villagesql::veb::StageDecisions(thd, &victionary, decisions)) {
+      LogVSQL(ERROR_LEVEL,
+              "Failed to stage pending-update decisions at restart");
+      return true;
+    }
+  }
+
+  // Track extensions whose target .so was loaded successfully during the
+  // first pass, so we can unload them before retrying with current versions.
+  struct LoadedTargetTracker {
+    std::string extension_name;
+    ExtensionRegistration registration;
   };
-  std::vector<PendingFailureToPersist> pending_failures_to_persist;
+  std::vector<LoadedTargetTracker> loaded_targets_first_pass;
+  bool retry_with_current = false;
+  bool first_pass = true;
+
+retry_after_rollback:
+  loaded_targets_first_pass.clear();
+  success_count = 0;
+  installed_extensions.clear();
 
   {
     auto lock_guard = victionary.get_write_lock();
 
-    // Get all committed extensions from cache
+    // Iterate every installed extension, with any Phase-A staged
+    // mutations overlaid on top of the on-disk row. When there are no
+    // pending ALTER EXTENSION ... AT RESTART actions, this is equivalent
+    // to reading the on-disk rows directly. When pending actions exist,
+    // entries with a use_target decision yield the staged target version
+    // + sha (so the loop loads the target .so), and entries with a
+    // had_failure decision yield the original version + sha plus a
+    // MarkFailed pending_action (so the loop loads the current .so and
+    // the failure is queryable).
     std::vector<const ExtensionEntry *> all_extensions =
-        victionary.extensions().get_all_committed();
+        victionary.extensions().get_all(thd);
 
     row_count = all_extensions.size();
 
@@ -831,91 +894,117 @@ bool load_installed_extensions(THD *thd) {
       const std::string &expected_version = entry->extension_version;
       const std::string &sha256 = entry->veb_sha256;
 
+      // Determine whether this extension's effective version comes from a
+      // use_target decision (so a load failure here means "fall back").
+      bool this_extension_use_target = false;
+      if (first_pass) {
+        for (const auto &d : decisions) {
+          if (d.extension_name == extension_name && d.use_target) {
+            this_extension_use_target = true;
+            break;
+          }
+        }
+      }
+
       installed_extensions.insert(extension_name);
 
-      // Phase 2 of ALTER EXTENSION ... AT RESTART. If the extension row
-      // carries a pending action, this is where we'd apply it: re-run the
-      // pre-checks against the current catalog, rewrite the catalog rows
-      // to the target version, and load the target .so instead of the
-      // current one. None of that is implemented yet; log loudly, mark
-      // the pending action as failed so the state is queryable via
-      // INFORMATION_SCHEMA.EXTENSIONS, and load the currently-installed
-      // version so the server still comes up. The actual persistence of
-      // the failure record happens after this loop releases the
-      // victionary write lock; here we just snapshot what to write.
-      if (entry->has_pending_action()) {
-        if (entry->pending_action->is_version_update()) {
-          LogVSQL(WARNING_LEVEL,
-                  "Extension '%s' has a pending update to version '%s' "
-                  "(requested at %s); not yet applied. Loading current "
-                  "version '%s'.",
-                  extension_name.c_str(),
-                  entry->pending_action->target_version().c_str(),
-                  entry->pending_action->requested_at().c_str(),
-                  expected_version.c_str());
-        } else {
-          LogVSQL(WARNING_LEVEL,
-                  "Extension '%s' has a pending action; not yet applied. "
-                  "Loading current version '%s'.",
-                  extension_name.c_str(), expected_version.c_str());
-        }
-        PendingAction updated = *entry->pending_action;
-        updated.MarkFailed(
-            "Restart-time apply of pending update is not yet implemented");
-        pending_failures_to_persist.push_back(
-            {entry->key(), std::move(updated), expected_version, sha256});
-      }
-
       ExtensionRegistration registration;
-      if (load_one_extension(thd, extension_name, expected_version, sha256,
-                             &registration)) {
+      const bool load_failed = load_one_extension(
+          thd, extension_name, expected_version, sha256, &registration);
+
+      if (load_failed) {
+        if (first_pass && this_extension_use_target) {
+          // Use_target load failed. Trigger the all-or-nothing rollback.
+          retry_with_current = true;
+          break;
+        }
         return true;
       }
+
+      // Success for this extension. If the first pass loaded a target,
+      // remember the registration so the rollback path can unload it.
+      if (first_pass && this_extension_use_target) {
+        loaded_targets_first_pass.push_back({extension_name, registration});
+      }
+
       success_count++;
     }
+  }
+
+  // First-pass failure while applying a pending ALTER EXTENSION ... AT
+  // RESTART action: unload any target .so loads that succeeded for earlier
+  // extensions in this pass, rollback all uncommitted victionary ops,
+  // re-stage MarkFailed-only records for every pending entry, and re-run
+  // the loop against the original (current) versions so the server still
+  // comes up.
+  if (retry_with_current) {
+    LogVSQL(WARNING_LEVEL,
+            "Rolling back pending extension updates this restart");
+    for (auto &loaded : loaded_targets_first_pass) {
+      unload_vef_extension(
+          {.reason = villagesql::services::UnloadReason::kShutdown, .thd = thd},
+          loaded.registration);
+    }
+    loaded_targets_first_pass.clear();
+    {
+      auto lock_guard = victionary.get_write_lock();
+      victionary.rollback_all_tables(thd);
+      // Re-stage as failure-only: flip every use_target decision into a
+      // failure record with "rolled back" as the reason.
+      for (auto &d : decisions) {
+        if (d.use_target) {
+          d.use_target = false;
+          d.had_failure = true;
+          if (d.failure_msg.empty()) {
+            d.failure_msg =
+                "Rolled back: another extension's pending update failed at "
+                "restart-time load";
+          }
+        }
+      }
+      if (villagesql::veb::StageDecisions(thd, &victionary, decisions)) {
+        LogVSQL(ERROR_LEVEL, "Failed to stage failure records after rollback");
+        return true;
+      }
+    }
+    retry_with_current = false;
+    first_pass = false;
+    goto retry_after_rollback;
   }
 
   LogVSQL(INFORMATION_LEVEL, "Validated %d of %d installed extensions",
           success_count, row_count);
 
-  // Persist failure records for any pending actions we couldn't apply at
-  // restart. Done outside the victionary write lock so open_and_lock_tables
-  // can acquire its own MDLs cleanly. The enclosing transaction (set up by
-  // do_init_extension_infrastructure) commits these writes on success.
-  if (!pending_failures_to_persist.empty()) {
+  // Flush any staged catalog mutations from Phase A (apply or failure
+  // records). The apply path stages to extensions, custom_columns, and
+  // custom_sp_params; all three must be opened before the flush walks
+  // them. Done outside the victionary write lock so open_and_lock_tables
+  // can acquire its own MDLs cleanly. The enclosing transaction (set up
+  // by do_init_extension_infrastructure) commits these writes on success.
+  if (!decisions.empty()) {
     Table_ref ext_table(SchemaManager::VILLAGESQL_SCHEMA_NAME,
                         SchemaManager::EXTENSIONS_TABLE_NAME, TL_WRITE,
                         MDL_SHARED_WRITE);
+    Table_ref columns_table(SchemaManager::VILLAGESQL_SCHEMA_NAME,
+                            SchemaManager::COLUMNS_TABLE_NAME, TL_WRITE,
+                            MDL_SHARED_WRITE);
+    Table_ref sp_params_table(SchemaManager::VILLAGESQL_SCHEMA_NAME,
+                              SchemaManager::SP_PARAMS_TABLE_NAME, TL_WRITE,
+                              MDL_SHARED_WRITE);
+    // Chain them so open_and_lock_tables opens all three.
+    ext_table.next_global = ext_table.next_local = &columns_table;
+    columns_table.next_global = columns_table.next_local = &sp_params_table;
+    sp_params_table.next_global = sp_params_table.next_local = nullptr;
     if (open_and_lock_tables(thd, &ext_table, MYSQL_LOCK_IGNORE_TIMEOUT)) {
       LogVSQL(ERROR_LEVEL,
-              "Failed to open villagesql.extensions to record pending-update "
-              "failure(s); failure state will not be persisted this restart");
+              "Failed to open villagesql.extensions / custom_columns / "
+              "custom_sp_params to persist pending-update decisions; state "
+              "will not be persisted this restart");
     } else {
-      bool any_marked = false;
-      {
-        // Hold the victionary write lock only for the in-memory mark step;
-        // write_all_uncommitted_entries below takes a read lock internally
-        // and the rwlock is not reentrant.
-        auto write_lock = victionary.get_write_lock();
-        for (auto &pending : pending_failures_to_persist) {
-          ExtensionEntry updated(pending.key,
-                                 std::move(pending.original_extension_version),
-                                 std::move(pending.original_veb_sha256));
-          updated.pending_action = std::move(pending.updated);
-          if (victionary.extensions().MarkForUpdate(*thd, std::move(updated),
-                                                    pending.key)) {
-            LogVSQL(ERROR_LEVEL,
-                    "Failed to mark pending-update failure for extension '%s'",
-                    pending.key.extension_name().c_str());
-          } else {
-            any_marked = true;
-          }
-        }
-      }
-      if (any_marked && victionary.write_all_uncommitted_entries(thd)) {
+      if (victionary.write_all_uncommitted_entries(thd)) {
         LogVSQL(ERROR_LEVEL,
-                "Failed to persist pending-update failure record(s) to "
-                "villagesql.extensions");
+                "Failed to persist pending-update decision(s) to villagesql "
+                "system tables");
       }
       // Close the open tables before returning from this function. The
       // enclosing bootstrap context doesn't run statement-end cleanup, so
