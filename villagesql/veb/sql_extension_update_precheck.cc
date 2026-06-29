@@ -43,10 +43,14 @@ UpdatePreCheckResult ok() {
 
 // Reject if a type retained across the update has a persisted_length change.
 // A change would cause existing on-disk bytes to be misinterpreted.
+//
+// `current` is the state of the extension as installed today. The
+// `target_persisted_length` map is built from the new version's VEB that
+// we're being asked to update to.
 UpdatePreCheckResult check_retained_types_persisted_length(
-    const UpdatePreCheckInput &in,
+    const UpdatePreCheckInput &current,
     const std::unordered_map<std::string, int64_t> &target_persisted_length) {
-  for (const auto &c : in.current_types) {
+  for (const auto &c : current.current_types) {
     auto it = target_persisted_length.find(c.type_name);
     if (it == target_persisted_length.end()) continue;  // dropped
     if (it->second != c.persisted_length) {
@@ -55,7 +59,7 @@ UpdatePreCheckResult check_retained_types_persisted_length(
           buf, sizeof(buf),
           "Cannot update extension '%s': type '%s' persisted_length changed "
           "from %lld to %lld -- existing stored data would be corrupted",
-          in.extension_name.c_str(), c.type_name.c_str(),
+          current.extension_name.c_str(), c.type_name.c_str(),
           static_cast<long long>(c.persisted_length),
           static_cast<long long>(it->second));
       return fail(buf);
@@ -66,29 +70,34 @@ UpdatePreCheckResult check_retained_types_persisted_length(
 
 // Reject if a type present in the current registration is absent from the
 // target registration AND still has dependent columns or SP params.
+//
+// `current` is the state of the extension as installed today (and the
+// dependent columns / SP params already on disk that reference its types).
+// `target_type_names` is the set of type names declared by the new
+// version's VEB.
 UpdatePreCheckResult check_dropped_types_have_no_dependents(
-    const UpdatePreCheckInput &in,
+    const UpdatePreCheckInput &current,
     const std::unordered_set<std::string> &target_type_names) {
-  for (const auto &col : in.dependent_columns) {
+  for (const auto &col : current.dependent_columns) {
     if (target_type_names.find(col.type_name) != target_type_names.end())
       continue;
     char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "Cannot update extension '%s': type '%s' is being dropped "
                   "but column %s.%s.%s depends on it",
-                  in.extension_name.c_str(), col.type_name.c_str(),
+                  current.extension_name.c_str(), col.type_name.c_str(),
                   col.db_name.c_str(), col.table_name.c_str(),
                   col.column_name.c_str());
     return fail(buf);
   }
-  for (const auto &sp : in.dependent_sp_params) {
+  for (const auto &sp : current.dependent_sp_params) {
     if (target_type_names.find(sp.type_name) != target_type_names.end())
       continue;
     char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "Cannot update extension '%s': type '%s' is being dropped "
                   "but stored procedure parameter %s.%s.%s depends on it",
-                  in.extension_name.c_str(), sp.type_name.c_str(),
+                  current.extension_name.c_str(), sp.type_name.c_str(),
                   sp.db_name.c_str(), sp.sp_name.c_str(),
                   sp.param_name.c_str());
     return fail(buf);
