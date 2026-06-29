@@ -20,6 +20,7 @@ SET(VILLAGESQL_UNIT_TESTS
   abi_v1_check-t
   abi_v2_check-t
   custom_indexes-t
+  precheck_protocol-t
   semver-t
   type_builder-t
   type_context-t
@@ -68,12 +69,20 @@ ENDMACRO()
 ADD_VILLAGESQL_TEST(abi_v1_check-t)
 ADD_VILLAGESQL_TEST(abi_v2_check-t)
 ADD_VILLAGESQL_TEST(custom_indexes-t)
+ADD_VILLAGESQL_TEST(precheck_protocol-t)
 ADD_VILLAGESQL_TEST(semver-t)
 ADD_VILLAGESQL_TEST(type_builder-t)
 ADD_VILLAGESQL_TEST(type_context-t)
 ADD_VILLAGESQL_TEST(type_descriptor-t)
 ADD_VILLAGESQL_TEST(validate-t)
 ADD_VILLAGESQL_TEST(victionary_client-t)
+
+# precheck_protocol-t links the protocol code directly (no veb-library
+# dependency; the protocol unit is self-contained pure C++).
+TARGET_SOURCES(precheck_protocol-t PRIVATE
+  ${CMAKE_SOURCE_DIR}/villagesql/veb/precheck_protocol.cc)
+TARGET_INCLUDE_DIRECTORIES(precheck_protocol-t PRIVATE
+  ${CMAKE_SOURCE_DIR})
 
 # Custom target to build all VillageSQL unit tests
 ADD_CUSTOM_TARGET(villagesql-unit-tests

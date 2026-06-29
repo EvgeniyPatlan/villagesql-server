@@ -46,6 +46,7 @@
 #include "villagesql/schema/victionary_client.h"
 #include "villagesql/services/capability_registry.h"
 #include "villagesql/services/sys_var_access.h"
+#include "villagesql/veb/precheck_helper_open.h"
 #include "villagesql/veb/register.h"
 #include "villagesql/veb/sql_extension.h"
 #include "villagesql/veb/validate.h"
@@ -907,28 +908,6 @@ void cleanup_orphaned_expansion_directories(
   }
 }
 
-static std::string format_dlerror() {
-  const char *errmsg;
-  int error_number = dlopen_errno;
-  DLERROR_GENERATE(errmsg, error_number);
-  char buf[256];
-  snprintf(buf, sizeof(buf), "error %d (%s)", error_number,
-           errmsg && errmsg[0] ? errmsg : "unknown");
-  return buf;
-}
-
-template <typename T>
-static T lookup_symbol(void *handle, const char *symbol_name,
-                       std::string &error_message) {
-  void *sym = dlsym(handle, symbol_name);
-  if (sym == nullptr) {
-    error_message =
-        std::string(symbol_name) + " not found: " + format_dlerror();
-    return nullptr;
-  }
-  return reinterpret_cast<T>(sym);
-}
-
 bool open_vef_extension(const std::string &so_path, vef_protocol_t max_protocol,
                         ExtensionRegistration &registration,
                         std::string &error_message) {
@@ -939,64 +918,13 @@ bool open_vef_extension(const std::string &so_path, vef_protocol_t max_protocol,
   registration.registration = nullptr;
   registration.unregister_func = nullptr;
 
-  // RTLD_LOCAL ensures each extension's symbols are isolated. Without it,
-  // macOS defaults to RTLD_GLOBAL, allowing the dynamic linker to coalesce
-  // weak symbols (e.g. C++ template instantiations) across extensions, causing
-  // one extension to call another's function implementations.
-  void *handle = dlopen(so_path.c_str(), RTLD_NOW | RTLD_LOCAL);
-  if (handle == nullptr) {
-    error_message = "failed to load so: " + format_dlerror();
-    return true;
-  }
-
-  auto vef_register = lookup_symbol<vef_register_func_t>(
-      handle, VEF_REGISTER_FUNC_NAME, error_message);
-  if (vef_register == nullptr) {
-    dlclose(handle);
-    return true;
-  }
-
-  auto vef_unregister = lookup_symbol<vef_unregister_func_t>(
-      handle, VEF_UNREGISTER_FUNC_NAME, error_message);
-  if (vef_unregister == nullptr) {
-    dlclose(handle);
-    return true;
-  }
-
-  vef_register_arg_t register_arg = {
-      max_protocol,
-      {MYSQL_VERSION_MAJOR, MYSQL_VERSION_MINOR, MYSQL_VERSION_PATCH, nullptr},
-      {VSQL_MAJOR_VERSION, VSQL_MINOR_VERSION, VSQL_PATCH_VERSION, nullptr}};
-
-  vef_registration_t *reg = vef_register(&register_arg);
-  if (reg == nullptr) {
-    error_message = "vef_register returned NULL";
-    dlclose(handle);
-    return true;
-  }
-
-  const vef_protocol_t negotiated_protocol =
-      std::min(max_protocol, reg->protocol);
-
-  if (reg->error_msg != nullptr) {
-    error_message =
-        std::string("vef_register returned an error: ") + reg->error_msg;
-    vef_unregister_arg_t unregister_arg = {negotiated_protocol};
-    vef_unregister(&unregister_arg, reg);
-    dlclose(handle);
-    return true;
-  }
-
-  // Reject extensions compiled against an old unstable protocol version.
-  // Even-numbered protocol versions are unstable; only the current one
-  // (max_protocol) is accepted. Odd versions are stable and always accepted.
-  if (reg->protocol % 2 == 0 && reg->protocol != max_protocol) {
-    error_message = "extension uses obsolete unstable protocol version " +
-                    std::to_string(reg->protocol) +
-                    " (current: " + std::to_string(max_protocol) + ")";
-    vef_unregister_arg_t unregister_arg = {negotiated_protocol};
-    vef_unregister(&unregister_arg, reg);
-    dlclose(handle);
+  // The minimal helper does all the actual work: dlopen, symbol lookup,
+  // vef_register, and protocol validation. We wrap it here to add the
+  // server-only LogVSQL calls and store-into-ExtensionRegistration. The
+  // mysqld-vef-precheck helper binary uses the same minimal opener
+  // directly, so both paths share validation behavior.
+  MinimalExtensionRegistration minimal;
+  if (OpenVefExtensionMinimal(so_path, max_protocol, minimal, error_message)) {
     return true;
   }
 
@@ -1006,14 +934,14 @@ bool open_vef_extension(const std::string &so_path, vef_protocol_t max_protocol,
   LogVSQL(INFORMATION_LEVEL,
           "Successfully loaded VEF extension '%s' (protocol %d, %d funcs, %d "
           "types)",
-          so_path.c_str(), negotiated_protocol, reg->func_count,
-          reg->type_count);
+          so_path.c_str(), minimal.negotiated_protocol,
+          minimal.registration->func_count, minimal.registration->type_count);
 
-  registration.registration = reg;
-  registration.negotiated_protocol = negotiated_protocol;
+  registration.registration = minimal.registration;
+  registration.negotiated_protocol = minimal.negotiated_protocol;
   registration.so_path = so_path;
-  registration.dlhandle = handle;
-  registration.unregister_func = vef_unregister;
+  registration.dlhandle = minimal.dlhandle;
+  registration.unregister_func = minimal.unregister_func;
   return false;
 }
 

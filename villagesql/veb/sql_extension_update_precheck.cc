@@ -20,8 +20,9 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
-#include "villagesql/veb/veb_file.h"
+#include "villagesql/veb/precheck_harvest.h"
 
 namespace villagesql {
 namespace veb {
@@ -108,39 +109,27 @@ UpdatePreCheckResult check_dropped_types_have_no_dependents(
 }  // namespace
 
 UpdatePreCheckResult RunUpdatePreCheck(const UpdatePreCheckInput &input) {
-  // Load the target .so for inspection only -- no capability populate. The
-  // pure raw loader does exactly: dlopen + lookup symbols + vef_register +
-  // protocol validation. We harvest target types from the returned
-  // registration, then immediately unload.
-  ExtensionRegistration target;
-  std::string load_error;
-  if (open_vef_extension(input.target_so_path,
-                         static_cast<vef_protocol_t>(input.server_protocol),
-                         target, load_error)) {
+  // Harvest target-side type metadata. HarvestTargetTypes owns the
+  // dlopen + vef_register + dlclose cycle and returns just the data the
+  // checks below need. Today it runs in-process; the seam is set up so
+  // Phase 2 can route through a subprocess without changing this call.
+  std::vector<HarvestedTargetType> harvested;
+  std::string harvest_error;
+  if (HarvestTargetTypes(input.target_so_path, input.server_protocol,
+                         harvested, harvest_error)) {
     return fail(std::string("Cannot update extension '") +
-                input.extension_name + "': failed to load target .so at " +
-                input.target_so_path + ": " + load_error);
+                input.extension_name + "': " + harvest_error);
   }
 
-  // Harvest target-side type metadata from the loaded registration. We don't
-  // hold pointers into the registration past the unload call below.
+  // Index the harvested types for the per-check lookups.
   std::unordered_map<std::string, int64_t> target_persisted_length;
   std::unordered_set<std::string> target_type_names;
-  if (target.registration != nullptr) {
-    const vef_registration_t *reg = target.registration;
-    for (unsigned int i = 0; i < reg->type_count; ++i) {
-      const vef_type_desc_t *t = reg->types[i];
-      if (t == nullptr || t->name == nullptr) continue;
-      target_persisted_length[t->name] =
-          static_cast<int64_t>(t->persisted_length);
-      target_type_names.insert(t->name);
-    }
+  target_persisted_length.reserve(harvested.size());
+  target_type_names.reserve(harvested.size());
+  for (const auto &h : harvested) {
+    target_persisted_length[h.type_name] = h.persisted_length;
+    target_type_names.insert(h.type_name);
   }
-
-  // Unload before running the checks. The check functions operate purely on
-  // the harvested data; the target .so has no business staying loaded past
-  // the harvest.
-  close_vef_extension(target);
 
   UpdatePreCheckResult r;
 

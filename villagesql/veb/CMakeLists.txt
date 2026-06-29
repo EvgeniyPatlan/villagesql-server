@@ -15,6 +15,10 @@
 
 SET(VILLAGESQL_VEB_SOURCES
   extension_uninstall_checks.cc
+  precheck_harvest.cc
+  precheck_helper_open.cc
+  precheck_protocol.cc
+  precheck_subprocess_main.cc
   register.cc
   sql_extension.cc
   sql_extension_update_precheck.cc
@@ -40,3 +44,22 @@ TARGET_INCLUDE_DIRECTORIES(villagesql_veb SYSTEM PRIVATE
 ADD_DEPENDENCIES(villagesql_veb GenError)
 ADD_DEPENDENCIES(villagesql_veb GenServerSource)
 ADD_DEPENDENCIES(villagesql_veb villagesql_common)
+
+# mysqld-vef-precheck: standalone helper binary that the parent mysqld
+# posix_spawns to harvest type metadata from a candidate extension's .so.
+# Links only the precheck code path -- no InnoDB, no SQL parser, no
+# replication. Spawn cost is single-digit milliseconds (vs hundreds for
+# a re-exec'd mysqld). See Docs/VEF_PRECHECK_SUBPROCESS_DESIGN.md.
+MYSQL_ADD_EXECUTABLE(mysqld-vef-precheck
+  precheck_helper_main.cc
+  precheck_subprocess_main.cc
+  precheck_harvest.cc
+  precheck_helper_open.cc
+  precheck_protocol.cc
+  COMPONENT Server
+  DESTINATION ${INSTALL_SBINDIR}
+)
+
+TARGET_LINK_LIBRARIES(mysqld-vef-precheck ${CMAKE_DL_LIBS})
+
+ADD_DEPENDENCIES(mysqld-vef-precheck GenError)
