@@ -49,6 +49,16 @@ namespace veb {
 // an ABI shape that does not depend on THD or live catalog handles. See
 // Docs/EXTENSION_UPDATE_AT_RESTART.md "Pre-Check API Shape" for the planned
 // hook contract.
+//
+// TODO(villagesql-beta): relocate the precheck out of the live server
+// process. Phase 1 (this file) runs the dlopen + vef_register harvest
+// in-process, which exposes the live server to static initializers and
+// any side effects in the target .so. Phase 2 is a subprocess: the parent
+// re-execs mysqld with a pre-check-mode flag, the child does the harvest
+// under seccomp + rlimits + privilege drop, writes a framed result to a
+// pipe, and exits. Phase 3 swaps the re-exec'd mysqld for a dedicated
+// mysqld-vef-precheck helper binary for faster spawn. See
+// Docs/VEF_PRECHECK_SUBPROCESS_DESIGN.md for the full plan.
 
 struct CurrentTypeSnapshot {
   std::string type_name;
