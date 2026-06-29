@@ -144,25 +144,6 @@ std::string PendingAction::Serialize() const {
   return sb.GetString();
 }
 
-bool PendingAction::FromOptionalJson(const std::string &raw,
-                                     std::optional<PendingAction> &out,
-                                     std::string &error_message) {
-  if (raw.empty()) {
-    out.reset();
-    return false;
-  }
-  PendingAction parsed;
-  if (Deserialize(raw, parsed, error_message)) return true;
-  out = std::move(parsed);
-  return false;
-}
-
-std::string PendingAction::ToOptionalJson(
-    const std::optional<PendingAction> &value) {
-  if (!value.has_value()) return std::string();
-  return value->Serialize();
-}
-
 bool PendingAction::ReadFromTable(TABLE &table,
                                   std::optional<PendingAction> &out,
                                   std::string &error_message) {
@@ -172,9 +153,16 @@ bool PendingAction::ReadFromTable(TABLE &table,
                     "' not found in extensions table";
     return true;
   }
+  if (f->is_null()) {
+    out.reset();
+    return false;
+  }
   std::string raw;
-  if (!f->is_null()) read_string_field(f, raw);
-  return FromOptionalJson(raw, out, error_message);
+  read_string_field(f, raw);
+  PendingAction parsed;
+  if (Deserialize(raw, parsed, error_message)) return true;
+  out = std::move(parsed);
+  return false;
 }
 
 std::string PendingAction::TargetVersionSqlExpr(const char *table_alias) {
@@ -206,13 +194,13 @@ bool PendingAction::StoreToTable(TABLE &table,
                     "' not found in extensions table";
     return true;
   }
-  const std::string raw = ToOptionalJson(value);
-  if (raw.empty()) {
+  if (!value.has_value()) {
     f->set_null();
-  } else {
-    f->set_notnull();
-    f->store(raw.c_str(), raw.length(), &my_charset_utf8mb4_bin);
+    return false;
   }
+  const std::string raw = value->Serialize();
+  f->set_notnull();
+  f->store(raw.c_str(), raw.length(), &my_charset_utf8mb4_bin);
   return false;
 }
 

@@ -51,32 +51,9 @@ class PendingAction {
   // "pending, attempted, failed". Replaces any previous failure record.
   void MarkFailed(std::string error_message);
 
-  // Storage round-trip. Used by the systable I/O layer; not intended for
-  // callers. Deserialize returns true on failure with error_message set.
-  std::string Serialize() const;
-  static bool Deserialize(const std::string &raw, PendingAction &out,
-                          std::string &error_message);
-
-  // Optional-aware round-trip for the systable I/O layer. Encapsulates the
-  // "empty string means no action / non-empty means parse" convention so
-  // callers don't reimplement it per column.
-  //
-  // FromOptionalJson: empty `raw` sets `out` to std::nullopt (no error).
-  // Non-empty `raw` is parsed; on failure returns true with error_message
-  // populated and leaves `out` untouched.
-  //
-  // ToOptionalJson: nullopt yields the empty string; engaged optional
-  // returns the serialized JSON.
-  static bool FromOptionalJson(const std::string &raw,
-                               std::optional<PendingAction> &out,
-                               std::string &error_message);
-  static std::string ToOptionalJson(const std::optional<PendingAction> &value);
-
   // Table-level round-trip for the systable I/O layer. The class owns its
   // own column-name(s); callers pass the table and the class finds the
-  // right field(s). This is the seam where a future table-version-aware
-  // implementation can decide *what* to read based on schema state without
-  // any caller change.
+  // right field(s).
   //
   // ReadFromTable: NULL column sets `out` to std::nullopt. Non-NULL is
   // parsed; on failure returns true with error_message populated.
@@ -127,6 +104,13 @@ class PendingAction {
   bool has_failure() const;
 
  private:
+  // Wire format: build / parse the JSON serialization of this action.
+  // Used internally by ReadFromTable / StoreToTable. Deserialize returns
+  // true on failure with error_message set.
+  std::string Serialize() const;
+  static bool Deserialize(const std::string &raw, PendingAction &out,
+                          std::string &error_message);
+
   // Internal layout is private. Field names and JSON shape may change
   // without breaking callers as long as the public getters keep returning
   // semantically equivalent values.
