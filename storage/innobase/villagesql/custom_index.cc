@@ -159,6 +159,27 @@ dberr_t Custom_index::attach(dict_index_t *index, const IndexContext *meta,
   return DB_SUCCESS;
 }
 
+dberr_t Custom_index::add_profile(dict_index_t *index,
+                                  const IndexProfileDescriptor *profile,
+                                  uint32_t key_pos) {
+  if (profile == nullptr || !is_custom(index)) return DB_SUCCESS;
+
+  auto ipd = AcquireIndexProfileDescriptorClientManaged(profile);
+  if (ipd == nullptr) {
+    ib::error(ER_VILLAGESQL_GENERIC_MESSAGE)
+        << "InnoDB: Failed to acquire custom index profile for index "
+        << index->name << ", key position " << key_pos;
+    ut_ad(false);
+    return DB_VILLAGESQL_ERROR;
+  }
+
+  Custom_index *custom_index = index->custom_index;
+  ut_a(key_pos == custom_index->key_profiles_.size());
+  custom_index->key_profiles_.push_back(std::move(ipd));
+
+  return DB_SUCCESS;
+}
+
 dberr_t Custom_index::load(dict_index_t *new_index,
                            const dict_index_t *old_index) {
   if (!is_custom(old_index)) return DB_SUCCESS;
@@ -167,6 +188,12 @@ dberr_t Custom_index::load(dict_index_t *new_index,
   dberr_t err =
       attach(new_index, old_custom_index->index_meta().get(), nullptr);
   if (err != DB_SUCCESS) return err;
+
+  const auto &key_profiles = old_index->custom_index->key_profiles_;
+  for (uint32_t i = 0; i < key_profiles.size(); i++) {
+    dberr_t perr = add_profile(new_index, key_profiles[i].get(), i);
+    if (perr != DB_SUCCESS) return perr;
+  }
 
   dberr_t init_err = init_index_ctx(new_index);
   if (init_err != DB_SUCCESS) return init_err;
