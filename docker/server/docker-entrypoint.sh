@@ -2,6 +2,12 @@
 # Adapted from https://github.com/docker-library/mysql
 # Original: Copyright (c) Docker Community and MySQL Team, licensed under GPL v2
 # See: https://github.com/docker-library/mysql/blob/master/docker-entrypoint.sh
+#
+# We've started to modify this file relative to the upstream file. Notable
+# changes that must be preserved:
+#  - Added MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX environment variable to
+#    provide the ability to set a specific root password hash instead of a
+#    plaintext password.
 set -eo pipefail
 shopt -s nullglob
 
@@ -139,13 +145,14 @@ docker_temp_server_stop() {
 
 # Verify that the minimally required password settings are set for new databases.
 docker_verify_minimum_env() {
-	if [ -z "$MYSQL_ROOT_PASSWORD" -a -z "$MYSQL_ALLOW_EMPTY_PASSWORD" -a -z "$MYSQL_RANDOM_ROOT_PASSWORD" ]; then
+	if [ -z "$MYSQL_ROOT_PASSWORD" -a -z "$MYSQL_ALLOW_EMPTY_PASSWORD" -a -z "$MYSQL_RANDOM_ROOT_PASSWORD" -a -z "$MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX" ]; then
 		mysql_error <<-'EOF'
 			Database is uninitialized and password option is not specified
 			    You need to specify one of the following as an environment variable:
 			    - MYSQL_ROOT_PASSWORD
 			    - MYSQL_ALLOW_EMPTY_PASSWORD
 			    - MYSQL_RANDOM_ROOT_PASSWORD
+			    - MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX
 		EOF
 	fi
 
@@ -157,6 +164,20 @@ docker_verify_minimum_env() {
 			    - MYSQL_ROOT_PASSWORD
 			    - MYSQL_ALLOW_EMPTY_PASSWORD
 			    - MYSQL_RANDOM_ROOT_PASSWORD
+			    - MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX
+		EOF
+	fi
+
+	# The shebang is explicitly using bash, so we can use the [[ ]] variant for regexp checking.
+	# the password hashes will have the form `$A$<rounds>$salt$digest$`.
+	# Enforce that the password hash has the correct prefix ($A$ encodes as
+	# 0x244124) and that there are an even number of hex nibbles following
+	# that.
+	if [ -n "$MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX" ] && ! [[ "$MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX" =~ ^244124([0-9a-fA-F][0-9a-fA-F])+$ ]]; then
+		mysql_error <<-'EOF'
+			MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX was specified, but, its value is not fully hexadecimal or lacks the correct prefix.
+			    The value must be a hexadecimal encoded password hash that encodes a mysql caching_sha2_password password hash.
+			    These passwords will generally have the form `$A$<rounds>$salt$digest$` (before hex encoding)
 		EOF
 	fi
 
@@ -236,6 +257,7 @@ docker_setup_env() {
 	file_env 'MYSQL_USER'
 	file_env 'MYSQL_PASSWORD'
 	file_env 'MYSQL_ROOT_PASSWORD'
+	file_env 'MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX'
 
 	declare -g DATABASE_ALREADY_EXISTS
 	if [ -d "$DATADIR/mysql" ]; then
@@ -276,6 +298,19 @@ docker_setup_db() {
 		MYSQL_ROOT_PASSWORD="$(openssl rand -base64 24)"; export MYSQL_ROOT_PASSWORD
 		mysql_note "GENERATED ROOT PASSWORD: $MYSQL_ROOT_PASSWORD"
 	fi
+
+	local identifiedClause=
+	if [ -n "$MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX" ]; then
+		# no, we don't care if read finds a terminating character in this heredoc (see above)
+		read -r -d '' identifiedClause <<-EOSQL || true
+			IDENTIFIED WITH caching_sha2_password AS 0x${MYSQL_ROOT_PASSWORD_CACHING_SHA2_HASH_HEX}
+		EOSQL
+	else
+		read -r -d '' identifiedClause <<-EOSQL || true
+			IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}'
+		EOSQL
+	fi
+
 	# Sets root password and creates root users for non-localhost hosts
 	local rootCreate=
 	# default root to listen for connections from anywhere
@@ -283,7 +318,7 @@ docker_setup_db() {
 		# no, we don't care if read finds a terminating character in this heredoc
 		# https://unix.stackexchange.com/questions/265149/why-is-set-o-errexit-breaking-this-read-heredoc-expression/265151#265151
 		read -r -d '' rootCreate <<-EOSQL || true
-			CREATE USER 'root'@'${MYSQL_ROOT_HOST}' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}' ;
+			CREATE USER 'root'@'${MYSQL_ROOT_HOST}' ${identifiedClause?} ;
 			GRANT ALL ON *.* TO 'root'@'${MYSQL_ROOT_HOST}' WITH GRANT OPTION ;
 		EOSQL
 	fi
@@ -291,7 +326,7 @@ docker_setup_db() {
 	local passwordSet=
 	# no, we don't care if read finds a terminating character in this heredoc (see above)
 	read -r -d '' passwordSet <<-EOSQL || true
-		ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}' ;
+		ALTER USER 'root'@'localhost' ${identifiedClause?} ;
 	EOSQL
 
 	# tell docker_process_sql to not use MYSQL_ROOT_PASSWORD since it is just now being set
