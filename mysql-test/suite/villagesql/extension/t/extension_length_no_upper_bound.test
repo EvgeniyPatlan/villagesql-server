@@ -1,0 +1,23 @@
+# Scenario: A type may declare a storage size larger than MySQL's maximum column width;
+# it registers fine, but CREATE TABLE is rejected by MySQL's field-length limit
+# (VARBINARY caps at 65535 bytes).
+#
+# Fixture: vsql_test_only exposes HUGE_FIELD (fixed persisted_length 70000) and
+# HUGE_VAR (variable-length, max_persisted_length 70000).
+
+INSTALL EXTENSION vsql_test_only;
+
+--echo # A fixed type with an over-large persisted_length installs fine, but
+--echo # CREATE TABLE is rejected by MySQL's column-length limit.
+--error ER_TOO_BIG_FIELDLENGTH
+CREATE TABLE t (id INT PRIMARY KEY, v HUGE_FIELD);
+
+--echo # Same for a variable-length type with an over-large max_persisted_length.
+--error ER_TOO_BIG_FIELDLENGTH
+CREATE TABLE t (id INT PRIMARY KEY, v HUGE_VAR);
+
+--echo # No table was created.
+SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 't';
+
+UNINSTALL EXTENSION vsql_test_only;
