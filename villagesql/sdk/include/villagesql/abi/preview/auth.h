@@ -109,6 +109,36 @@ typedef struct {
 
   // Set the original external identity for the audit trail (@@external_user).
   void (*set_external_user)(vef_auth_ctx_t *ctx, const char *identity);
+
+  // Stage the set of roles the token says should be active on this session,
+  // replacing default-role activation for this login. `roles` is an array of
+  // `n_roles` NUL-terminated role names (each may be "role" or "role@host";
+  // bare "role" resolves to "role@%"). The server applies them AFTER account
+  // resolution, using the same grant-checked activation as SET ROLE: only roles
+  // actually granted to the authenticated_as account are activated -- names not
+  // granted are ignored, so the token can never grant or escalate beyond what
+  // the DBA provisioned. The strings are copied; the caller need not keep them.
+  // Passing n_roles == 0 activates no roles (equivalent to SET ROLE NONE).
+  void (*set_active_roles)(vef_auth_ctx_t *ctx, const char *const *roles,
+                           uint64_t n_roles);
+
+  // Return non-zero if the account being authenticated does NOT exist -- i.e.
+  // this login was routed here by the unknown-account opt-in
+  // (auto_create_unknown_accounts). Lets an auto-creating handler tell a normal
+  // login (real account) from one that needs provisioning. Returns 0 for a
+  // pre-existing account.
+  int (*account_unknown)(vef_auth_ctx_t *ctx);
+
+  // Request that the server provision the account for this (validated) login:
+  // create it IDENTIFIED WITH this auth method and grant `roles` (each a
+  // NUL-terminated role name, "role" or "role@host"). The server -- not the
+  // extension -- runs the DDL, with its own privileges, bounded by policy; the
+  // extension only describes intent (mirrors set_active_roles). Call it only
+  // after validating the token and only when account_unknown() is true.
+  // Returns 0 on success (the account now exists and the login can proceed),
+  // non-zero on failure (login should fail closed). The strings are copied.
+  int (*request_provision)(vef_auth_ctx_t *ctx, const char *account,
+                           const char *const *roles, uint64_t n_roles);
 } vef_auth_ops_t;
 
 // The handler the extension implements. Invoked synchronously on the connecting
@@ -128,6 +158,17 @@ typedef struct {
   // Optional: the client-side auth plugin the server should require (e.g.
   // "mysql_clear_password" to receive a bearer token). NULL = any.
   const char *client_auth_plugin;
+  // Optional callback: return non-zero if this method currently wants logins
+  // for UNKNOWN accounts routed to it (so it can validate the token and, with
+  // server support, provision the account on the fly) instead of the login
+  // being rejected outright. It is QUERIED LIVE per unknown-account login, so
+  // the extension can back it with a runtime sysvar (e.g. SET GLOBAL
+  // vsql_oauth2.auto_create) rather than freezing the choice at registration.
+  // NULL, or a callback returning 0, preserves standard "unknown account ->
+  // access denied". At most one registered method may return non-zero at a
+  // time; the server routes normally (as if none opted in) if more than one
+  // does.
+  int (*auto_create_unknown_accounts)(void);
 } vef_auth_cc_t;
 
 // Server-side vtable. Version first, matching the other preview capabilities.

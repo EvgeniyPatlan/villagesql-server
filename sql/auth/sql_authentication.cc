@@ -1176,6 +1176,63 @@ inline const char *mpvio_client_plugin_name(MPVIO_EXT *mpvio) {
   return mpvio->vef_client_auth_plugin;
 }
 
+// VillageSQL: if a VEF auth method has opted in to handling unknown accounts
+// (for on-the-fly provisioning), turn this decoy into one routed to that method
+// instead of the normal random-plugin, can't-authenticate decoy (whose only
+// purpose is anti-enumeration): point it at the method's plugin, mark it
+// authenticatable, and clear its credentials. The method's handler validates
+// the token; a bad token still fails closed downstream. Returns true if the
+// decoy was routed (caller should use `user` as-is), false otherwise.
+//
+// The routing DECISION lives in the auth-capability seam
+// (auth_method_for_unknown_accounts); the ACL_USER field setup stays here
+// because ACL_USER's full definition is only in sql_auth_cache.h, which pulls
+// in Boost.Graph and is not on the villagesql_services include path.
+static bool vsql_route_decoy_to_vef_auth(ACL_USER *user, MEM_ROOT *mem) {
+  const std::string vef_method =
+      villagesql::services::auth_method_for_unknown_accounts();
+  if (vef_method.empty()) return false;
+  char *m = strmake_root(mem, vef_method.c_str(), vef_method.length());
+  user->plugin = {m, vef_method.length()};
+  user->can_authenticate = true;
+  for (int i = 0; i < NUM_CREDENTIALS; ++i) {
+    memset(user->credentials[i].m_salt, 0, SCRAMBLE_LENGTH + 1);
+    user->credentials[i].m_salt_len = 0;
+    user->credentials[i].m_auth_string = EMPTY_CSTR;
+  }
+  return true;
+}
+
+// VillageSQL auto-create: if the login succeeded on a DECOY (a non-existent
+// account routed to a VEF auth method) and the handler provisioned the account
+// via request_provision, the real account now exists but mpvio->acl_user still
+// points at the stale decoy. Re-resolve it to the freshly-created account so
+// the session runs with the real account's privileges/plugin, not the decoy's.
+// A fresh find_acl_user under the ACL cache lock reads the just-committed
+// rebuild (CREATE USER refreshes the cache); the decoy pointer is discarded. If
+// re-resolution fails (account still absent), leaves the decoy in place: it has
+// no privileges and can_authenticate handling denies the login.
+static void vsql_reresolve_decoy_account(MPVIO_EXT *mpvio, THD *thd) {
+  if (!mpvio->acl_user_is_decoy) return;
+  Acl_cache_lock_guard acl_cache_lock(thd, Acl_cache_lock_mode::READ_MODE);
+  if (!acl_cache_lock.lock()) return;
+  // exact=false so a wildcard host in the freshly-created grant (e.g.
+  // '<acct>'@'%') matches the connecting host, mirroring find_mpvio_user's
+  // wildcard-aware resolution. An exact match would require the stored host to
+  // equal the client host literally and would miss the common '%' case.
+  ACL_USER *real = find_acl_user(
+      mpvio->host ? mpvio->host : mpvio->ip,
+      mpvio->auth_info.user_name ? mpvio->auth_info.user_name : "",
+      /*exact=*/false);
+  if (real != nullptr) {
+    mpvio->acl_user = real->copy(mpvio->mem_root);
+    mpvio->acl_user_is_decoy = false;
+    *(mpvio->restrictions) =
+        acl_restrictions->find_restrictions(mpvio->acl_user);
+  }
+  acl_cache_lock.unlock();
+}
+
 LEX_CSTRING validate_password_plugin_name = {
     STRING_WITH_LEN("validate_password")};
 
@@ -2245,6 +2302,9 @@ ACL_USER *decoy_user(const LEX_CSTRING &username, const LEX_CSTRING &hostname,
   user->password_locked_state.set_parameters(0, 0);
   user->m_mfa = nullptr;
 
+  // VillageSQL: route unknown-account logins to an opted-in VEF auth method.
+  if (vsql_route_decoy_to_vef_auth(user, mem)) return user;
+
   if (is_initialized) {
     Auth_id key(user);
 
@@ -2351,6 +2411,10 @@ static bool find_mpvio_user(THD *thd, MPVIO_EXT *mpvio) {
     mpvio->acl_user =
         decoy_user(usr, hst, mpvio->mem_root, mpvio->rand, initialized);
     mpvio->acl_user_plugin = mpvio->acl_user->plugin;
+    // VillageSQL: this is a decoy for a non-existent account. A VEF auth method
+    // that opted in to unknown-account handling reads this via
+    // account_unknown() to decide whether to provision.
+    mpvio->acl_user_is_decoy = true;
   }
 
   if (!Cached_authentication_plugins::compare_plugin(
@@ -4095,6 +4159,10 @@ int acl_authenticate(THD *thd, enum_server_command command) {
     res = do_multi_factor_auth(thd, &mpvio);
   }
 
+  // VillageSQL: re-resolve a provisioned decoy to the real (now-created)
+  // account.
+  if (res == CR_OK) vsql_reresolve_decoy_account(&mpvio, thd);
+
   server_mpvio_update_thd(thd, &mpvio);
 
   check_and_update_password_lock_state(mpvio, thd, res);
@@ -4250,7 +4318,14 @@ int acl_authenticate(THD *thd, enum_server_command command) {
         List_of_auth_id_refs default_roles;
         if (!acl_cache_lock.lock()) return 1;
         Auth_id_ref authid = create_authid_from(acl_user);
-        if (opt_always_activate_granted_roles) {
+        // VillageSQL: a VEF auth handler may have staged a token-driven role
+        // set via set_active_roles(); if so it replaces default-role activation
+        // for this login (grant-checked inside, so it cannot escalate). Falls
+        // through to the normal default-role path when nothing was staged.
+        if (villagesql::services::apply_vef_login_state(
+                &mpvio, sctx, acl_user->user, acl_user->host.get_host())) {
+          // staged roles applied
+        } else if (opt_always_activate_granted_roles) {
           activate_all_granted_and_mandatory_roles(acl_user, sctx);
         } else {
           /* The server policy is to only activate default roles */

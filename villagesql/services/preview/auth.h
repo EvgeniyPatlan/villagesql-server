@@ -29,6 +29,7 @@
 // would create distinct villagesql::services::* types and break linkage against
 // the caller in sql/auth/, which uses the global ones.
 class THD;
+class Security_context;
 struct MPVIO_EXT;
 struct MYSQL_LEX_CSTRING;
 
@@ -81,6 +82,16 @@ class AuthMethodRef {
 // Existence check, used by CREATE USER validation to accept a VEF auth-method
 // name the same way an installed plugin name is accepted.
 bool auth_method_exists(std::string_view method_name);
+
+// The auth method (if any) that opted in to handling UNKNOWN accounts
+// (vef_auth_cc_t.auto_create_unknown_accounts). Called by decoy_user in the
+// core auth path to decide whether an unknown-account login should be routed to
+// a VEF method (for token validation + on-the-fly provisioning) rather than
+// rejected. Returns the method's registered name, or empty if none opted in --
+// or if more than one did (an ambiguous configuration; the server declines to
+// guess and falls back to the normal unknown-account behavior). decoy_user must
+// copy the returned string if it needs to outlive the call.
+std::string auth_method_for_unknown_accounts();
 
 // Handle a CREATE USER ... IDENTIFIED WITH <method_name> [BY '...'] whose name
 // is not a loaded MySQL auth plugin, deciding whether it names a VEF extension
@@ -143,6 +154,32 @@ VefAuthOutcome run_vef_authenticate(
 // the caller falls back to the plugin-not-loaded error.
 bool try_vef_authenticate(THD *thd, const MYSQL_LEX_CSTRING &auth_plugin_name,
                           MPVIO_EXT *mpvio, int *res);
+
+// Opaque per-login state a VEF auth handler stages during the handshake, to be
+// applied after account resolution. Its definition and all its fields live in
+// auth.cc; core auth (sql/auth/) only holds a pointer to it on MPVIO_EXT and
+// forwards it to apply_vef_login_state() below. Today it carries the roles set
+// via set_active_roles(); anything else a handler needs to stage post-auth goes
+// here too, with no further change to MPVIO_EXT.
+struct VefAuthState;
+
+// Apply whatever a VEF handler staged for this login, AFTER the account has
+// been resolved. Currently: activate the staged role set on `sctx`, replacing
+// default-role activation, using the server's grant-checked activation (a role
+// not granted to the account is skipped) so a token can never escalate. The
+// caller holds no ACL lock; this takes it as needed, mirroring the default-role
+// block it replaces. Does nothing (returns false = "not handled, use default
+// roles") when `mpvio` has no staged state. Returns true when it applied staged
+// state, so the caller skips its own default-role activation.
+//
+// `sctx` is the session's Security_context (the same one the default-role path
+// activates onto); `acl_user_authid`/`acl_user_host` identify the resolved
+// account for warning messages. Roles are activated but access maps are NOT
+// checked out here -- the caller does checkout_access_maps() once afterward, as
+// it already does for the default-role path.
+bool apply_vef_login_state(MPVIO_EXT *mpvio, Security_context *sctx,
+                           const char *acl_user_authid,
+                           const char *acl_user_host);
 
 }  // namespace villagesql::services
 

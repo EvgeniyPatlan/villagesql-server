@@ -1,0 +1,32 @@
+call mtr.add_suppression("VEF auth: role .* is not granted; skipping");
+#
+# Install the auth extension, create the account + roles, and grant only
+# ONE of the two roles the "-token-roles" login will request.
+#
+INSTALL EXTENSION vsql_auth_test;
+CREATE USER auth_user IDENTIFIED WITH vsql_auth_test;
+CREATE USER vsql_auth_test_user;
+GRANT PROXY ON vsql_auth_test_user TO auth_user;
+CREATE ROLE vsql_role_granted;
+CREATE ROLE vsql_role_denied;
+GRANT vsql_role_granted TO vsql_auth_test_user;
+#
+# Login with the roles token: the granted role is active, the ungranted
+# requested role is skipped. CURRENT_ROLE() shows only vsql_role_granted.
+#
+CURRENT_USER()	CURRENT_ROLE()
+vsql_auth_test_user@%	`vsql_role_granted`@`%`
+#
+# Login with the plain token: no roles staged, so no roles are active
+# (the account has no default roles). CURRENT_ROLE() is NONE.
+#
+CURRENT_ROLE()
+NONE
+#
+# Cleanup.
+#
+UNINSTALL EXTENSION vsql_auth_test;
+DROP USER auth_user;
+DROP USER vsql_auth_test_user;
+DROP ROLE vsql_role_granted;
+DROP ROLE vsql_role_denied;

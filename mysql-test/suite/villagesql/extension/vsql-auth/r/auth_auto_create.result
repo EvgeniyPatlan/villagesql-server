@@ -1,0 +1,51 @@
+call mtr.add_suppression("routing unknown accounts");
+#
+# Install the auth extension (it opts in to handling unknown accounts),
+# and pre-create the DB role the handler grants to provisioned accounts.
+# (The DBA owns roles; the token only causes an existing role to be
+# granted -- the same no-escalation stance as set_active_roles.)
+#
+INSTALL EXTENSION vsql_auth_test;
+CREATE ROLE vsql_role_granted;
+GRANT SELECT ON *.* TO vsql_role_granted;
+#
+# An account that does NOT exist connects with a VALID token. The decoy
+# routes to the handler, which validates the token and requests
+# provisioning; the server creates the account and the login completes AS
+# the newly-created account. Expect success: CURRENT_USER() = the account.
+#
+who	ext
+auto_created_user@%	auto_created_user
+#
+# The account now exists, IDENTIFIED WITH the VEF method, with the granted
+# role recorded.
+#
+SELECT user, host, plugin FROM mysql.user WHERE user = 'auto_created_user';
+user	host	plugin
+auto_created_user	%	vsql_auth_test
+SHOW GRANTS FOR 'auto_created_user'@'%';
+Grants for auto_created_user@%
+GRANT USAGE ON *.* TO `auto_created_user`@`%`
+GRANT `vsql_role_granted`@`%` TO `auto_created_user`@`%`
+#
+# Second login as the (now existing) account: authenticates normally, no
+# re-provisioning needed.
+#
+who
+auto_created_user@%
+#
+# An unknown account with a WRONG token still fails closed -- the handler
+# runs but rejects, so nothing is provisioned and no free auth is granted.
+#
+mysql: [Warning] Using a password on the command line interface can be insecure.
+ERROR 1045 (28000): Access denied for user 'never_created'@'localhost' (using password: NO)
+# ... and confirm the rejected identity was NOT created.
+SELECT COUNT(*) AS never_created_rows FROM mysql.user WHERE user = 'never_created';
+never_created_rows
+0
+#
+# Cleanup.
+#
+UNINSTALL EXTENSION vsql_auth_test;
+DROP USER 'auto_created_user'@'%';
+DROP ROLE vsql_role_granted;

@@ -1,0 +1,66 @@
+# Auto-create-on-first-login for the vsql::preview::auth capability.
+#
+# Normally a login for an account that does NOT exist is rejected before any
+# auth handler runs (the server assigns an anti-enumeration "decoy" that cannot
+# authenticate). When a VEF auth method opts in to handling unknown accounts
+# (vef_auth_cc_t.auto_create_unknown_accounts callback), the decoy is routed to
+# that method's handler, which validates the token and -- via request_provision
+# -- has the server CREATE the account on the fly (IDENTIFIED WITH the method,
+# granting the mapped roles). The connection then re-resolves to the new account
+# and completes AS it (no proxy).
+#
+# The vsql_auth_test extension opts in and, for an unknown account, provisions
+# the connecting user granting role "vsql_role_granted".
+
+--source include/not_windows.inc
+
+# The opt-in relaxes anti-enumeration (unknown vs. existing becomes observable to
+# a holder of a valid token). That is by design for the token model.
+call mtr.add_suppression("routing unknown accounts");
+
+--echo #
+--echo # Install the auth extension (it opts in to handling unknown accounts),
+--echo # and pre-create the DB role the handler grants to provisioned accounts.
+--echo # (The DBA owns roles; the token only causes an existing role to be
+--echo # granted -- the same no-escalation stance as set_active_roles.)
+--echo #
+INSTALL EXTENSION vsql_auth_test;
+CREATE ROLE vsql_role_granted;
+GRANT SELECT ON *.* TO vsql_role_granted;
+
+--echo #
+--echo # An account that does NOT exist connects with a VALID token. The decoy
+--echo # routes to the handler, which validates the token and requests
+--echo # provisioning; the server creates the account and the login completes AS
+--echo # the newly-created account. Expect success: CURRENT_USER() = the account.
+--echo #
+--exec $MYSQL --enable_cleartext_plugin --user=auto_created_user --password=vsql-auth-test-token -e "SELECT CURRENT_USER() AS who, @@external_user AS ext"
+
+--echo #
+--echo # The account now exists, IDENTIFIED WITH the VEF method, with the granted
+--echo # role recorded.
+--echo #
+SELECT user, host, plugin FROM mysql.user WHERE user = 'auto_created_user';
+SHOW GRANTS FOR 'auto_created_user'@'%';
+
+--echo #
+--echo # Second login as the (now existing) account: authenticates normally, no
+--echo # re-provisioning needed.
+--echo #
+--exec $MYSQL --enable_cleartext_plugin --user=auto_created_user --password=vsql-auth-test-token -e "SELECT CURRENT_USER() AS who"
+
+--echo #
+--echo # An unknown account with a WRONG token still fails closed -- the handler
+--echo # runs but rejects, so nothing is provisioned and no free auth is granted.
+--echo #
+--error 1
+--exec $MYSQL --enable_cleartext_plugin --user=never_created --password=wrong-token -e "SELECT 1" 2>&1
+--echo # ... and confirm the rejected identity was NOT created.
+SELECT COUNT(*) AS never_created_rows FROM mysql.user WHERE user = 'never_created';
+
+--echo #
+--echo # Cleanup.
+--echo #
+UNINSTALL EXTENSION vsql_auth_test;
+DROP USER 'auto_created_user'@'%';
+DROP ROLE vsql_role_granted;

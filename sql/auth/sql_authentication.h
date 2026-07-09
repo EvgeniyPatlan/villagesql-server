@@ -44,6 +44,12 @@ class Restrictions;
 struct MEM_ROOT;
 struct SHOW_VAR;
 
+// VillageSQL: opaque per-login VEF auth state; defined in the VEF auth seam
+// (villagesql/services/preview/auth.cc). MPVIO_EXT holds it by pointer only.
+namespace villagesql::services {
+struct VefAuthState;
+}  // namespace villagesql::services
+
 /* Classes */
 
 class Thd_charset_adapter {
@@ -63,6 +69,11 @@ class Thd_charset_adapter {
 struct MPVIO_EXT : public MYSQL_PLUGIN_VIO {
   MYSQL_SERVER_AUTH_INFO auth_info;
   const ACL_USER *acl_user;
+  // VillageSQL: true when acl_user is a decoy for a non-existent account (see
+  // decoy_user). A VEF auth method that opted in to unknown-account handling
+  // reads this (via the account_unknown op) to know the login needs
+  // provisioning rather than normal authentication.
+  bool acl_user_is_decoy{false};
   Restrictions *restrictions;
   plugin_ref plugin;  ///< what plugin we're under
   LEX_STRING db;      ///< db name from the handshake packet
@@ -99,6 +110,12 @@ struct MPVIO_EXT : public MYSQL_PLUGIN_VIO {
   // client_plugin_name(plugin). Set by the VEF auth seam before invoking the
   // handler; nullptr for normal plugin-based auth.
   const char *vef_client_auth_plugin;
+  // VillageSQL: opaque per-login state staged by a VEF auth handler (e.g. the
+  // roles set via set_active_roles). Owned and defined by the VEF auth seam in
+  // villagesql/services/preview/auth.cc; the core auth path only forwards it to
+  // villagesql::services::apply_vef_login_state() after account resolution and
+  // never inspects its contents. nullptr for non-VEF logins.
+  villagesql::services::VefAuthState *vef_auth_state;
   bool can_authenticate();
 };
 

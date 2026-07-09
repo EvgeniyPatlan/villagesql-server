@@ -1655,7 +1655,14 @@ bool set_and_validate_user_attributes(
   if (!plugin && villagesql::services::auth_method_exists(
                      {Str->first_factor_auth_info.plugin.str,
                       Str->first_factor_auth_info.plugin.length})) {
-    what_to_set.m_what = NONE_ATTR;
+    // The plugin name is a VEF extension auth method, not a loaded MySQL
+    // plugin, so there is no st_mysql_auth to run the credential-hashing /
+    // validation code below -- return early. Do NOT clear what_to_set here:
+    // PLUGIN_ATTR was set above from uses_identified_with_clause and must be
+    // preserved so the account's plugin column is written as the VEF method
+    // name. Clearing it (NONE_ATTR) makes the writer skip the plugin column,
+    // leaving the table default (caching_sha2_password) instead of the VEF
+    // method, which then breaks the account's next login.
     return false;
   }
 

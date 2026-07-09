@@ -56,11 +56,21 @@ using AuthCtx = vef_auth_ctx_t;
 //   &my_authenticate}; VEF_GENERATE_ENTRY_POINTS(make_extension().with(g_auth))
 class AuthCapability : public ::vsql::detail::CapabilityBase<AuthCapability> {
  public:
+  // `auto_create_enabled` (optional): a callback returning non-zero when this
+  // method should currently handle logins for UNKNOWN accounts (for on-the-fly
+  // provisioning). Queried live per unknown-account login, so back it with your
+  // runtime sysvar (e.g. return whether SET GLOBAL <ext>.auto_create is ON).
+  // nullptr (default) = handle only pre-existing accounts. Set at construction
+  // (not via a chained setter) because AuthCapability enrolls itself in a
+  // per-.so registry in its constructor; copying it (as a chained temporary
+  // would) double-enrolls and leaves a stale entry.
   AuthCapability(const char *name, vef_auth_authenticate_func_t handler,
-                 const char *client_auth_plugin = nullptr) {
+                 const char *client_auth_plugin = nullptr,
+                 int (*auto_create_enabled)(void) = nullptr) {
     cc.name = name;
     cc.handler = handler;
     cc.client_auth_plugin = client_auth_plugin;
+    cc.auto_create_unknown_accounts = auto_create_enabled;
   }
 
   // Capability config read by the server's validate step. CapabilityTraits
