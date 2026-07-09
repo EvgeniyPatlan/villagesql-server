@@ -30,6 +30,7 @@ on:
         description: 'Git tag, branch, or SHA to build from (e.g. 0.0.4 or main).'
         required: true
         type: string
+        default: main
       release_tag:
         description: 'GitHub Release to attach artifacts to. Defaults to "ref". Leave blank to skip upload (useful for test builds — artifacts are still available for download from the Actions run page).'
         required: false

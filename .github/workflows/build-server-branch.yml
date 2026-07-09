@@ -35,7 +35,7 @@ on:
         required: true
         type: string
       runner:
-        description: 'JSON-encoded runs-on value (array or quoted string), e.g. ["self-hosted","linux","x86_64"] or "macos-latest".'
+        description: 'Build Runner: ["self-hosted","linux","x86_64"] or "macos-latest" or "ubuntu-24.04-arm".'
         required: true
         type: string
   workflow_dispatch:
@@ -44,6 +44,7 @@ on:
         description: 'Git tag, branch, or SHA to build from (e.g. 0.0.4 or main).'
         required: true
         type: string
+        default: main
       platform:
         description: 'Platform label used to name the server artifact.'
         required: false
@@ -67,7 +68,7 @@ on:
           - macos
         default: linux
       runner:
-        description: 'JSON-encoded runs-on value, e.g. ["self-hosted","linux","x86_64"] or "macos-latest".'
+        description: 'Build Runner: ["self-hosted","linux","x86_64"] or "macos-latest" or "ubuntu-24.04-arm".'
         required: true
         type: string
         default: '["self-hosted","linux","x86_64"]'
