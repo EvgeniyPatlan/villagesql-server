@@ -101,6 +101,14 @@ typedef struct {
   // The client host or IP.
   const char *(*host_or_ip)(vef_auth_ctx_t *ctx);
 
+  // The name of the client-side auth plugin the connection actually used (as
+  // advertised by the client), e.g. "mysql_clear_password" or
+  // "authentication_openid_connect_client". Lets a handler pick how to parse the
+  // credential packet by which client plugin produced it, instead of sniffing
+  // packet bytes (different client plugins frame the credential differently).
+  // Empty if unknown. Valid for the duration of the handler call.
+  const char *(*client_auth_plugin)(vef_auth_ctx_t *ctx);
+
   // Set the effective account the session authenticates AS (shown by
   // CURRENT_USER(), used for authorization). Required on VEF_AUTH_OK. Mapping
   // to a different account than user_name() is proxying and requires a

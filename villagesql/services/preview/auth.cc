@@ -121,6 +121,14 @@ const char *vef_auth_host_or_ip(vef_auth_ctx_t *ctx) {
   return h != nullptr ? h : "";
 }
 
+const char *vef_auth_client_plugin(vef_auth_ctx_t *ctx) {
+  // The client-plugin name the client advertised for this connection, cached on
+  // the handshake context. Set before the handler's first read, so it is
+  // available throughout the handler call.
+  const char *p = ctx->mpvio->cached_client_reply.plugin;
+  return p != nullptr ? p : "";
+}
+
 void vef_auth_set_authenticated_as(vef_auth_ctx_t *ctx, const char *account) {
   if (account == nullptr) return;
   strmake(ctx->mpvio->auth_info.authenticated_as, account,
@@ -265,9 +273,9 @@ const vef_auth_ops_t g_vef_auth_ops = {
     VEF_PREVIEW_AUTH_ABI_VERSION,  vef_auth_read_packet,
     vef_auth_write_packet,         vef_auth_user_name,
     vef_auth_auth_string,          vef_auth_host_or_ip,
-    vef_auth_set_authenticated_as, vef_auth_set_external_user,
-    vef_auth_set_active_roles,     vef_auth_account_unknown,
-    vef_auth_request_provision};
+    vef_auth_client_plugin,        vef_auth_set_authenticated_as,
+    vef_auth_set_external_user,    vef_auth_set_active_roles,
+    vef_auth_account_unknown,      vef_auth_request_provision};
 
 }  // namespace
 

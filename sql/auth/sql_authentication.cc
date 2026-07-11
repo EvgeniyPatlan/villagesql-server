@@ -1203,6 +1203,29 @@ static bool vsql_route_decoy_to_vef_auth(ACL_USER *user, MEM_ROOT *mem) {
   return true;
 }
 
+// VillageSQL: a VEF auth method receives the client's credential as an opaque
+// packet, passed through verbatim; the client-plugin NAME is advisory. This asks
+// whether the client's cached first reply already carries that credential as-is
+// (so it can be accepted without a change-plugin round trip). It does UNLESS the
+// client used one of the built-in password plugins, whose first reply is a
+// hashed scramble rather than the raw credential -- those fall through and force
+// a change-plugin switch to the pinned plugin so the client resends verbatim.
+// Any other client plugin passes the credential through unchanged. The scrambling
+// built-ins are the closed set enumerated by cached_plugins_enum, so this is not
+// a hand-maintained name list. Not specific to any capability.
+static bool vsql_vef_reply_is_verbatim(MPVIO_EXT *mpvio) {
+  if (mpvio->vef_client_auth_plugin == nullptr) return false;  // not a VEF login
+  const LEX_CSTRING reply{mpvio->cached_client_reply.plugin,
+                          mpvio->cached_client_reply.plugin
+                              ? strlen(mpvio->cached_client_reply.plugin)
+                              : 0};
+  for (uint i = 0; i < (uint)PLUGIN_LAST; ++i)
+    if (Cached_authentication_plugins::compare_plugin((cached_plugins_enum)i,
+                                                      reply))
+      return false;  // a built-in password scramble, not the raw credential
+  return true;
+}
+
 // VillageSQL auto-create: if the login succeeded on a DECOY (a non-existent
 // account routed to a VEF auth method) and the handler provisioned the account
 // via request_provision, the real account now exists but mpvio->acl_user still
@@ -3547,7 +3570,13 @@ static int server_mpvio_read_packet(MYSQL_PLUGIN_VIO *param, uchar **buf) {
     // VillageSQL: via mpvio_client_plugin_name() so a VEF method (which has no
     // MySQL plugin) resolves its pinned client plugin instead.
     auto client_auth_plugin_name = mpvio_client_plugin_name(mpvio);
+    // VillageSQL: also accept the cached reply when a VEF connection already
+    // delivered its credential verbatim under a different client-plugin name,
+    // instead of forcing a change-plugin round trip to the pinned name. A
+    // built-in password scramble still falls through and forces the switch. See
+    // vsql_vef_reply_is_verbatim.
     if (client_auth_plugin_name == nullptr ||
+        vsql_vef_reply_is_verbatim(mpvio) ||
         my_strcasecmp(system_charset_info, mpvio->cached_client_reply.plugin,
                       client_auth_plugin_name) == 0) {
       mpvio->status = MPVIO_EXT::FAILURE;
