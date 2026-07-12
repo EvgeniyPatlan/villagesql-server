@@ -249,10 +249,6 @@ static const CHARSET_INFO *charset_info = &my_charset_latin1;
 
 static char *opt_oci_config_file = nullptr;
 static char *opt_authentication_oci_client_config_profile = nullptr;
-// TODO(villagesql-rebase): backported from MySQL 9.1+ to drive the backported
-// authentication_openid_connect_client plugin (libmysql/). Drop when rebasing
-// onto a MySQL version that already ships OpenID Connect client support.
-static char *opt_authentication_openid_connect_client_id_token_file = nullptr;
 static char *opt_register_factor = nullptr;
 
 static bool opt_tel_plugin = false;
@@ -2085,13 +2081,6 @@ static struct my_option my_long_options[] = {
      "is ~/.oci/config and %HOME/.oci/config on Windows.",
      &opt_oci_config_file, &opt_oci_config_file, nullptr, GET_STR, REQUIRED_ARG,
      0, 0, 0, nullptr, 0, nullptr},
-    // TODO(villagesql-rebase): backported from MySQL 9.1+ (OpenID Connect
-    // client). Drop on rebase to a version that ships it.
-    {"authentication-openid-connect-client-id-token-file", 0,
-     "Specifies the location of the ID token file.",
-     &opt_authentication_openid_connect_client_id_token_file,
-     &opt_authentication_openid_connect_client_id_token_file, nullptr, GET_STR,
-     REQUIRED_ARG, 0, 0, 0, nullptr, 0, nullptr},
     {"telemetry-client", 0, "Load the telemetry_client plugin.",
      &opt_tel_plugin, &opt_tel_plugin, nullptr, GET_BOOL, NO_ARG, 0, 0, 0,
      nullptr, 0, nullptr},
@@ -5198,32 +5187,6 @@ static bool init_connection_options(MYSQL *mysql) {
                              opt_oci_config_file)) {
       put_info(
           "Failed to set config file for authentication_oci_client plugin.",
-          INFO_ERROR);
-      return true;
-    }
-  }
-
-  // TODO(villagesql-rebase): backported from MySQL 9.1+ (OpenID Connect client).
-  // Drives the backported authentication_openid_connect_client plugin. Drop on
-  // rebase to a version that already ships OpenID Connect client support.
-  /* set authentication_openid_connect_client ID token file option if required
-   */
-  if (opt_authentication_openid_connect_client_id_token_file != nullptr) {
-    struct st_mysql_client_plugin *openid_connect_plugin =
-        mysql_client_find_plugin(mysql, "authentication_openid_connect_client",
-                                 MYSQL_CLIENT_AUTHENTICATION_PLUGIN);
-    if (!openid_connect_plugin) {
-      put_info("Cannot load the authentication_openid_connect_client plugin.",
-               INFO_ERROR);
-      return true;
-    }
-    if (mysql_plugin_options(
-            openid_connect_plugin, "id-token-file",
-            opt_authentication_openid_connect_client_id_token_file)) {
-      put_info(
-          "Failed to set id token file for "
-          "authentication_openid_connect_client "
-          "plugin.",
           INFO_ERROR);
       return true;
     }

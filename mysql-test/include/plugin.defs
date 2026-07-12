@@ -31,10 +31,6 @@
 # in the optional 4th argument.
 
 auth_test_plugin                        plugin_output_directory  no PLUGIN_AUTH      test_plugin_server,cleartext_plugin_server
-# VillageSQL: backported OpenID Connect client auth plugin (client-side only, no
-# server plugin-load). Sets OPENID_CONNECT_CLIENT_OPT=--plugin-dir=<dir> when
-# built (empty otherwise), for the vsql_oauth2 OIDC-client test.
-authentication_openid_connect_client    plugin_output_directory  no OPENID_CONNECT_CLIENT
 mysql_clone                             plugin_output_directory  no CLONE_PLUGIN    clone
 qa_auth_interface                       plugin_output_directory  no PLUGIN_AUTH_INTERFACE qa_auth_interface
 qa_auth_server                          plugin_output_directory  no PLUGIN_AUTH_SERVER    qa_auth_server
