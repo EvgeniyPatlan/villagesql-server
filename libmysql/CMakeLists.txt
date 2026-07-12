@@ -304,6 +304,11 @@ ADD_SUBDIRECTORY(authentication_kerberos)
 # authentication IAM client plug-in
 ADD_SUBDIRECTORY(authentication_oci_client)
 
+# VillageSQL: OpenID Connect client plug-in, backported from MySQL 9.1+ so the
+# native OIDC token-file auth path works against the vsql_oauth2 server extension
+# on this 8.4-based fork. See TODO(villagesql-rebase) in the subdirectory.
+ADD_SUBDIRECTORY(authentication_openid_connect_client)
+
 # Fido and Webauthn clients
 ADD_SUBDIRECTORY(fido_client)
 
