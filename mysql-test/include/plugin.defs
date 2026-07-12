@@ -31,6 +31,11 @@
 # in the optional 4th argument.
 
 auth_test_plugin                        plugin_output_directory  no PLUGIN_AUTH      test_plugin_server,cleartext_plugin_server
+# VillageSQL: OAuth client-side auth plugin (client-side only, no server load).
+# Sets VSQL_OAUTH_CLIENT_OPT=--plugin-dir=<dir> when built (empty otherwise),
+# for the vsql_oauth2 client-plugin test. Built with
+# -DWITH_AUTHENTICATION_CLIENT_PLUGINS=ON.
+vsql_oauth_client                       plugin_output_directory  no VSQL_OAUTH_CLIENT
 mysql_clone                             plugin_output_directory  no CLONE_PLUGIN    clone
 qa_auth_interface                       plugin_output_directory  no PLUGIN_AUTH_INTERFACE qa_auth_interface
 qa_auth_server                          plugin_output_directory  no PLUGIN_AUTH_SERVER    qa_auth_server

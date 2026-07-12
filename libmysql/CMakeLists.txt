@@ -304,6 +304,9 @@ ADD_SUBDIRECTORY(authentication_kerberos)
 # authentication IAM client plug-in
 ADD_SUBDIRECTORY(authentication_oci_client)
 
+# VillageSQL: OAuth client-side auth plug-in for the vsql_oauth2 extension.
+ADD_SUBDIRECTORY(vsql_oauth_client)
+
 # Fido and Webauthn clients
 ADD_SUBDIRECTORY(fido_client)
 
