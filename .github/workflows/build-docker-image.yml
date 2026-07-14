@@ -1,0 +1,125 @@
+name: Build Docker Image
+
+# Builds the VillageSQL Server Docker image for a SINGLE architecture and
+# publishes it under an arch-specific tag (e.g. villagesql/server:0.0.5-arm64).
+#
+# Invoked once per architecture by release-docker-image (workflow_call), or
+# manually for one architecture (workflow_dispatch).
+#
+# The build is driven by docker/server/publish_image.sh so the CI flow and the
+# local release flow stay in lockstep.
+#
+# Runner requirements (native builds, no QEMU):
+#   - linux/amd64 -> [self-hosted, linux, x86_64]
+#   - linux/arm64 -> ubuntu-24.04-arm (GitHub-hosted)
+# Each runner needs Docker with the Buildx plugin available.
+#
+# Secrets (only when push is true):
+#   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git tag, branch, or SHA to build from.'
+        required: true
+        type: string
+      tag:
+        description: 'Image tag, e.g. a version. The arch suffix is appended (0.0.5 -> 0.0.5-arm64).'
+        required: true
+        type: string
+      platform:
+        description: 'Docker platform to build, e.g. linux/amd64 or linux/arm64.'
+        required: true
+        type: string
+      runner:
+        description: 'JSON-encoded runs-on value, e.g. ["self-hosted","linux","x86_64"] or "ubuntu-24.04-arm".'
+        required: true
+        type: string
+      repo:
+        description: 'Image repository.'
+        required: false
+        type: string
+        default: villagesql/server
+      pre_release_version:
+        description: 'VSQL_PRE_RELEASE_VERSION build arg. Empty for a release build; "dev" for a pre-release.'
+        required: false
+        type: string
+        default: ''
+      dev_abi:
+        description: 'VSQL_DEV_ABI build arg (ON/OFF). Build extensions against the dev ABI.'
+        required: false
+        type: string
+        default: 'ON'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git tag, branch, or SHA to build from (e.g. 0.0.5 or main).'
+        required: true
+        type: string
+      tag:
+        description: 'Image tag, e.g. a version (the arch suffix is appended).'
+        required: true
+        type: string
+        default: '0.0.5'
+      platform:
+        description: 'Docker platform to build.'
+        required: true
+        type: choice
+        options:
+          - linux/amd64
+          - linux/arm64
+        default: linux/amd64
+      runner:
+        description: 'JSON-encoded runs-on value matching the platform.'
+        required: true
+        type: string
+        default: '["self-hosted","linux","x86_64"]'
+      repo:
+        description: 'Image repository.'
+        required: false
+        type: string
+        default: villagesql/server
+      pre_release_version:
+        description: 'VSQL_PRE_RELEASE_VERSION build arg (empty for release).'
+        required: false
+        type: string
+        default: ''
+      dev_abi:
+        description: 'VSQL_DEV_ABI build arg (ON/OFF).'
+        required: false
+        type: string
+        default: 'ON'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ inputs.platform }})
+    runs-on: ${{ fromJSON(inputs.runner) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 1
+          path: source
+          ref: ${{ inputs.ref }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push arch image
+        env:
+          VSQL_PRE_RELEASE_VERSION: ${{ inputs.pre_release_version }}
+          VSQL_DEV_ABI: ${{ inputs.dev_abi }}
+        run: |
+          source/docker/server/publish_image.sh \
+            --push \
+            --repo "${{ inputs.repo }}" \
+            --tag "${{ inputs.tag }}" \
+            --platform "${{ inputs.platform }}"

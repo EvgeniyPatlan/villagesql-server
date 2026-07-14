@@ -1,0 +1,99 @@
+name: Release Docker Image
+
+# Builds the VillageSQL Server Docker image for ALL architectures by fanning
+# out over build-docker-image (one call per arch), then stitches the per-arch
+# images into a single multi-arch manifest under the shared tags (the primary
+# tag plus latest/stable).
+#
+# This workflow handles the multi-arch case and the manifest; single-arch
+# builds live in build-docker-image.
+#
+# The manifest step is driven by docker/server/publish_manifest.sh so the CI
+# flow and the local release flow stay in lockstep. That script verifies every
+# arch image is in the registry before it moves the shared tags.
+#
+# Secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git tag, branch, or SHA to build from (e.g. 0.0.5 or main).'
+        required: true
+        type: string
+      tag:
+        description: 'Primary tag published on the manifest, e.g. a version like 0.0.5.'
+        required: true
+        type: string
+        default: '0.0.5'
+      repo:
+        description: 'Image repository.'
+        required: false
+        type: string
+        default: villagesql/server
+      shared_tags:
+        description: 'Comma-separated shared tags applied to the multi-arch manifest, in addition to the primary tag.'
+        required: false
+        type: string
+        default: 'latest,stable'
+      pre_release_version:
+        description: 'VSQL_PRE_RELEASE_VERSION build arg. Empty for a release build; "dev" for a pre-release.'
+        required: false
+        type: string
+        default: ''
+      dev_abi:
+        description: 'VSQL_DEV_ABI build arg (ON/OFF).'
+        required: false
+        type: string
+        default: 'ON'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: [self-hosted, linux, x86_64]
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    uses: ./.github/workflows/build-docker-image.yml
+    secrets: inherit
+    with:
+      ref: ${{ inputs.ref }}
+      tag: ${{ inputs.tag }}
+      platform: ${{ matrix.platform }}
+      runner: ${{ toJSON(matrix.runner) }}
+      repo: ${{ inputs.repo }}
+      pre_release_version: ${{ inputs.pre_release_version }}
+      dev_abi: ${{ inputs.dev_abi }}
+
+  manifest:
+    name: Create multi-arch manifest
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 1
+          path: source
+          ref: ${{ inputs.ref }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and verify shared manifest
+        run: |
+          source/docker/server/publish_manifest.sh \
+            --repo "${{ inputs.repo }}" \
+            --tag "${{ inputs.tag }}" \
+            --shared-tags "${{ inputs.shared_tags }}" \
+            --platforms "linux/amd64,linux/arm64"
