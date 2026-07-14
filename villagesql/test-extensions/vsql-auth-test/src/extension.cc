@@ -126,9 +126,14 @@ vef_auth_result_t authenticate(vef_auth_ctx_t *ctx, const vef_auth_ops_t *ops) {
   return VEF_AUTH_OK;
 }
 
-vsql::preview_auth::AuthCapability g_auth{"vsql_auth_test", &authenticate,
-                                          "mysql_clear_password",
-                                          &auto_create_enabled};
+constexpr auto AUTH_METHOD =
+    vsql::preview_auth::make_auth<&authenticate>("vsql_auth_test")
+        .pin("mysql_clear_password")
+        .auto_create(&auto_create_enabled)
+        .build();
+// AuthCapability is non-copyable (it self-registers at a fixed address), so
+// construct it in place from the built descriptor.
+vsql::preview_auth::AuthCapability g_auth{AUTH_METHOD};
 
 }  // namespace
 
