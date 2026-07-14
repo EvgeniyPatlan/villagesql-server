@@ -181,6 +181,25 @@ bool apply_vef_login_state(MPVIO_EXT *mpvio, Security_context *sctx,
                            const char *acl_user_authid,
                            const char *acl_user_host);
 
+// Auto-GRANT the token-staged roles to the resolved account, additively, iff a
+// VEF method has opted into token authority (the same opt-in that gates
+// auto-create: auth_method_for_unknown_accounts() non-empty). This runs GRANT
+// DDL, so it MUST be called on the connection thread at a point where NO ACL
+// cache lock is held (it uses a fresh internal THD that takes ACL locks itself)
+// -- i.e. BEFORE the role-activation block, not from inside apply_vef_login_state
+// (which runs under the ACL read lock). After this grants the claimed roles,
+// apply_vef_login_state's grant-checked activation finds them and activates them
+// instead of skipping.
+//
+// Additive only: a role no longer claimed is NOT revoked. Roles must pre-exist
+// as DB roles (a claimed role that cannot be granted is skipped, logged). No-op
+// when nothing was staged or the method is not opted in (activate-only stays the
+// default). Same DDL-on-login caveats as request_provision (replica/read-only,
+// concurrency) -- see its TODO(villagesql-beta).
+void apply_vef_role_grants(MPVIO_EXT *mpvio,
+                           const char *acl_user_authid,
+                           const char *acl_user_host);
+
 }  // namespace villagesql::services
 
 #endif  // VILLAGESQL_SERVICES_PREVIEW_AUTH_H

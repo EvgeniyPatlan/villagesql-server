@@ -308,6 +308,47 @@ bool apply_vef_login_state(MPVIO_EXT *mpvio, Security_context *sctx,
   return true;  // staged state applied; caller must NOT also activate defaults
 }
 
+void apply_vef_role_grants(MPVIO_EXT *mpvio, const char *acl_user_authid,
+                           const char *acl_user_host) {
+  const VefAuthState *state = mpvio->vef_auth_state;
+  if (state == nullptr || state->count == 0) return;  // nothing staged
+
+  // Gate: only auto-grant when a VEF method has opted into token authority --
+  // the same opt-in that gates auto-create. When it is off, the token stays
+  // activate-only (the DBA owns grants) and we do nothing here.
+  if (auth_method_for_unknown_accounts().empty()) return;
+
+  const char *account =
+      acl_user_authid != nullptr ? acl_user_authid : "";
+  const char *host = acl_user_host != nullptr ? acl_user_host : "%";
+  if (account[0] == '\0') return;
+
+  // GRANT each staged role additively. A role that does not exist as a DB role
+  // (or otherwise cannot be granted) fails inside provision_run and is skipped
+  // (logged), not fatal -- the token carries a group NAME, not the role's
+  // definition, so we never CREATE ROLE here. No REVOKE: a role no longer
+  // claimed is retained (authoritative reconcile is a separate, deferred task).
+  //
+  // TODO(villagesql-beta): SECURITY -- `account`/`host`/role names are
+  // interpolated into DDL without escaping (same gap as request_provision).
+  // Quote/validate identifiers before enabling in a real deployment.
+  for (uint i = 0; i < state->count; ++i) {
+    const char *role = state->roles[i].name;
+    const char *role_host = state->roles[i].host;
+    if (role == nullptr || role[0] == '\0') continue;
+    std::string grant = "GRANT '";
+    grant.append(role);
+    grant.append("'@'");
+    grant.append(role_host != nullptr ? role_host : "%");
+    grant.append("' TO '");
+    grant.append(account);
+    grant.append("'@'");
+    grant.append(host);
+    grant.append("'");
+    (void)provision_run(grant);
+  }
+}
+
 AuthMethodRef::AuthMethodRef() {
   g_inflight.fetch_add(1, std::memory_order_seq_cst);
 }

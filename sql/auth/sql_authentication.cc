@@ -4342,6 +4342,14 @@ int acl_authenticate(THD *thd, enum_server_command command) {
       assert(mpvio.restrictions);
       sctx->set_master_access(acl_user->access, *(mpvio.restrictions));
       assign_priv_user_host(sctx, const_cast<ACL_USER *>(acl_user));
+      // VillageSQL: when a VEF method has opted into token authority (the
+      // auto-create opt-in), auto-GRANT the token-staged roles to the resolved
+      // account here -- BEFORE the activation block below acquires the ACL cache
+      // lock, because granting runs DDL on a separate internal THD that takes
+      // ACL locks itself (doing it under the lock would deadlock). The
+      // subsequent grant-checked activation then finds and activates them.
+      villagesql::services::apply_vef_role_grants(
+          &mpvio, acl_user->user, acl_user->host.get_host());
       /* Assign default role */
       {
         List_of_auth_id_refs default_roles;
