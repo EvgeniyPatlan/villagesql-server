@@ -1,4 +1,5 @@
 /* Copyright (c) 2008, 2026, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License, version 2.0,
@@ -33,6 +34,7 @@
 #include "sql/sql_const.h"
 #include "storage/perfschema/pfs_error.h"
 #include "storage/perfschema/pfs_global.h"
+#include "storage/perfschema/pfs_histogram.h"  // VillageSQL
 /* memcpy */
 #include "string.h"
 
@@ -310,13 +312,18 @@ struct PFS_file_stat {
   ulong m_open_count;
   /** File I/O statistics. */
   PFS_file_io_stat m_io_stat;
+  /** VillageSQL: File I/O latency distribution, for FILE_IO_HISTOGRAM. */
+  PFS_histogram m_io_histogram;
 
   inline void aggregate(const PFS_file_stat *stat) {
     m_io_stat.aggregate(&stat->m_io_stat);
   }
 
   /** Reset file statistics. */
-  inline void reset() { m_io_stat.reset(); }
+  inline void reset() {
+    m_io_stat.reset();
+    m_io_histogram.reset();  // VillageSQL
+  }
 };
 
 /** Statistics for stage usage. */

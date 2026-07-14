@@ -1,4 +1,5 @@
 # Copyright (c) 2009, 2026, Oracle and/or its affiliates.
+#    Copyright (c) 2026 VillageSQL Contributors
 #
 #
 # This program is free software; you can redistribute it and/or modify
@@ -381,6 +382,10 @@ table_replication_applier_filters.cc
 table_replication_applier_global_filters.cc
 table_binary_log_transaction_compression_stats.cc
 telemetry_pfs_metrics.cc
+
+# VillageSQL: file I/O latency histogram (table + feed)
+${CMAKE_SOURCE_DIR}/villagesql/perfschema/vsql_file_io_histogram.cc
+${CMAKE_SOURCE_DIR}/villagesql/perfschema/table_vsql_file_io_histogram.cc
 )
 MYSQL_ADD_PLUGIN(perfschema ${PERFSCHEMA_SOURCES}
   STORAGE_ENGINE MANDATORY STATIC_ONLY

@@ -1,4 +1,5 @@
 /* Copyright (c) 2008, 2026, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License, version 2.0,
@@ -140,6 +141,7 @@
 #include "storage/perfschema/pfs_user.h"
 #include "storage/perfschema/service_pfs_notification.h"
 #include "thr_lock.h"
+#include "villagesql/perfschema/vsql_file_io_histogram.h"  // VillageSQL
 
 /*
   Exporting cmake compilation flags to doxygen,
@@ -5729,6 +5731,8 @@ void pfs_end_file_wait_vc(PSI_file_locker *locker, size_t byte_count) {
     wait_time = timer_end - state->m_timer_start;
     /* Aggregate to EVENTS_WAITS_SUMMARY_BY_INSTANCE (timed) */
     byte_stat->aggregate(wait_time, bytes);
+    /* VillageSQL: aggregate to FILE_IO_HISTOGRAM (latency distribution). */
+    vsql_file_io_histogram_add(file_stat, wait_time);
   } else {
     /* Aggregate to EVENTS_WAITS_SUMMARY_BY_INSTANCE (counted) */
     byte_stat->aggregate_counted(bytes);

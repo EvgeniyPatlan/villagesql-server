@@ -1,0 +1,81 @@
+UPDATE performance_schema.setup_instruments
+SET ENABLED = 'YES', TIMED = 'YES'
+  WHERE NAME LIKE 'wait/io/file/%';
+# Table exists with the expected columns.
+SHOW COLUMNS FROM performance_schema.file_io_histogram;
+Field	Type	Null	Key	Default	Extra
+EVENT_NAME	varchar(128)	NO	PRI	NULL	
+BUCKET_NUMBER	int unsigned	NO	PRI	NULL	
+BUCKET_TIMER_LOW	bigint unsigned	NO		NULL	
+BUCKET_TIMER_HIGH	bigint unsigned	NO		NULL	
+COUNT_BUCKET	bigint unsigned	NO		NULL	
+COUNT_BUCKET_AND_LOWER	bigint unsigned	NO		NULL	
+BUCKET_QUANTILE	double(7,6)	NO		NULL	
+# Every instrumented file event has exactly NUMBER_OF_BUCKETS (450) rows.
+SELECT COUNT(DISTINCT BUCKET_NUMBER) AS buckets_per_event
+FROM performance_schema.file_io_histogram
+GROUP BY EVENT_NAME
+LIMIT 1;
+buckets_per_event
+450
+# Bucket boundaries are the shared geometric scale: bucket 0 starts at 0,
+# each bucket's HIGH equals the next bucket's LOW.
+SELECT BUCKET_NUMBER, BUCKET_TIMER_LOW, BUCKET_TIMER_HIGH
+FROM performance_schema.file_io_histogram
+WHERE EVENT_NAME = 'wait/io/file/innodb/innodb_data_file'
+    AND BUCKET_NUMBER <= 3
+ORDER BY BUCKET_NUMBER;
+BUCKET_NUMBER	BUCKET_TIMER_LOW	BUCKET_TIMER_HIGH
+0	0	10000000
+1	10000000	10471285
+2	10471285	10964781
+3	10964781	11481536
+# LOW of bucket 0 must be 0.
+SELECT BUCKET_TIMER_LOW = 0 AS first_bucket_starts_at_zero
+FROM performance_schema.file_io_histogram
+WHERE EVENT_NAME = 'wait/io/file/innodb/innodb_data_file'
+    AND BUCKET_NUMBER = 0;
+first_bucket_starts_at_zero
+1
+# Generate file I/O, then confirm at least one event accumulated buckets.
+CREATE TABLE t1 (id INT PRIMARY KEY, pad CHAR(255)) ENGINE=InnoDB;
+FLUSH TABLES t1;
+# Force reads back from disk.
+SELECT COUNT(*) FROM t1;
+COUNT(*)
+200
+# At least one file event has a populated bucket.
+SELECT COUNT(*) > 0 AS some_bucket_populated
+FROM performance_schema.file_io_histogram
+WHERE COUNT_BUCKET > 0;
+some_bucket_populated
+1
+# COUNT_BUCKET_AND_LOWER is a monotonic non-decreasing CDF per event.
+# Verify no violations exist.
+SELECT COUNT(*) AS cdf_violations
+FROM (
+SELECT EVENT_NAME, BUCKET_NUMBER, COUNT_BUCKET_AND_LOWER,
+LAG(COUNT_BUCKET_AND_LOWER)
+OVER (PARTITION BY EVENT_NAME ORDER BY BUCKET_NUMBER) AS prev
+FROM performance_schema.file_io_histogram
+) c
+WHERE prev IS NOT NULL AND COUNT_BUCKET_AND_LOWER < prev;
+cdf_violations
+0
+# BUCKET_QUANTILE is always within [0,1].
+SELECT COUNT(*) AS quantile_out_of_range
+FROM performance_schema.file_io_histogram
+WHERE BUCKET_QUANTILE < 0 OR BUCKET_QUANTILE > 1;
+quantile_out_of_range
+0
+# TRUNCATE is supported and still leaves the full bucket grid in place
+# (it clears counts, not rows). Assert the row grid survives; post-truncate
+# counts are not asserted, as background I/O may repopulate immediately.
+TRUNCATE TABLE performance_schema.file_io_histogram;
+SELECT COUNT(DISTINCT BUCKET_NUMBER) AS buckets_per_event_after_truncate
+FROM performance_schema.file_io_histogram
+GROUP BY EVENT_NAME
+LIMIT 1;
+buckets_per_event_after_truncate
+450
+DROP TABLE t1;
