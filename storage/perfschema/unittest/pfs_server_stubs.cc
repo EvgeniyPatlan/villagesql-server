@@ -1,4 +1,5 @@
 /* Copyright (c) 2010, 2026, Oracle and/or its affiliates.
+   Copyright (c) 2026 VillageSQL Contributors
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License, version 2.0,
@@ -35,6 +36,7 @@
 #include "sql/mysqld.h"
 #include "sql/sql_class.h"
 #include "sql/sql_show.h"
+#include "villagesql/common/vsql_io_intent.h"
 
 ulong max_connections;
 
@@ -88,3 +90,7 @@ thread_local THD *current_thd;
 uint opt_debug_sync_timeout = 0;
 
 void debug_sync(THD *, const char *, size_t) {}
+
+// VillageSQL: the file I/O histogram feed reads the current I/O intent, which
+// lives in villagesql_common (not linked into the perfschema unit tests).
+VsqlIoIntent vsql_current_io_intent() { return VsqlIoIntent::NONE; }

@@ -383,7 +383,9 @@ table_replication_applier_global_filters.cc
 table_binary_log_transaction_compression_stats.cc
 telemetry_pfs_metrics.cc
 
-# VillageSQL: file I/O latency histogram (table + feed)
+# VillageSQL: file I/O latency histogram (table + feed).
+# The intent primitive (vsql_io_intent) lives in villagesql_common because it is
+# shared with InnoDB (the producer); it is not listed here.
 ${CMAKE_SOURCE_DIR}/villagesql/perfschema/vsql_file_io_histogram.cc
 ${CMAKE_SOURCE_DIR}/villagesql/perfschema/table_vsql_file_io_histogram.cc
 )

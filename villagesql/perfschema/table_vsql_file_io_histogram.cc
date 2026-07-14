@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-// VillageSQL: PERFORMANCE_SCHEMA.FILE_IO_HISTOGRAM (implementation).
+// VillageSQL: PERFORMANCE_SCHEMA.FILE_IO_HISTOGRAM and
+// FILE_IO_HISTOGRAM_SYNC_READS (implementation).
 
 #include "villagesql/perfschema/table_vsql_file_io_histogram.h"
 
@@ -29,15 +30,11 @@
 #include "storage/perfschema/pfs_instr.h"
 #include "storage/perfschema/pfs_instr_class.h"
 #include "storage/perfschema/pfs_timer.h"
+#include "storage/perfschema/pfs_visitor.h"
 
-THR_LOCK table_vsql_file_io_histogram::m_table_lock;
-
-Plugin_table table_vsql_file_io_histogram::m_table_def(
-    /* Schema name */
-    "performance_schema",
-    /* Name */
-    "file_io_histogram",
-    /* Definition */
+namespace {
+// Column definition shared by both tables.
+const char *const k_table_definition =
     "  EVENT_NAME VARCHAR(128) not null,\n"
     "  BUCKET_NUMBER INTEGER unsigned not null,\n"
     "  BUCKET_TIMER_LOW BIGINT unsigned not null,\n"
@@ -45,26 +42,49 @@ Plugin_table table_vsql_file_io_histogram::m_table_def(
     "  COUNT_BUCKET BIGINT unsigned not null,\n"
     "  COUNT_BUCKET_AND_LOWER BIGINT unsigned not null,\n"
     "  BUCKET_QUANTILE DOUBLE(7,6) not null,\n"
-    "  PRIMARY KEY (EVENT_NAME, BUCKET_NUMBER) USING HASH\n",
-    /* Options */
-    " ENGINE=PERFORMANCE_SCHEMA",
-    /* Tablespace */
-    nullptr);
+    "  PRIMARY KEY (EVENT_NAME, BUCKET_NUMBER) USING HASH\n";
 
-PFS_engine_table_share table_vsql_file_io_histogram::m_share = {
-    &pfs_truncatable_acl,
-    table_vsql_file_io_histogram::create,
-    nullptr, /* write_row */
-    table_vsql_file_io_histogram::delete_all_rows,
-    table_vsql_file_io_histogram::get_row_count,
-    sizeof(pos_vsql_file_io_histogram),
-    &m_table_lock,
-    &m_table_def,
-    false, /* perpetual */
-    PFS_engine_table_proxy(),
-    {0},
-    false /* m_in_purgatory */
+PFS_histogram *select_all_io(PFS_file_stat *file_stat) {
+  return &file_stat->m_io_histogram;
+}
+
+PFS_histogram *select_sync_reads(PFS_file_stat *file_stat) {
+  return &file_stat->m_sync_read_histogram;
+}
+
+// Sums a file class histogram across the class stat and every open instance.
+// File I/O is aggregated into the per-instance PFS_file_stat when a specific
+// file is known (the common case), so reading only the class stat would miss
+// almost all of it. This mirrors PFS_instance_file_io_stat_visitor, which does
+// the same for the moment-based file_summary tables.
+class Histogram_sum_visitor : public PFS_instance_visitor {
+ public:
+  explicit Histogram_sum_visitor(vsql_file_io_histogram_selector selector)
+      : m_selector(selector) {
+    for (ulong i = 0; i < NUMBER_OF_BUCKETS; i++) {
+      m_bucket[i] = 0;
+    }
+  }
+
+  void visit_file_class(PFS_file_class *pfs) override {
+    accumulate(&pfs->m_file_stat);
+  }
+
+  void visit_file(PFS_file *pfs) override { accumulate(&pfs->m_file_stat); }
+
+  ulonglong m_bucket[NUMBER_OF_BUCKETS];
+
+ private:
+  void accumulate(PFS_file_stat *file_stat) {
+    PFS_histogram *histogram = m_selector(file_stat);
+    for (ulong i = 0; i < NUMBER_OF_BUCKETS; i++) {
+      m_bucket[i] += histogram->read_bucket(i);
+    }
+  }
+
+  vsql_file_io_histogram_selector m_selector;
 };
+}  // namespace
 
 bool PFS_index_vsql_file_io_histogram::match(PFS_file_class *file_class) {
   if (m_fields >= 1) {
@@ -80,23 +100,11 @@ bool PFS_index_vsql_file_io_histogram::match_bucket(ulong bucket_index) {
   return true;
 }
 
-PFS_engine_table *table_vsql_file_io_histogram::create(
-    PFS_engine_table_share *) {
-  return new table_vsql_file_io_histogram();
-}
-
-int table_vsql_file_io_histogram::delete_all_rows() {
-  reset_file_instance_io();
-  reset_file_class_io();
-  return 0;
-}
-
-ha_rows table_vsql_file_io_histogram::get_row_count() {
-  return file_class_max * NUMBER_OF_BUCKETS;
-}
-
-table_vsql_file_io_histogram::table_vsql_file_io_histogram()
-    : PFS_engine_table(&m_share, &m_pos),
+table_vsql_file_io_histogram::table_vsql_file_io_histogram(
+    const PFS_engine_table_share *share,
+    vsql_file_io_histogram_selector selector)
+    : PFS_engine_table(share, &m_pos),
+      m_selector(selector),
       m_materialized_class(nullptr),
       m_pos(),
       m_next_pos(),
@@ -178,11 +186,13 @@ void table_vsql_file_io_histogram::materialize(PFS_file_class *file_class) {
 
   m_snapshot.m_event_name.make_row(file_class);
 
-  PFS_histogram *histogram = &file_class->m_file_stat.m_io_histogram;
+  // Sum the selected histogram across the class stat and all open instances.
+  Histogram_sum_visitor visitor(m_selector);
+  PFS_instance_iterator::visit_file_instances(file_class, &visitor);
 
   ulonglong count_and_lower = 0;
   for (ulong index = 0; index < NUMBER_OF_BUCKETS; index++) {
-    const ulonglong count = histogram->read_bucket(index);
+    const ulonglong count = visitor.m_bucket[index];
     count_and_lower += count;
 
     vsql_file_io_histogram_bucket &b = m_snapshot.m_buckets[index];
@@ -262,4 +272,87 @@ int table_vsql_file_io_histogram::read_row_values(TABLE *table, unsigned char *,
   }
 
   return 0;
+}
+
+// FILE_IO_HISTOGRAM (all file I/O).
+
+THR_LOCK table_vsql_file_io_histogram_all::m_table_lock;
+
+Plugin_table table_vsql_file_io_histogram_all::m_table_def(
+    "performance_schema", "file_io_histogram", k_table_definition,
+    " ENGINE=PERFORMANCE_SCHEMA", nullptr);
+
+PFS_engine_table_share table_vsql_file_io_histogram_all::m_share = {
+    &pfs_truncatable_acl,
+    table_vsql_file_io_histogram_all::create,
+    nullptr, /* write_row */
+    table_vsql_file_io_histogram_all::delete_all_rows,
+    table_vsql_file_io_histogram_all::get_row_count,
+    sizeof(pos_vsql_file_io_histogram),
+    &m_table_lock,
+    &m_table_def,
+    false, /* perpetual */
+    PFS_engine_table_proxy(),
+    {0},
+    false /* m_in_purgatory */
+};
+
+table_vsql_file_io_histogram_all::table_vsql_file_io_histogram_all()
+    : table_vsql_file_io_histogram(&m_share, select_all_io) {}
+
+PFS_engine_table *table_vsql_file_io_histogram_all::create(
+    PFS_engine_table_share *) {
+  return new table_vsql_file_io_histogram_all();
+}
+
+int table_vsql_file_io_histogram_all::delete_all_rows() {
+  reset_file_instance_io();
+  reset_file_class_io();
+  return 0;
+}
+
+ha_rows table_vsql_file_io_histogram_all::get_row_count() {
+  return file_class_max * NUMBER_OF_BUCKETS;
+}
+
+// FILE_IO_HISTOGRAM_SYNC_READS (synchronous single-page reads only).
+
+THR_LOCK table_vsql_file_io_histogram_sync_reads::m_table_lock;
+
+Plugin_table table_vsql_file_io_histogram_sync_reads::m_table_def(
+    "performance_schema", "file_io_histogram_sync_reads", k_table_definition,
+    " ENGINE=PERFORMANCE_SCHEMA", nullptr);
+
+PFS_engine_table_share table_vsql_file_io_histogram_sync_reads::m_share = {
+    &pfs_truncatable_acl,
+    table_vsql_file_io_histogram_sync_reads::create,
+    nullptr, /* write_row */
+    table_vsql_file_io_histogram_sync_reads::delete_all_rows,
+    table_vsql_file_io_histogram_sync_reads::get_row_count,
+    sizeof(pos_vsql_file_io_histogram),
+    &m_table_lock,
+    &m_table_def,
+    false, /* perpetual */
+    PFS_engine_table_proxy(),
+    {0},
+    false /* m_in_purgatory */
+};
+
+table_vsql_file_io_histogram_sync_reads::
+    table_vsql_file_io_histogram_sync_reads()
+    : table_vsql_file_io_histogram(&m_share, select_sync_reads) {}
+
+PFS_engine_table *table_vsql_file_io_histogram_sync_reads::create(
+    PFS_engine_table_share *) {
+  return new table_vsql_file_io_histogram_sync_reads();
+}
+
+int table_vsql_file_io_histogram_sync_reads::delete_all_rows() {
+  reset_file_instance_io();
+  reset_file_class_io();
+  return 0;
+}
+
+ha_rows table_vsql_file_io_histogram_sync_reads::get_row_count() {
+  return file_class_max * NUMBER_OF_BUCKETS;
 }

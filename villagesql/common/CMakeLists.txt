@@ -15,6 +15,7 @@
 
 SET(VILLAGESQL_COMMON_SOURCES
   semver.cc
+  vsql_io_intent.cc
 )
 
 # Generated build metadata (git SHA, work-tree file counts, build timestamp,

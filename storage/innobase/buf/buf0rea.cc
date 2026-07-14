@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2026, Oracle and/or its affiliates.
+Copyright (c) 2026 VillageSQL Contributors
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License, version 2.0, as published by the
@@ -51,6 +52,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "srv0start.h"
 #include "trx0sys.h"
 #include "ut0new.h"
+#include "villagesql/common/vsql_io_intent.h"  // VillageSQL
 
 /** There must be at least this many pages in buf_pool in the area to start
 a random read-ahead */
@@ -288,6 +290,11 @@ read_ahead:
 bool buf_read_page(const page_id_t &page_id, const page_size_t &page_size) {
   ulint count;
   dberr_t err;
+
+  // VillageSQL: this is a synchronous single-page read (a thread blocking on
+  // one page it needs). Mark the intent so the file I/O histogram can separate
+  // it from read-ahead. Scope covers the read; cleared on return.
+  vsql_io_intent_scope io_intent(VsqlIoIntent::SYNC_PAGE_READ);
 
   count = buf_read_page_low(&err, true, 0, BUF_READ_ANY_PAGE, page_id,
                             page_size, false);

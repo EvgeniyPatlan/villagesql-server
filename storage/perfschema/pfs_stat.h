@@ -314,6 +314,9 @@ struct PFS_file_stat {
   PFS_file_io_stat m_io_stat;
   /** VillageSQL: File I/O latency distribution, for FILE_IO_HISTOGRAM. */
   PFS_histogram m_io_histogram;
+  /** VillageSQL: sync single-page read latency distribution, for
+      FILE_IO_HISTOGRAM_SYNC_READS. */
+  PFS_histogram m_sync_read_histogram;
 
   inline void aggregate(const PFS_file_stat *stat) {
     m_io_stat.aggregate(&stat->m_io_stat);
@@ -322,7 +325,8 @@ struct PFS_file_stat {
   /** Reset file statistics. */
   inline void reset() {
     m_io_stat.reset();
-    m_io_histogram.reset();  // VillageSQL
+    m_io_histogram.reset();         // VillageSQL
+    m_sync_read_histogram.reset();  // VillageSQL
   }
 };
 

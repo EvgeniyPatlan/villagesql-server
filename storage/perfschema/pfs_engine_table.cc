@@ -611,7 +611,8 @@ static PFS_engine_table_share *all_shares[] = {
     &table_binary_log_transaction_compression_stats::m_share,
     &table_tls_channel_status::m_share,
     &table_keyring_component_status::m_share,
-    &table_vsql_file_io_histogram::m_share,  // VillageSQL
+    &table_vsql_file_io_histogram_all::m_share,         // VillageSQL
+    &table_vsql_file_io_histogram_sync_reads::m_share,  // VillageSQL
     nullptr};
 
 static PSI_mutex_key key_LOCK_pfs_share_list;

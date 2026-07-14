@@ -18,6 +18,7 @@
 #include "storage/perfschema/pfs_histogram.h"
 #include "storage/perfschema/pfs_stat.h"
 #include "storage/perfschema/pfs_timer.h"
+#include "villagesql/common/vsql_io_intent.h"
 
 // The bucket boundaries are the shared statement/histogram scale
 // (g_histogram_pico_timers, 450 geometric buckets from 10us). Reusing it keeps
@@ -26,5 +27,14 @@
 void vsql_file_io_histogram_add(PFS_file_stat *file_stat, ulonglong wait_time) {
   time_normalizer *normalizer = time_normalizer::get_wait();
   const ulong bucket_index = normalizer->bucket_index(wait_time);
+
+  // Overall distribution: every file I/O wait.
   file_stat->m_io_histogram.increment_bucket(bucket_index);
+
+  // Intent-specific distribution: only I/O the caller declared as a
+  // synchronous single-page read (a thread blocking on one page), excluding
+  // read-ahead and background I/O.
+  if (vsql_current_io_intent() == VsqlIoIntent::SYNC_PAGE_READ) {
+    file_stat->m_sync_read_histogram.increment_bucket(bucket_index);
+  }
 }

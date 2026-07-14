@@ -16,12 +16,21 @@
 #ifndef TABLE_VSQL_FILE_IO_HISTOGRAM_H
 #define TABLE_VSQL_FILE_IO_HISTOGRAM_H
 
-// VillageSQL: PERFORMANCE_SCHEMA.FILE_IO_HISTOGRAM (declarations).
+// VillageSQL: PERFORMANCE_SCHEMA.FILE_IO_HISTOGRAM and
+// FILE_IO_HISTOGRAM_SYNC_READS (declarations).
 //
 // One row per (file event name, latency bucket): the latency distribution of
 // file I/O waits, per file class, over the shared 450-bucket histogram scale.
 // Modeled on table_esmh_global (bucket emission) and
 // table_file_summary_by_event_name (file-class iteration).
+//
+// Two tables share this implementation. They differ only in which
+// per-file-class histogram they read, selected by a function passed at
+// construction:
+//   - FILE_IO_HISTOGRAM            reads m_io_histogram (all file I/O)
+//   - FILE_IO_HISTOGRAM_SYNC_READS reads m_sync_read_histogram (sync
+//   single-page
+//                                 reads only; see vsql_io_intent.h)
 
 #include <sys/types.h>
 
@@ -34,6 +43,7 @@
 class Field;
 class Plugin_table;
 struct PFS_file_class;
+struct PFS_file_stat;
 struct TABLE;
 struct THR_LOCK;
 
@@ -105,15 +115,14 @@ class PFS_index_vsql_file_io_histogram : public PFS_engine_index {
   PFS_key_bucket_number m_key_2;
 };
 
-// Table PERFORMANCE_SCHEMA.FILE_IO_HISTOGRAM.
+// Selects which histogram of a file stat this table reads. Applied to both the
+// per-class stat and every per-instance stat, whose bucket counts are summed
+// (mirroring table_file_summary_by_event_name's instance aggregation).
+typedef PFS_histogram *(*vsql_file_io_histogram_selector)(PFS_file_stat *);
+
+// Shared implementation for FILE_IO_HISTOGRAM and FILE_IO_HISTOGRAM_SYNC_READS.
 class table_vsql_file_io_histogram : public PFS_engine_table {
  public:
-  // Table share.
-  static PFS_engine_table_share m_share;
-  static PFS_engine_table *create(PFS_engine_table_share *);
-  static int delete_all_rows();
-  static ha_rows get_row_count();
-
   void reset_position() override;
 
   int rnd_next() override;
@@ -126,7 +135,8 @@ class table_vsql_file_io_histogram : public PFS_engine_table {
   int read_row_values(TABLE *table, unsigned char *buf, Field **fields,
                       bool read_all) override;
 
-  table_vsql_file_io_histogram();
+  table_vsql_file_io_histogram(const PFS_engine_table_share *share,
+                               vsql_file_io_histogram_selector selector);
 
  public:
   ~table_vsql_file_io_histogram() override = default;
@@ -136,10 +146,8 @@ class table_vsql_file_io_histogram : public PFS_engine_table {
   int make_row(PFS_file_class *file_class, ulong bucket_index);
 
  private:
-  // Table share lock.
-  static THR_LOCK m_table_lock;
-  // Table definition.
-  static Plugin_table m_table_def;
+  // Selects the histogram to read from a file class.
+  vsql_file_io_histogram_selector m_selector;
 
   // File class whose histogram is currently snapshotted, or nullptr.
   PFS_file_class *m_materialized_class;
@@ -153,6 +161,38 @@ class table_vsql_file_io_histogram : public PFS_engine_table {
   pos_vsql_file_io_histogram m_next_pos;
 
   PFS_index_vsql_file_io_histogram *m_opened_index;
+};
+
+// Table PERFORMANCE_SCHEMA.FILE_IO_HISTOGRAM (all file I/O).
+class table_vsql_file_io_histogram_all : public table_vsql_file_io_histogram {
+ public:
+  static PFS_engine_table_share m_share;
+  static PFS_engine_table *create(PFS_engine_table_share *);
+  static int delete_all_rows();
+  static ha_rows get_row_count();
+
+ private:
+  static THR_LOCK m_table_lock;
+  static Plugin_table m_table_def;
+
+  table_vsql_file_io_histogram_all();
+};
+
+// Table PERFORMANCE_SCHEMA.FILE_IO_HISTOGRAM_SYNC_READS (sync single-page
+// reads only).
+class table_vsql_file_io_histogram_sync_reads
+    : public table_vsql_file_io_histogram {
+ public:
+  static PFS_engine_table_share m_share;
+  static PFS_engine_table *create(PFS_engine_table_share *);
+  static int delete_all_rows();
+  static ha_rows get_row_count();
+
+ private:
+  static THR_LOCK m_table_lock;
+  static Plugin_table m_table_def;
+
+  table_vsql_file_io_histogram_sync_reads();
 };
 
 #endif  // TABLE_VSQL_FILE_IO_HISTOGRAM_H

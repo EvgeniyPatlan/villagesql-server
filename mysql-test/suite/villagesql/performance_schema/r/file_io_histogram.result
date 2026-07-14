@@ -40,15 +40,17 @@ first_bucket_starts_at_zero
 # Generate file I/O, then confirm at least one event accumulated buckets.
 CREATE TABLE t1 (id INT PRIMARY KEY, pad CHAR(255)) ENGINE=InnoDB;
 FLUSH TABLES t1;
-# Force reads back from disk.
 SELECT COUNT(*) FROM t1;
 COUNT(*)
 200
-# At least one file event has a populated bucket.
-SELECT COUNT(*) > 0 AS some_bucket_populated
+# The InnoDB data file accumulated real I/O in its histogram. This must
+# be non-zero: the 200 inserts + FLUSH write pages to the .ibd, whose I/O
+# is aggregated on the per-instance file stat. (A histogram that only read
+# the per-class stat would miss this and wrongly report 0.)
+SELECT SUM(COUNT_BUCKET) > 0 AS data_file_io_recorded
 FROM performance_schema.file_io_histogram
-WHERE COUNT_BUCKET > 0;
-some_bucket_populated
+WHERE EVENT_NAME = 'wait/io/file/innodb/innodb_data_file';
+data_file_io_recorded
 1
 # COUNT_BUCKET_AND_LOWER is a monotonic non-decreasing CDF per event.
 # Verify no violations exist.
@@ -78,4 +80,62 @@ GROUP BY EVENT_NAME
 LIMIT 1;
 buckets_per_event_after_truncate
 450
+#
+# ==== file_io_histogram_sync_reads (intent-tagged sync single-page reads) ====
+#
+# The sync-reads table has the same shape as the all-I/O table.
+SHOW COLUMNS FROM performance_schema.file_io_histogram_sync_reads;
+Field	Type	Null	Key	Default	Extra
+EVENT_NAME	varchar(128)	NO	PRI	NULL	
+BUCKET_NUMBER	int unsigned	NO	PRI	NULL	
+BUCKET_TIMER_LOW	bigint unsigned	NO		NULL	
+BUCKET_TIMER_HIGH	bigint unsigned	NO		NULL	
+COUNT_BUCKET	bigint unsigned	NO		NULL	
+COUNT_BUCKET_AND_LOWER	bigint unsigned	NO		NULL	
+BUCKET_QUANTILE	double(7,6)	NO		NULL	
+# Same 450-bucket grid, same event names as the all-I/O table.
+SELECT COUNT(DISTINCT BUCKET_NUMBER) AS buckets_per_event
+FROM performance_schema.file_io_histogram_sync_reads
+GROUP BY EVENT_NAME
+LIMIT 1;
+buckets_per_event
+450
+# Restart to cold-start the buffer pool: the next access to t1 must fetch
+# its pages from disk via synchronous single-page reads (buf_read_page),
+# which is exactly the intent this histogram tags.
+# restart
+# Cold read of t1: forces synchronous single-page reads.
+SELECT COUNT(*) FROM t1;
+COUNT(*)
+200
+# The sync-reads histogram recorded synchronous data-file reads.
+SELECT SUM(COUNT_BUCKET) > 0 AS sync_reads_recorded
+FROM performance_schema.file_io_histogram_sync_reads
+WHERE EVENT_NAME = 'wait/io/file/innodb/innodb_data_file';
+sync_reads_recorded
+1
+# Intent split invariant: sync reads on the data file are a non-empty
+# SUBSET of all data-file I/O: 0 < sync_reads <= all_io. The strict lower
+# bound guards against a regression where BOTH histograms silently read an
+# empty per-class stat (the "0 <= 0" trap).
+SELECT
+0 <
+(SELECT SUM(COUNT_BUCKET) FROM performance_schema.file_io_histogram_sync_reads
+WHERE EVENT_NAME = 'wait/io/file/innodb/innodb_data_file')
+AND
+(SELECT SUM(COUNT_BUCKET) FROM performance_schema.file_io_histogram_sync_reads
+WHERE EVENT_NAME = 'wait/io/file/innodb/innodb_data_file')
+<=
+(SELECT SUM(COUNT_BUCKET) FROM performance_schema.file_io_histogram
+WHERE EVENT_NAME = 'wait/io/file/innodb/innodb_data_file')
+AS sync_is_nonempty_subset_of_all;
+sync_is_nonempty_subset_of_all
+1
+# The sync-reads histogram is confined to reads: write-only file classes
+# (e.g. the doublewrite buffer) never accumulate sync-read buckets.
+SELECT SUM(COUNT_BUCKET) AS dblwr_sync_reads
+FROM performance_schema.file_io_histogram_sync_reads
+WHERE EVENT_NAME = 'wait/io/file/innodb/innodb_dblwr_file';
+dblwr_sync_reads
+0
 DROP TABLE t1;
