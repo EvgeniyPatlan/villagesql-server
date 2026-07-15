@@ -1,0 +1,14 @@
+INSTALL EXTENSION vsql_test_only;
+# A fixed type with an over-large persisted_length installs fine, but
+# CREATE TABLE is rejected by MySQL's column-length limit.
+CREATE TABLE t (id INT PRIMARY KEY, v HUGE_FIELD);
+ERROR 42000: Column length too big for column 'v' (max = 65535); use BLOB or TEXT instead
+# Same for a variable-length type with an over-large max_persisted_length.
+CREATE TABLE t (id INT PRIMARY KEY, v HUGE_VAR);
+ERROR 42000: Column length too big for column 'v' (max = 65535); use BLOB or TEXT instead
+# No table was created.
+SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 't';
+COUNT(*)
+0
+UNINSTALL EXTENSION vsql_test_only;
