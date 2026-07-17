@@ -251,6 +251,17 @@ void on_statement_postexecute(THD *thd) {
   args.created_tmp_disk_tables =
       stat_delta(&System_status_var::created_tmp_disk_tables);
 
+  // Handler row-access counters (the slow log's Read_* fields) -- the row-level
+  // access-method fingerprint. Same status-var-delta source as the counters
+  // above.
+  args.read_first = stat_delta(&System_status_var::ha_read_first_count);
+  args.read_last = stat_delta(&System_status_var::ha_read_last_count);
+  args.read_key = stat_delta(&System_status_var::ha_read_key_count);
+  args.read_next = stat_delta(&System_status_var::ha_read_next_count);
+  args.read_prev = stat_delta(&System_status_var::ha_read_prev_count);
+  args.read_rnd = stat_delta(&System_status_var::ha_read_rnd_count);
+  args.read_rnd_next = stat_delta(&System_status_var::ha_read_rnd_next_count);
+
   args.no_index_used =
       (thd->server_status & SERVER_QUERY_NO_INDEX_USED) ? 1 : 0;
   args.no_good_index_used =

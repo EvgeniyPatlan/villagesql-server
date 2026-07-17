@@ -192,6 +192,19 @@ typedef struct {
   // New fields are appended at the end of this struct to preserve the offsets
   // of existing fields for the C ABI; do not insert mid-struct.
   const char *digest_hash;
+
+  // Handler row-access counters (per-statement deltas). These are the storage-
+  // engine ha_read_* call counts -- the row-level access-method fingerprint,
+  // matching the slow log's Read_* fields. read_rnd_next dominating means a full
+  // table scan; read_key/read_next mean index access. More precise than the
+  // no_index_used / select_scan flags (they quantify, not just flag).
+  uint64_t read_first;     // index-first reads (MIN / index start)
+  uint64_t read_last;      // index-last reads (MAX / index end)
+  uint64_t read_key;       // reads via an index lookup
+  uint64_t read_next;      // forward index-order walks (range scan)
+  uint64_t read_prev;      // backward index-order walks (reverse scan)
+  uint64_t read_rnd;       // reads by position (post-filesort row fetch)
+  uint64_t read_rnd_next;  // next-row in a full scan (high = table scan)
 } vef_statement_event_args_t;
 
 // Writable result. For POSTEXECUTE error_msg is advisory: the server logs it
