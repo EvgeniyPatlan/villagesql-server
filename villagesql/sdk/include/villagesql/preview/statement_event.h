@@ -70,6 +70,7 @@ class StatementEventArgs {
 
   uint64_t warning_count() const { return a_->warning_count; }
   const char *digest_text() const { return a_->digest_text; }
+  const char *digest_hash() const { return a_->digest_hash; }
 
   uint64_t select_full_join() const { return a_->select_full_join; }
   uint64_t select_full_range_join() const { return a_->select_full_range_join; }

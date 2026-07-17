@@ -34,7 +34,10 @@ struct CapabilityTraits<
   static constexpr const char *kCppTypeName =
       "vsql::preview_statement_event::StatementEventCapability";
   using CapabilityConfigType = vef_statement_event_cc_t;
-  static constexpr const char *kVtableHash = "ver-1";
+  // "ver-2": the args struct (vef_statement_event_args_t) gained digest_hash.
+  // Must match the server's registered vtable_hash for statement_event, else
+  // INSTALL EXTENSION fails (strcmp). Bumped here in lockstep with the server.
+  static constexpr const char *kVtableHash = "ver-2";
   static constexpr const char *kCapabilityConfigHash = "ver-1";
 
   static constexpr void *vtable_destination(Cap *p) noexcept {

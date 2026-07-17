@@ -210,13 +210,28 @@ void on_statement_postexecute(THD *thd) {
   // Warning count from the diagnostics area.
   args.warning_count = da != nullptr ? da->last_statement_cond_count() : 0;
 
-  // Digest text — computed into a stack buffer; pointer is valid for the
-  // duration of on_statement_postexecute.
+  // Digest text and hash — computed into stack buffers; pointers are valid for
+  // the duration of on_statement_postexecute. The hash mirrors the value
+  // performance_schema exposes as DIGEST (SHA-256 over the token stream,
+  // rendered as 64 hex chars).
   String digest_str;
+  char digest_hash_str[DIGEST_HASH_TO_STRING_LENGTH + 1];
   if (thd->m_digest != nullptr) {
-    compute_digest_text(&thd->m_digest->m_digest_storage, &digest_str);
+    const sql_digest_storage *digest_storage = &thd->m_digest->m_digest_storage;
+    compute_digest_text(digest_storage, &digest_str);
     args.digest_text =
         digest_str.length() > 0 ? digest_str.c_ptr_safe() : nullptr;
+
+    // A non-null digest_text means compute_digest_text found tokens, i.e. the
+    // digest storage is non-empty -- so we can hash it. (No separate
+    // is_empty() check: sql_digest_storage::is_empty() is not const and this
+    // pointer is const; the digest_text guard already covers the empty case.)
+    if (args.digest_text != nullptr) {
+      unsigned char hash[DIGEST_HASH_SIZE];
+      compute_digest_hash(digest_storage, hash);
+      DIGEST_HASH_TO_STRING(hash, digest_hash_str);
+      args.digest_hash = digest_hash_str;
+    }
   }
 
   args.select_full_join =

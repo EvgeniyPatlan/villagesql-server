@@ -181,6 +181,17 @@ typedef struct {
   // Index usage flags. Non-zero means the query ran without a usable index.
   uint8_t no_index_used;       // 1 if no index was used
   uint8_t no_good_index_used;  // 1 if no good index was found
+
+  // Digest hash: the statement's identity hash, as a 64-character lowercase hex
+  // string (SHA-256 over the normalized token stream) — the same value
+  // performance_schema exposes as DIGEST, so it is stable across servers and
+  // independent of digest_text rendering. Use it as a compact GROUP BY key.
+  // NULL under the same conditions as digest_text (no digest available).
+  // Lifetime: copy before return.
+  //
+  // New fields are appended at the end of this struct to preserve the offsets
+  // of existing fields for the C ABI; do not insert mid-struct.
+  const char *digest_hash;
 } vef_statement_event_args_t;
 
 // Writable result. For POSTEXECUTE error_msg is advisory: the server logs it

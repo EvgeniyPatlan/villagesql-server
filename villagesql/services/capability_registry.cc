@@ -197,9 +197,15 @@ void register_builtin_capabilities() {
                        .on_depopulate = on_depopulate_sys_var});
   // Statement event: on_populate appends to the global dispatch list;
   // on_depopulate removes the handler on extension unload.
+  // vtable_hash is "ver-2" because the args struct (vef_statement_event_args_t)
+  // gained the digest_hash field. That struct has no dedicated version tag, so
+  // vtable_hash carries the capability's overall ABI generation: an extension
+  // built against the old args layout must not bind to this server (it would
+  // read digest_hash past the end of an old-layout struct), and vice versa.
+  // strcmp mismatch => INSTALL EXTENSION fails cleanly.
   register_capability(VEF_PREVIEW_STATEMENT_EVENT_NAME,
                       {.vtable = preview_statement_event_vtable(),
-                       .vtable_hash = "ver-1",
+                       .vtable_hash = "ver-2",
                        .capability_config_hash = "ver-1",
                        .on_populate = on_populate_statement_event,
                        .on_depopulate = on_depopulate_statement_event});
