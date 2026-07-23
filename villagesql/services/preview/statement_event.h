@@ -43,6 +43,16 @@ vef_preview_statement_event_t *preview_statement_event_vtable();
 // hooks. No-op if no hooks are registered.
 void on_statement_postexecute(THD *thd);
 
+// True when at least one statement_event hook is registered. The server uses
+// this to take the start-of-statement status_var snapshot (copy_status_var)
+// even when opt_log_slow_extra is off -- without the snapshot, the
+// per-statement counter deltas (bytes_*, select_*, sort_*, created_tmp_*,
+// handler reads) silently degrade to cumulative session totals, which is wrong
+// for a per-statement telemetry hook.
+// TODO(villagesql): gate this on a requested instrumentation level so the
+// snapshot cost is only paid when counter fields are actually wanted.
+bool statement_event_wants_status_snapshot();
+
 }  // namespace villagesql::services
 
 #endif  // VILLAGESQL_SERVICES_PREVIEW_STATEMENT_EVENT_H
