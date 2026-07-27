@@ -145,41 +145,53 @@ docker_temp_server_start() {
 
 	# Force the error log to a known file (regardless of any configured
 	# log-error) so we can watch it for readiness; a regular file also means
-	# mysqld never blocks on a full pipe. Launch directly in the background so
-	# $! is mysqld itself, not a pipeline element.
-	"$@" --skip-networking --default-time-zone=SYSTEM --socket="${SOCKET}" \
-		--log-error="${MYSQL_TEMP_SERVER_LOG}" &
+	# mysqld never blocks on a full pipe. Disable the X plugin so the only
+	# "ready for connections" line is the main server's. Launch directly in
+	# the background so $! is mysqld itself, not a pipeline element.
+	"$@" --skip-networking --skip-mysqlx --default-time-zone=SYSTEM \
+		--socket="${SOCKET}" --log-error="${MYSQL_TEMP_SERVER_LOG}" &
 	MYSQL_TEMP_SERVER_PID=$!
 
-	# Watcher: grep exits 0 as soon as the server logs that it is ready.
-	# `tail -n +0 -f` streams the whole log from the start then follows it
-	# (event-driven via inotify). We feed tail via a process substitution rather
-	# than a `tail | grep` pipeline on purpose: the background job is then grep
-	# alone, so it completes the instant grep matches. In a pipeline the job would
-	# also include `tail -f`, which does not exit until its next write faults on
-	# the closed pipe — so if the server went quiet right after logging readiness,
-	# the job (and the wait below) would stall. We use -f (not -F): the log should
-	# not be renamed under us, and we would rather fail than follow a rotation.
-	# Match "Version" too so we don't trip on the X Plugin's own
-	# "ready for connections" line.
-	grep -q -m1 'ready for connections\. Version' \
-		< <(tail -n +0 -f "${MYSQL_TEMP_SERVER_LOG}") &
+	# Readiness watcher. We run `tail` and `grep` as two separately-tracked
+	# background jobs joined by a FIFO (rather than a `tail | grep` pipeline or a
+	# process substitution) so that we hold both PIDs and can reap them
+	# explicitly below — otherwise the follower `tail` is left behind as a zombie
+	# once this shell exec()s the real server. `tail -n +0 -f` streams the log
+	# from the start then follows it; `grep -m1` exits the instant the
+	# readiness line appears.
+	# mysqlx is disabled above, so the only "ready for connections" line is the
+	# main server's.
+	local -r fifo="$(mktemp -u)"
+	mkfifo "${fifo}"
+
+	tail -n +0 -f "${MYSQL_TEMP_SERVER_LOG}" > "${fifo}" &
+	local tail_pid=$!
+
+	grep -q -m1 'ready for connections' < "${fifo}" &
 	local watcher_pid=$!
 
-	# Block until whichever comes first: the watcher sees readiness, or mysqld
-	# exits (startup failure). `wait -n` (bash 4.3+) returns as soon as the next
-	# background job finishes, so a crash wakes us immediately with no polling
-	# and no deadline. Guard against set -e since a crashed mysqld exits nonzero.
+	# Both jobs now hold the FIFO open, so drop its direntry immediately.
+	rm -f "${fifo}"
+
+	# Block until whichever comes first:
+	#  - the watcher sees readiness (grep exits),
+	#  - mysqld exits (startup failure).
+	#
+	# `wait -n` returns as soon as the next background job
+	# finishes, so a crash wakes us immediately with no polling and no
+	# deadline (WAL recovery on a large datadir can legitimately take a
+	# long time). tail never exits on its own, so it is never the job that
+	# returns here. Guard set -e since a crashed mysqld exits nonzero.
 	wait -n || true
 
-	if kill -0 "${MYSQL_TEMP_SERVER_PID}" 2>/dev/null; then
-		# Server is up: the watcher must be what returned. Reap it (its tail dies
-		# via SIGPIPE once the running server writes its next log line).
-		wait "${watcher_pid}" 2>/dev/null || true
-	else
+	# Stop and reap both watcher jobs either way (grep may already have exited on
+	# the ready path; tail is still following). This is what keeps tail from
+	# lingering.
+	kill "${tail_pid}" "${watcher_pid}" 2>/dev/null || true
+	wait "${tail_pid}" "${watcher_pid}" 2>/dev/null || true
+
+	if ! kill -0 "${MYSQL_TEMP_SERVER_PID}" 2>/dev/null; then
 		# mysqld exited before becoming ready.
-		kill "${watcher_pid}" 2>/dev/null || true
-		wait "${watcher_pid}" 2>/dev/null || true
 		cat "${MYSQL_TEMP_SERVER_LOG}" >&2
 		mysql_error "Temporary server exited during startup before it became ready."
 	fi
