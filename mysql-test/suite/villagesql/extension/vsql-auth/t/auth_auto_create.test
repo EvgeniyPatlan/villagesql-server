@@ -1,0 +1,77 @@
+# Auto-create-on-first-login for the vsql::preview::auth capability.
+#
+# Normally a login for an account that does NOT exist is rejected before any
+# auth handler runs (the server assigns an anti-enumeration "decoy" that cannot
+# authenticate). When a VEF auth method opts in to handling unknown accounts
+# (auto_create), the decoy is routed to that method's handler, which validates
+# the token and -- via request_provision -- has the server CREATE the account on
+# the fly (IDENTIFIED WITH the method, granting the mapped roles). The connection
+# then re-resolves to the new account and completes AS it (no proxy).
+#
+# The vsql_auth_test extension opts in and, for an unknown account, provisions
+# the connecting user granting role vsql_role_granted. The token arrives in the
+# password slot via mysql_clear_password, so each login uses the CLEARTEXT
+# connect option.
+
+# The opt-in relaxes anti-enumeration (unknown vs. existing becomes observable
+# to a holder of a valid token). That is by design for the token model.
+call mtr.add_suppression("routing unknown accounts");
+
+INSTALL EXTENSION vsql_auth_test;
+
+# The DBA owns roles; the token only causes an existing role to be granted (the
+# same no-escalation stance as set_active_roles), so pre-create it.
+CREATE ROLE vsql_role_granted;
+GRANT SELECT ON *.* TO vsql_role_granted;
+
+# Unknown account + VALID token: the decoy routes to the handler, which
+# provisions the account; the login completes AS the new account.
+--connect(new_con, localhost, auto_created_user, vsql-auth-test-token, , , , CLEARTEXT)
+SELECT CURRENT_USER() AS who, @@external_user AS ext;
+--connection default
+--disconnect new_con
+
+# The account now exists, IDENTIFIED WITH the VEF method, with the granted role.
+SELECT user, host, plugin FROM mysql.user WHERE user = 'auto_created_user';
+SHOW GRANTS FOR 'auto_created_user'@'%';
+
+# Second login as the now-existing account: authenticates normally, no
+# re-provisioning.
+--connect(again_con, localhost, auto_created_user, vsql-auth-test-token, , , , CLEARTEXT)
+SELECT CURRENT_USER() AS who;
+--connection default
+--disconnect again_con
+
+# Unknown account + WRONG token: fails closed, nothing provisioned. The failed
+# connect echoes the socket/port, which vary per run -- normalize them.
+--replace_result $MASTER_MYSOCK SOURCE_SOCKET $MASTER_MYPORT SOURCE_PORT
+--error ER_ACCESS_DENIED_ERROR
+--connect(bad_con, localhost, never_created, wrong-token, , , , CLEARTEXT)
+SELECT COUNT(*) AS never_created_rows FROM mysql.user WHERE user = 'never_created';
+
+# Injection resistance: the connecting username is client-supplied and flows
+# into the provisioning DDL (CREATE USER ... IDENTIFIED WITH). A username
+# crafted to break out of the account literal must be treated as ONE opaque
+# identifier, not as SQL. The payload below, if pasted unescaped into
+# CREATE USER 'injected'@'%',... , would stack a second account named
+# 'injected'; with the fix the whole string is quoted as a single identifier,
+# so no 'injected' account is ever created. Built via --let so the embedded
+# quote/comma reach the handshake verbatim (not re-split by --connect).
+--let $evil = injected'@'%',x'@'%
+--connect(evil_con, localhost, $evil, vsql-auth-test-token, , , , CLEARTEXT)
+--connection default
+--disconnect evil_con
+
+# The proof: the injection did NOT create a separate 'injected' account. The
+# whole payload was provisioned as ONE account named `injected'@'%',x'@'%`
+# (backtick-quoted so the embedded quotes/comma are literal), which the DROP
+# USER below removes -- backtick-quoting the user-part is the SQL-correct way to
+# name an account whose name contains single quotes.
+SELECT COUNT(*) AS injected_rows FROM mysql.user WHERE user = 'injected';
+
+# Drop the accounts BEFORE uninstalling, so no account still references the VEF
+# method's plugin at the post-uninstall ACL reload ("plugin not loaded") .
+DROP USER `injected'@'%',x'@'%`@`%`;
+DROP USER 'auto_created_user'@'%';
+DROP ROLE vsql_role_granted;
+UNINSTALL EXTENSION vsql_auth_test;
