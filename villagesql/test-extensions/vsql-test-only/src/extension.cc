@@ -80,11 +80,11 @@
 //     DEFAULT_STR_TYPE, DEFAULT_VDF_TYPE, DEFAULT_PARAM_TYPE(N),
 //     BAD_DEFAULT_LEN_TYPE.
 //
-//   Parameter-bound and rewrite test types (see block comment further down):
-//     OVERSIZED_PARAM_TYPE(N), DROP_PARAM_TYPE(N).
+//   Parameter-bound test types (see block comment further down):
+//     OVERSIZED_PARAM_TYPE(N).
 //
-//   Over-large storage-size test types (see block comment further down):
-//     HUGE_FIELD, HUGE_VAR.
+//   Storage-size boundary test type (see block comment further down):
+//     MAX_WIDTH_FIELD.
 //
 //   VAR_SETS_PERSISTED(N) - variable-length type whose resolve_params wrongly
 //     reports a positive persisted_length (rejected at DDL time).
@@ -712,8 +712,7 @@ constexpr auto PVEC =
 // only in how its int_to_params/resolve_params callbacks (mis)behave.
 //
 //   BAD_LEN_PARAM_TYPE(N)   - resolve_params returns persisted_length = -1 for
-//   a
-//                             fixed-length type; every DDL use is rejected.
+//                             a fixed-length type; every DDL use is rejected.
 //   EMPTY_PARAMS_TYPE(N)    - int_to_params reports success but adds no params;
 //                             the (N) form resolves to an empty parameter
 //                             string.
@@ -1059,15 +1058,11 @@ constexpr auto BAD_DEFAULT_LEN_TYPE =
         .intrinsic_default_str("SHORT")
         .build();
 
-// ---- Parameter-bound and rewrite test types -----------------------------
+// ---- Parameter-bound test types ------------------------------------------
 //
 //   OVERSIZED_PARAM_TYPE(N) - resolve_params resolves a persisted_length larger
 //                             than max_persisted_length; exercises the DDL-time
 //                             upper-bound check.
-//   DROP_PARAM_TYPE(N)      - uses the MUTATING resolve_params overload to
-//                             normalize its params: keeps 'length' and erases
-//                             any unrecognized key, so the server adopts the
-//                             reduced set as canonical.
 
 // OVERSIZED_PARAM_TYPE: resolves to twice its max_persisted_length.
 constexpr int64_t kOversizedResolved = kParamTestSize * 2;
@@ -1093,33 +1088,7 @@ bool oversized_resolve_params(const std::map<std::string, std::string> &params,
   return false;
 }
 
-// DROP_PARAM_TYPE: mutating resolve_params that erases any key other than
-// 'length'. The (possibly reduced) map is what the server adopts as canonical.
-bool drop_int_to_params(int64_t value,
-                        std::map<std::string, std::string> &params, char *) {
-  params["length"] = std::to_string(value);
-  return false;
-}
-
-bool drop_resolve_params(std::map<std::string, std::string> &params,
-                         vsql::ResolvedTypeParams *result, char *error_msg) {
-  if (params.find("length") == params.end()) {
-    snprintf(error_msg, VEF_MAX_ERROR_LEN, "DROP_PARAM_TYPE requires length");
-    return true;
-  }
-  for (auto it = params.begin(); it != params.end();) {
-    if (it->first != "length")
-      it = params.erase(it);
-    else
-      ++it;
-  }
-  result->persisted_length = kParamTestSize;
-  result->max_decode_buffer_length = 16;
-  return false;
-}
-
 static constexpr const char kOversizedParamTypeName[] = "OVERSIZED_PARAM_TYPE";
-static constexpr const char kDropParamTypeName[] = "DROP_PARAM_TYPE";
 
 constexpr auto OVERSIZED_PARAM_TYPE =
     vsql::make_type<kOversizedParamTypeName>()
@@ -1134,60 +1103,38 @@ constexpr auto OVERSIZED_PARAM_TYPE =
         .compare<&param_test_compare>()
         .build();
 
-constexpr auto DROP_PARAM_TYPE =
-    vsql::make_type<kDropParamTypeName>()
-        .persisted_length(-1)
-        .max_decode_buffer_length(16)
-        .max_persisted_length(kParamTestSize)
-        .params<LenParam, &LenParam::parse, &LenParam::to_strings>()
-        .int_to_params<&drop_int_to_params>()
-        .resolve_params<&drop_resolve_params>()
-        .from_string<&param_test_encode>()
-        .to_string<&param_test_decode>()
-        .compare<&param_test_compare>()
-        .build();
-
-// ---- Over-large storage-size test types ---------------------------------
+// ---- Storage-size boundary test type -------------------------------------
 //
-// Neither persisted_length nor max_persisted_length has a VEF-level upper
-// bound: the framework only checks they are positive. A type may therefore
-// declare a size larger than MySQL's maximum column width; it registers fine,
-// but CREATE TABLE is rejected by MySQL's field-length limit (VARBINARY caps at
-// 65535 bytes), not by a VEF check.
+// A custom column is backed by a VARBINARY field, so a type may declare at most
+// 65532 bytes of storage per value.
 //
-//   HUGE_FIELD - fixed persisted_length larger than the MySQL column limit.
-//   HUGE_VAR   - variable-length with an over-large max_persisted_length.
+// MAX_WIDTH_FIELD sits exactly on that boundary, pinning the check as "greater
+// than" rather than "greater or equal": if the cap ever became exclusive, this
+// extension would stop installing and every test using vsql_test_only would
+// fail.
+//
+// None of this is custom-type specific -- a plain VARBINARY behaves identically
+// at every width. 65532 is the widest that works whether or not the column is
+// nullable, which is why the cap sits here rather than at 65533 (NOT NULL only)
+// or 65535 (never usable).
 
-constexpr int64_t kHugeFieldLen = 70000;  // exceeds MySQL's 65535 column limit
+constexpr int64_t kMaxWidthFieldLen = 65532;  // exactly the supported maximum
 
-// Fills the whole (persisted_length-sized) buffer so the intrinsic-default
-// pre-encode matches; the MySQL field-length rejection then happens later, at
-// field creation.
-void huge_encode(std::string_view /*from*/, vsql::CustomResult out) {
+void max_width_encode(std::string_view /*from*/, vsql::CustomResult out) {
   auto buf = out.buffer();
   memset(buf.data(), 0, buf.size());
   out.set_length(buf.size());
 }
 
-static constexpr const char kHugeFieldTypeName[] = "HUGE_FIELD";
-static constexpr const char kHugeVarTypeName[] = "HUGE_VAR";
+static constexpr const char kMaxWidthFieldTypeName[] = "MAX_WIDTH_FIELD";
 
-constexpr auto HUGE_FIELD = vsql::make_type<kHugeFieldTypeName>()
-                                .persisted_length(kHugeFieldLen)
-                                .max_decode_buffer_length(16)
-                                .from_string<&huge_encode>()
-                                .to_string<&default_test_decode>()
-                                .compare<&default_test_compare>()
-                                .build();
-
-constexpr auto HUGE_VAR = vsql::make_type<kHugeVarTypeName>()
-                              .variable_length_type()
-                              .max_persisted_length(kHugeFieldLen)
-                              .max_decode_buffer_length(16)
-                              .from_string<&huge_encode>()
-                              .to_string<&default_test_decode>()
-                              .compare<&default_test_compare>()
-                              .build();
+constexpr auto MAX_WIDTH_FIELD = vsql::make_type<kMaxWidthFieldTypeName>()
+                                     .persisted_length(kMaxWidthFieldLen)
+                                     .max_decode_buffer_length(16)
+                                     .from_string<&max_width_encode>()
+                                     .to_string<&default_test_decode>()
+                                     .compare<&default_test_compare>()
+                                     .build();
 
 // VAR_SETS_PERSISTED: a variable-length type whose resolve_params wrongly
 // reports a positive persisted_length.
@@ -1285,12 +1232,10 @@ VEF_GENERATE_ENTRY_POINTS(
         .type(DEFAULT_VDF_TYPE)
         .type(DEFAULT_PARAM_TYPE)
         .type(BAD_DEFAULT_LEN_TYPE)
-        // Parameter-bound and rewrite test types
+        // Parameter-bound test types
         .type(OVERSIZED_PARAM_TYPE)
-        .type(DROP_PARAM_TYPE)
-        // Over-large storage-size test types
-        .type(HUGE_FIELD)
-        .type(HUGE_VAR)
+        // Storage-size boundary test type
+        .type(MAX_WIDTH_FIELD)
         .type(VAR_SETS_PERSISTED)
         .type(BAD_DECODE_BUF)
         .func(make_intrinsic_default<&default_vdf_default>(
