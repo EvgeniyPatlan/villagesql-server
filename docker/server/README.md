@@ -88,6 +88,7 @@ The option `--dry-run` prints the docker commands without running them.
 | --- | --- |
 | `publish_image.sh` | Builds one platform into one arch-specific tag. Local only unless given `--push`. |
 | `publish_manifest.sh` | Stitches the arch images already in the registry into the shared multi-arch tags. |
+| `publish_docker.sh` | Convenience wrapper: every platform, then the manifest, in one go. Always publishes. |
 
 Images are tagged `REPO:TAG-ARCH` per platform (e.g. `villagesql/server:0.0.5-arm64`),
 and the manifest list is published under `TAG` plus each shared tag (`latest` and
