@@ -1,0 +1,62 @@
+# Auto-grant-role for the vsql::preview::auth capability.
+#
+# Independently of auto-create (which provisions unknown accounts), a method may
+# opt into auto_grant: the server GRANTs the roles the handler stages via
+# set_active_roles() to the (already-existing) account, so a token claiming a
+# role the account was never granted takes effect -- instead of being skipped by
+# the activate-only path (auth_roles.test covers that default no-grant path).
+#
+# This is the "existing user, token now carries a new group" case: the DBA owns
+# the roles (they must pre-exist), and by enabling auto_grant delegates to the
+# token which of those the account gets. The gate is per-method and live (a
+# sysvar here), so the same login grants-or-skips purely by the flag.
+#
+# The token arrives via mysql_clear_password, so each login uses CLEARTEXT.
+
+# The activate-only (auto_grant OFF) login requests roles the account lacks; the
+# server refuses to activate them and logs it -- expected on that path.
+call mtr.add_suppression("VEF auth: role .* is not granted; skipping");
+
+INSTALL EXTENSION vsql_auth_test;
+
+# An existing account bound to the method, plus roles that exist but are granted
+# to NOBODY. The "-token-roles" token stages both.
+CREATE USER auth_user IDENTIFIED WITH vsql_auth_test;
+CREATE USER vsql_auth_test_user;
+GRANT SELECT ON *.* TO vsql_auth_test_user;
+GRANT PROXY ON vsql_auth_test_user TO auth_user;
+CREATE ROLE vsql_role_granted;
+CREATE ROLE vsql_role_denied;
+
+--echo #
+--echo # auto_grant OFF (default): a token-claimed but ungranted role is NOT
+--echo # granted and NOT activated -- the account is unchanged.
+--echo #
+--connect(off_con, localhost, auth_user, vsql-auth-test-token-roles, , , , CLEARTEXT)
+SELECT CURRENT_ROLE();
+--connection default
+--disconnect off_con
+SHOW GRANTS FOR vsql_auth_test_user;
+
+--echo #
+--echo # auto_grant ON: the same login now GRANTs the staged roles to the
+--echo # account (they pre-exist as DB roles) and then activates them.
+--echo #
+SET GLOBAL vsql_auth_test.auto_grant = ON;
+--connect(on_con, localhost, auth_user, vsql-auth-test-token-roles, , , , CLEARTEXT)
+SELECT CURRENT_ROLE();
+--connection default
+--disconnect on_con
+
+--echo #
+--echo # The grants persist (auto_grant is additive, not just session
+--echo # activation): the account now holds both roles.
+--echo #
+SHOW GRANTS FOR vsql_auth_test_user;
+
+SET GLOBAL vsql_auth_test.auto_grant = OFF;
+DROP USER auth_user;
+DROP USER vsql_auth_test_user;
+DROP ROLE vsql_role_granted;
+DROP ROLE vsql_role_denied;
+UNINSTALL EXTENSION vsql_auth_test;

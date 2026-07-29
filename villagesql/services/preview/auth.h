@@ -85,6 +85,12 @@ class AuthMethodRef {
 // sql/auth/) and to name the IDENTIFIED WITH method when provisioning.
 std::string auth_method_for_unknown_accounts();
 
+// True if `method_name` currently opts into auto-grant (its live
+// auto_grant_roles callback returns true). Independent of the unknown-account
+// opt-in above; gates maybe_apply_vef_role_grants for a login using this
+// method.
+bool method_wants_auto_grant(std::string_view method_name);
+
 // Handle a CREATE USER ... IDENTIFIED WITH <method_name> [BY '...'] whose name
 // is not a loaded MySQL auth plugin, deciding whether it names a VEF extension
 // auth method.
@@ -152,6 +158,17 @@ bool maybe_apply_vef_auth_state(MPVIO_EXT *mpvio, Security_context *sctx,
 // means a denied login provisions nothing. Returns true on failure (the caller
 // should fail the login closed); false if it succeeded or nothing was staged.
 bool run_vef_provision(MPVIO_EXT *mpvio);
+
+// Auto-GRANT the token-staged roles to the resolved (already-existing) account,
+// additively, iff a VEF method opted into auto_grant -- so a token claiming a
+// newly-granted role takes effect instead of being skipped by the activate-only
+// path. Runs GRANT DDL on a fresh internal THD that takes ACL locks itself, so
+// it MUST be called at a point where no ACL cache lock is held -- i.e. before
+// the role-activation block, not from maybe_apply_vef_auth_state (which runs
+// under the ACL read lock). No-op when nothing was staged or no method opted
+// in. Additive only: a role no longer claimed is not revoked.
+void maybe_apply_vef_role_grants(MPVIO_EXT *mpvio, const char *acl_user_authid,
+                                 const char *acl_user_host);
 
 }  // namespace villagesql::services
 
