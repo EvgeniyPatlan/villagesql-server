@@ -1172,6 +1172,33 @@ inline const char *mpvio_client_plugin_name(MPVIO_EXT *mpvio) {
   return mpvio->vef_client_auth_plugin;
 }
 
+// VillageSQL: on the VEF path, whether the client's OFFERED plugin is
+// acceptable as-is instead of forcing a switch to the method's pinned plugin.
+// The pin is what the server advertises to a naive client; but a client that
+// offers a different plugin delivering the secret verbatim (in the password
+// slot) is fine too -- the extension reads whatever arrives. The only
+// unacceptable offers are the built-in SCRAMBLING plugins, which hash the
+// secret so no bearer token survives; those three are the denylist, and any
+// other offer (including the pin) is accepted.
+//
+// TODO(villagesql-beta): make this per method via cc fields rather than a fixed
+// policy: (1) a configurable denylist instead of the hardcoded scramblers; and
+// (2) a strict-pin opt-out for a method that only accepts its exact pinned
+// plugin (reject any other offer). For now the relaxation applies to every VEF
+// method.
+inline bool vef_offered_plugin_acceptable(const char *offered) {
+  if (offered == nullptr) return false;
+  for (uint i = 0; i < (uint)PLUGIN_LAST; ++i) {
+    // Compare by name, not the pointer identity auth_plugin_is_built_in() uses:
+    // `offered` is a raw client-supplied string, never canonicalized.
+    if (my_strcasecmp(
+            system_charset_info, offered,
+            Cached_authentication_plugins::cached_plugins_names[i].str) == 0)
+      return false;
+  }
+  return true;
+}
+
 LEX_CSTRING validate_password_plugin_name = {
     STRING_WITH_LEN("validate_password")};
 
@@ -3479,7 +3506,11 @@ static int server_mpvio_read_packet(MYSQL_PLUGIN_VIO *param, uchar **buf) {
     // VillageSQL: via mpvio_client_plugin_name() so a VEF method (which has no
     // MySQL plugin) resolves its pinned client plugin instead.
     auto client_auth_plugin_name = mpvio_client_plugin_name(mpvio);
-    if (client_auth_plugin_name == nullptr ||
+    // VillageSQL: a VEF login (no MySQL plugin) relaxes the exact-match below.
+    const bool vef_accepts_offer =
+        mpvio->plugin == nullptr &&
+        vef_offered_plugin_acceptable(mpvio->cached_client_reply.plugin);
+    if (client_auth_plugin_name == nullptr || vef_accepts_offer ||
         my_strcasecmp(system_charset_info, mpvio->cached_client_reply.plugin,
                       client_auth_plugin_name) == 0) {
       mpvio->status = MPVIO_EXT::FAILURE;
