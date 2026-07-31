@@ -28,6 +28,8 @@
 #include "my_sqlcommand.h"
 #include "my_table_map.h"
 #include "sql/sql_cmd_dml.h"  // Sql_cmd_dml
+#include "sql/sql_returning.h"
+#include "template_utils.h"
 
 class JOIN;
 class Select_lex_visitor;
@@ -62,6 +64,13 @@ class Sql_cmd_delete final : public Sql_cmd_dml {
 
  private:
   bool delete_from_single_table(THD *thd);
+
+  /// The RETURNING result once prepared, or nullptr if there is no RETURNING
+  /// clause. Downcast of the inherited Sql_cmd_dml::result.
+  Query_result_returning *returning() const {
+    return has_returning ? down_cast<Query_result_returning *>(result)
+                         : nullptr;
+  }
 
   bool multitable;
   bool has_returning;

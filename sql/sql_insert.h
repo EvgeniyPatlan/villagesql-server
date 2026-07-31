@@ -41,6 +41,7 @@ class Alter_info;
 class Field;
 class Item;
 class Query_expression;
+class Query_result_returning;
 class Select_lex_visitor;
 class THD;
 struct HA_CREATE_INFO;
@@ -80,7 +81,7 @@ class Query_result_insert : public Query_result_interceptor {
   COPY_INFO info;
   COPY_INFO update;  ///< the UPDATE part of "info"
   bool insert_into_view;
-  Query_result_send *returning_result{nullptr};
+  Query_result_returning *returning_result{nullptr};
   mem_root_deque<Item *> *returning_fields{nullptr};
 
   /**
@@ -301,7 +302,7 @@ class Sql_cmd_insert_base : public Sql_cmd_dml {
   */
   mem_root_deque<Item *> values_field_list;
   mem_root_deque<Item *> *returning_fields{nullptr};
-  Query_result_send *returning_result{nullptr};
+  Query_result_returning *returning_result{nullptr};
 
   const enum_duplicates duplicates;
 

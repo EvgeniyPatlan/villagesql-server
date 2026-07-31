@@ -560,8 +560,7 @@ bool Sql_cmd_insert_values::execute_inner(THD *thd) {
       return err;
     }
 
-    if (returning_fields != nullptr &&
-        send_returning_metadata(thd, returning_result, *returning_fields))
+    if (returning_result != nullptr && returning_result->send_metadata(thd))
       return true;
 
     insert_table->next_number_field = insert_table->found_next_number_field;
@@ -669,12 +668,9 @@ bool Sql_cmd_insert_values::execute_inner(THD *thd) {
         has_error = true;
         break;
       }
-      const bool row_changed = info.stats.copied != stats_before.copied ||
-                               info.stats.deleted != stats_before.deleted ||
-                               info.stats.updated != stats_before.updated ||
-                               info.stats.touched != stats_before.touched;
-      if (returning_fields != nullptr && row_changed &&
-          returning_result->send_data(thd, *returning_fields)) {
+      // RETURNING: emit the row we just wrote, if it changed the table.
+      if (returning_result != nullptr &&
+          returning_result->send_row_if_changed(thd, info, stats_before)) {
         has_error = true;
         break;
       }
@@ -783,10 +779,9 @@ bool Sql_cmd_insert_values::execute_inner(THD *thd) {
   assert(has_error == thd->get_stmt_da()->is_error());
   if (has_error) return true;
 
-  if (returning_fields != nullptr) {
-    return send_returning_eof(
-        thd, returning_result,
-        info.stats.copied + info.stats.deleted + info.stats.updated);
+  if (returning_result != nullptr) {
+    return returning_result->send_count_eof(
+        thd, info.stats.copied + info.stats.deleted + info.stats.updated);
   }
 
   if (insert_many_values.size() == 1 &&
@@ -2318,10 +2313,11 @@ bool Query_result_insert::start_execution(THD *thd) {
     bulk_insert_started = true;
   }
   if (returning_fields != nullptr) {
-    returning_result = new (thd->mem_root) Query_result_send;
+    returning_result = new (thd->mem_root) Query_result_returning;
     if (returning_result == nullptr) return true; /* purecov: inspected */
+    returning_result->set_fields(returning_fields);
     if (returning_result->prepare(thd, *returning_fields, unit) ||
-        send_returning_metadata(thd, returning_result, *returning_fields))
+        returning_result->send_metadata(thd))
       return true;
   }
   info.reset_counters();
@@ -2393,12 +2389,9 @@ bool Query_result_insert::send_data(THD *thd,
 
   DEBUG_SYNC(thd, "create_select_after_write_rows_event");
 
-  const bool row_changed = info.stats.copied != stats_before.copied ||
-                           info.stats.deleted != stats_before.deleted ||
-                           info.stats.updated != stats_before.updated ||
-                           info.stats.touched != stats_before.touched;
-  if (!error && returning_fields != nullptr && row_changed &&
-      returning_result->send_data(thd, *returning_fields))
+  // RETURNING: emit the row we just wrote, if it changed the table.
+  if (!error && returning_result != nullptr &&
+      returning_result->send_row_if_changed(thd, info, stats_before))
     error = true;
 
   if (!error &&
@@ -2534,11 +2527,8 @@ bool Query_result_insert::send_eof(THD *thd) {
                   ? thd->first_successful_insert_id_in_prev_stmt
                   : (info.stats.copied ? autoinc_value_of_last_inserted_row
                                        : 0));
-  if (returning_fields != nullptr) {
-    if (send_returning_eof(thd, returning_result, row_count)) return true;
-  } else {
-    my_ok(thd, row_count, id, buff);
-  }
+  if (finish_returning_or_ok(thd, returning_result, row_count, id, buff))
+    return true;
 
   /*
     If we have inserted into a VIEW, and the base table has

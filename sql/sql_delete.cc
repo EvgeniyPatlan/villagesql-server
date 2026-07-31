@@ -62,7 +62,6 @@
 #include "sql/opt_explain.h"  // Modification_plan
 #include "sql/opt_explain_format.h"
 #include "sql/opt_trace.h"  // Opt_trace_object
-#include "sql/protocol.h"
 #include "sql/psi_memory_key.h"
 #include "sql/query_options.h"
 #include "sql/query_result.h"
@@ -115,8 +114,7 @@ class Query_result_delete final : public Query_result_interceptor {
 bool DeleteCurrentRowAndProcessTriggers(
     THD *thd, TABLE *table, bool invoke_before_triggers,
     bool invoke_after_triggers, ha_rows *deleted_rows,
-    Query_result *returning_result = nullptr,
-    mem_root_deque<Item *> *returning_fields = nullptr) {
+    Query_result_returning *returning = nullptr) {
   if (invoke_before_triggers) {
     if (table->triggers->process_triggers(thd, TRG_EVENT_DELETE,
                                           TRG_ACTION_BEFORE,
@@ -125,10 +123,7 @@ bool DeleteCurrentRowAndProcessTriggers(
     }
   }
 
-  if (returning_result != nullptr &&
-      returning_result->send_data(thd, *returning_fields)) {
-    return true;
-  }
+  if (returning != nullptr && returning->send_row(thd)) return true;
 
   if (const int delete_error = table->file->ha_delete_row(table->record[0]);
       delete_error != 0) {
@@ -153,15 +148,6 @@ bool DeleteCurrentRowAndProcessTriggers(
     }
   }
 
-  return false;
-}
-
-bool SendEmptyDeleteResult(THD *thd, bool has_returning, Query_result *result,
-                           mem_root_deque<Item *> *returning_fields) {
-  if (has_returning) {
-    return send_empty_returning_result(thd, result, *returning_fields);
-  }
-  my_ok(thd, 0);
   return false;
 }
 
@@ -278,8 +264,7 @@ bool Sql_cmd_delete::delete_from_single_table(THD *thd) {
 
   ha_rows limit = unit->select_limit_cnt;
   const bool using_limit = limit != HA_POS_ERROR;
-  mem_root_deque<Item *> *returning_fields =
-      has_returning ? &query_block->fields : nullptr;
+  Query_result_returning *returning = this->returning();
 
   if (limit == 0 && thd->lex->is_explain()) {
     const Modification_plan plan(thd, MT_DELETE, table, "LIMIT is zero", true,
@@ -427,8 +412,9 @@ bool Sql_cmd_delete::delete_from_single_table(THD *thd) {
             explain_single_table_modification(thd, thd, &plan, query_block);
         return err;
       }
-      return SendEmptyDeleteResult(thd, has_returning, result,
-                                   returning_fields);
+      if (returning != nullptr) return returning->send_empty(thd);
+      my_ok(thd, 0);
+      return false;
     }
   }
 
@@ -472,8 +458,9 @@ bool Sql_cmd_delete::delete_from_single_table(THD *thd) {
         return err;
       }
 
-      return SendEmptyDeleteResult(thd, has_returning, result,
-                                   returning_fields);
+      if (returning != nullptr) return returning->send_empty(thd);
+      my_ok(thd, 0);
+      return false;  // Nothing to delete
     }
   }  // Ends scope for optimizer trace wrapper
 
@@ -607,16 +594,14 @@ bool Sql_cmd_delete::delete_from_single_table(THD *thd) {
     if (thd->is_error()) return true;
 
     if ((table->file->ha_table_flags() & HA_READ_BEFORE_WRITE_REMOVAL) &&
-        !has_returning && !using_limit && !has_delete_triggers && range_scan &&
-        used_index(range_scan) != MAX_KEY)
+        returning == nullptr && !using_limit && !has_delete_triggers &&
+        range_scan && used_index(range_scan) != MAX_KEY)
       read_removal = table->check_read_removal(used_index(range_scan));
 
     assert(limit > 0);
 
     // The loop that reads rows and delete those that qualify
-    if (has_returning &&
-        send_returning_metadata(thd, result, *returning_fields))
-      return true;
+    if (returning != nullptr && returning->send_metadata(thd)) return true;
 
     while (!(error = iterator->Read()) && !thd->killed) {
       assert(!thd->is_error());
@@ -639,7 +624,7 @@ bool Sql_cmd_delete::delete_from_single_table(THD *thd) {
 
       if (DeleteCurrentRowAndProcessTriggers(thd, table, has_before_triggers,
                                              has_after_triggers, &deleted_rows,
-                                             result, returning_fields)) {
+                                             returning)) {
         error = 1;
         break;
       }
@@ -708,10 +693,7 @@ cleanup:
   assert(transactional_table || deleted_rows == 0 ||
          thd->get_transaction()->cannot_safely_rollback(Transaction_ctx::STMT));
   if (error < 0) {
-    if (has_returning) {
-      if (send_returning_eof(thd, result, deleted_rows)) return true;
-    } else
-      my_ok(thd, deleted_rows);
+    if (finish_returning_or_ok(thd, returning, deleted_rows)) return true;
     DBUG_PRINT("info", ("%ld records deleted", (long)deleted_rows));
   }
   return error > 0;
@@ -857,18 +839,16 @@ bool Sql_cmd_delete::prepare_inner(THD *thd) {
   if (select->resolve_limits(thd)) return true; /* purecov: inspected */
 
   if (has_returning) {
-    select->resolve_place = Query_block::RESOLVE_SELECT_LIST;
-    if (select->with_wild && select->setup_wild(thd)) return true;
-    if (select->setup_base_ref_items(thd)) return true; /* purecov: inspected */
-    if (setup_fields(thd, SELECT_ACL, /*allow_sum_func=*/true,
-                     /*split_sum_funcs=*/true, /*column_update=*/false,
-                     /*typed_items=*/nullptr, &select->fields,
-                     select->base_ref_items))
+    // TODO(villagesql): DELETE resolves its RETURNING items into select->fields
+    // and passes &select->fields here, which aliases query_block->fields inside
+    // prepare_returning_fields (INSERT/UPDATE instead own a separate deque).
+    // The helper special-cases this alias; give DELETE its own returning deque
+    // like INSERT/UPDATE so the alias and its special-case can be removed.
+    Query_result_returning *returning_result = nullptr;
+    if (prepare_returning_fields(thd, select, &select->fields,
+                                 &returning_result))
       return true;
-    select->resolve_place = Query_block::RESOLVE_NONE;
-
-    result = new (thd->mem_root) Query_result_send;
-    if (result == nullptr) return true; /* purecov: inspected */
+    result = returning_result;
   }
 
   // check ORDER BY even if it can be ignored
@@ -919,7 +899,7 @@ bool Sql_cmd_delete::prepare_inner(THD *thd) {
       select->query_result()->prepare(thd, select->fields, lex->unit))
     return true; /* purecov: inspected */
 
-  if (has_returning && result->prepare(thd, select->fields, lex->unit))
+  if (has_returning && returning()->prepare(thd, select->fields, lex->unit))
     return true; /* purecov: inspected */
 
   opt_trace_print_expanded_query(thd, select, &trace_wrapper);
@@ -952,11 +932,8 @@ bool Sql_cmd_delete::execute_inner(THD *thd) {
       return explain_single_table_modification(thd, thd, &plan,
                                                lex->query_block);
     }
-    if (has_returning) {
-      if (send_empty_returning_result(thd, result, lex->query_block->fields))
-        return true;
-    } else
-      my_ok(thd);
+    if (Query_result_returning *ret = returning()) return ret->send_empty(thd);
+    my_ok(thd);
     return false;
   }
   return multitable ? Sql_cmd_dml::execute_inner(thd)

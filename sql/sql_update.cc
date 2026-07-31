@@ -408,16 +408,13 @@ bool Sql_cmd_update::update_single_table(THD *thd) {
 
   ha_rows limit = unit->select_limit_cnt;
   const bool using_limit = limit != HA_POS_ERROR;
+  Query_result_returning *returning = this->returning();
 
   if (limit == 0 && thd->lex->is_explain()) {
     Modification_plan plan(thd, MT_UPDATE, table, "LIMIT is zero", true, 0);
     bool err = explain_single_table_modification(thd, thd, &plan, query_block);
     return err;
   }
-
-  const auto send_empty_update_returning_result = [this, thd]() -> bool {
-    return send_empty_returning_result(thd, result, *returning_fields);
-  };
 
   // Used to track whether there are no rows that need to be read
   bool no_rows = limit == 0;
@@ -500,8 +497,7 @@ bool Sql_cmd_update::update_single_table(THD *thd) {
             explain_single_table_modification(thd, thd, &plan, query_block);
         return err;
       }
-      if (returning_fields != nullptr)
-        return send_empty_update_returning_result();
+      if (returning != nullptr) return returning->send_empty(thd);
       my_ok(thd);
       return false;
     }
@@ -558,8 +554,7 @@ bool Sql_cmd_update::update_single_table(THD *thd) {
       char buff[MYSQL_ERRMSG_SIZE];
       snprintf(buff, sizeof(buff), ER_THD(thd, ER_UPDATE_INFO), 0L, 0L,
                (long)thd->get_stmt_da()->current_statement_cond_count());
-      if (returning_fields != nullptr)
-        return send_empty_update_returning_result();
+      if (returning != nullptr) return returning->send_empty(thd);
       my_ok(thd, 0, 0, buff);
 
       DBUG_PRINT("info", ("0 records updated"));
@@ -661,9 +656,7 @@ bool Sql_cmd_update::update_single_table(THD *thd) {
       return err;
     }
 
-    if (returning_fields != nullptr &&
-        send_returning_metadata(thd, result, *returning_fields))
-      return true;
+    if (returning != nullptr && returning->send_metadata(thd)) return true;
 
     if (thd->lex->is_ignore()) table->file->ha_extra(HA_EXTRA_IGNORE_DUP_KEY);
 
@@ -1034,8 +1027,9 @@ bool Sql_cmd_update::update_single_table(THD *thd) {
         }
       }
 
-      if (!error && returning_fields != nullptr &&
-          result->send_data(thd, *returning_fields)) {
+      // RETURNING: emit the updated row (this UPDATE path applies the change
+      // in place before this point).
+      if (!error && returning != nullptr && returning->send_row(thd)) {
         error = 1;
         break;
       }
@@ -1194,8 +1188,8 @@ bool Sql_cmd_update::update_single_table(THD *thd) {
     snprintf(buff, sizeof(buff), ER_THD(thd, ER_UPDATE_INFO), (long)found_rows,
              (long)updated_rows,
              (long)thd->get_stmt_da()->current_statement_cond_count());
-    if (returning_fields != nullptr) {
-      if (send_returning_eof(thd, result, updated_rows)) return true;
+    if (returning != nullptr) {
+      if (returning->send_count_eof(thd, updated_rows)) return true;
     } else {
       my_ok(thd,
             thd->get_protocol()->has_client_capability(CLIENT_FOUND_ROWS)
@@ -1829,7 +1823,7 @@ bool Sql_cmd_update::prepare_inner(THD *thd) {
   assert(select->having_cond() == nullptr && select->group_list.elements == 0);
 
   if (returning_fields != nullptr) {
-    Query_result_send *returning_result = nullptr;
+    Query_result_returning *returning_result = nullptr;
     if (prepare_returning_fields(thd, select, returning_fields,
                                  &returning_result))
       return true;
@@ -1879,8 +1873,7 @@ bool Sql_cmd_update::execute_inner(THD *thd) {
       return explain_single_table_modification(thd, thd, &plan,
                                                lex->query_block);
     }
-    if (returning_fields != nullptr)
-      return send_empty_returning_result(thd, result, *returning_fields);
+    if (Query_result_returning *ret = returning()) return ret->send_empty(thd);
     my_ok(thd);
     return false;
   }

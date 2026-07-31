@@ -36,7 +36,16 @@
 
 bool prepare_returning_fields(THD *thd, Query_block *query_block,
                               mem_root_deque<Item *> *returning_fields,
-                              Query_result_send **returning_result) {
+                              Query_result_returning **returning_result) {
+  // DELETE resolves its RETURNING items directly into query_block->fields
+  // (i.e. returning_fields aliases &query_block->fields); INSERT and UPDATE own
+  // a separate deque and expect query_block->fields to be left untouched.
+  // TODO(villagesql): remove this special-case once DELETE also uses a separate
+  // returning deque (see the aliasing call site in
+  // Sql_cmd_delete::prepare_inner).
+  const bool fields_alias_query_block =
+      returning_fields == &query_block->fields;
+
   mem_root_deque<Item *> saved_fields = query_block->fields;
   query_block->fields = *returning_fields;
   query_block->resolve_place = Query_block::RESOLVE_SELECT_LIST;
@@ -50,26 +59,42 @@ bool prepare_returning_fields(THD *thd, Query_block *query_block,
                    query_block->base_ref_items))
     return true;
   query_block->resolve_place = Query_block::RESOLVE_NONE;
-  query_block->fields = saved_fields;
+  if (!fields_alias_query_block) query_block->fields = saved_fields;
 
-  *returning_result = new (thd->mem_root) Query_result_send;
-  return *returning_result == nullptr; /* purecov: inspected */
+  *returning_result = new (thd->mem_root) Query_result_returning;
+  if (*returning_result == nullptr) return true; /* purecov: inspected */
+  (*returning_result)->set_fields(returning_fields);
+  return false;
 }
 
-bool send_returning_metadata(THD *thd, Query_result *result,
-                             const mem_root_deque<Item *> &returning_fields) {
-  return result->send_result_set_metadata(
-      thd, returning_fields, Protocol::SEND_NUM_ROWS | Protocol::SEND_EOF);
+bool Query_result_returning::send_metadata(THD *thd) {
+  return send_result_set_metadata(thd, *m_fields,
+                                  Protocol::SEND_NUM_ROWS | Protocol::SEND_EOF);
 }
 
-bool send_empty_returning_result(
-    THD *thd, Query_result *result,
-    const mem_root_deque<Item *> &returning_fields) {
-  return send_returning_metadata(thd, result, returning_fields) ||
-         result->send_eof(thd);
-}
-
-bool send_returning_eof(THD *thd, Query_result *result, longlong row_count) {
+bool Query_result_returning::send_count_eof(THD *thd, longlong row_count) {
   thd->set_row_count_func(row_count);
-  return result->send_eof(thd);
+  return send_eof(thd);
+}
+
+bool Query_result_returning::send_row_if_changed(
+    THD *thd, const COPY_INFO &info, const COPY_INFO::Statistics &before) {
+  // TODO(villagesql): this re-derives "did the row change" by diffing COPY_INFO
+  // counters around write_record(). fill_record_n_invoke_before_triggers()
+  // already computes an is_row_changed flag (see sql_base.cc); thread that
+  // value through so callers can drop the before-snapshot and this diff
+  // entirely.
+  const bool row_changed = info.stats.copied != before.copied ||
+                           info.stats.deleted != before.deleted ||
+                           info.stats.updated != before.updated ||
+                           info.stats.touched != before.touched;
+  return row_changed && send_row(thd);
+}
+
+bool finish_returning_or_ok(THD *thd, Query_result_returning *returning,
+                            ulonglong row_count, ulonglong id,
+                            const char *message) {
+  if (returning != nullptr) return returning->send_count_eof(thd, row_count);
+  my_ok(thd, row_count, id, message);
+  return false;
 }

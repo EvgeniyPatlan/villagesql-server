@@ -34,7 +34,9 @@
 #include "sql/query_result.h"  // Query_result_interceptor
 #include "sql/sql_cmd_dml.h"   // Sql_cmd_dml
 #include "sql/sql_list.h"
+#include "sql/sql_returning.h"
 #include "sql/thr_malloc.h"
+#include "template_utils.h"
 
 class COPY_INFO;
 class Copy_field;
@@ -149,6 +151,14 @@ class Sql_cmd_update final : public Sql_cmd_dml {
 
  private:
   bool update_single_table(THD *thd);
+
+  /// The RETURNING result once prepared, or nullptr if there is no RETURNING
+  /// clause. Downcast of the inherited Sql_cmd_dml::result.
+  Query_result_returning *returning() const {
+    return returning_fields != nullptr
+               ? down_cast<Query_result_returning *>(result)
+               : nullptr;
+  }
 
   bool multitable;
 
