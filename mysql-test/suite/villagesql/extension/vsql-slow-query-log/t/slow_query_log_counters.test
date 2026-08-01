@@ -54,18 +54,18 @@ SET GLOBAL vsql_slow_query_log.enabled = OFF;
 --echo # read_rnd_next is a per-statement delta: the second identical run
 --echo # reports the same value as the first (a cumulative total would grow).
 --echo # Expect exactly one YES and zero NO.
---exec sh -c "grep -c 'Read_rnd_next_delta_stable: YES' $slow_log; true"
---exec sh -c "grep -c 'Read_rnd_next_delta_stable: NO' $slow_log; true"
+--exec sh -c "printf 'stable=YES count: '; grep -c 'Read_rnd_next_delta_stable: YES' $slow_log; true"
+--exec sh -c "printf 'stable=NO  count: '; grep -c 'Read_rnd_next_delta_stable: NO' $slow_log; true"
 
 --echo # The scan's counter is actually non-zero, so the stability check above
 --echo # has teeth. Expect 0 scan lines reporting a zero counter.
---exec sh -c "grep '# Digest_hash: $ref_digest ' $slow_log | grep -c 'Read_rnd_next: 0$'; true"
+--exec sh -c "printf 'zero-counter scan lines: '; grep '# Digest_hash: $ref_digest ' $slow_log | grep -c 'Read_rnd_next: 0$'; true"
 
 --echo # digest_hash the hook saw matches the digest MySQL computes for the
 --echo # same statement text. STATEMENT_DIGEST() gives the reference hash with
 --echo # no dependency on a performance_schema consumer being enabled.
 --echo # Expect 2 (both runs logged the same, reference-matching digest_hash)
---exec sh -c "grep -c '# Digest_hash: $ref_digest ' $slow_log; true"
+--exec sh -c "printf 'matching digest_hash lines: '; grep -c '# Digest_hash: $ref_digest ' $slow_log; true"
 
 DROP TABLE vsql_counter_scan;
 UNINSTALL EXTENSION vsql_slow_query_log;

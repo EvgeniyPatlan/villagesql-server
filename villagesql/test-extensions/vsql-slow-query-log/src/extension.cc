@@ -28,6 +28,7 @@
 //   SET GLOBAL vsql_slow_query_log.enabled = ON;
 
 #include <cerrno>
+#include <cinttypes>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -84,14 +85,12 @@ static void slow_query_hook(const se::StatementEventArgs &args,
           args.client_ip() ? args.client_ip() : "", args.connection_id());
   fprintf(f,
           "# Schema: %s  Query_time: %.6f  Lock_time: %.6f"
-          "  Rows_sent: %llu  Rows_examined: %llu\n",
+          "  Rows_sent: %" PRIu64 "  Rows_examined: %" PRIu64 "\n",
           args.schema() ? args.schema() : "", args.query_time_secs(),
-          args.lock_time_secs(), (unsigned long long)args.rows_sent(),
-          (unsigned long long)args.rows_examined());
+          args.lock_time_secs(), args.rows_sent(), args.rows_examined());
   const char *digest_hash = args.digest_hash();
-  fprintf(f, "# Digest_hash: %s  Read_rnd_next: %llu\n",
-          digest_hash ? digest_hash : "",
-          (unsigned long long)args.read_rnd_next());
+  fprintf(f, "# Digest_hash: %s  Read_rnd_next: %" PRIu64 "\n",
+          digest_hash ? digest_hash : "", args.read_rnd_next());
 
   // When the same statement (same digest_hash) runs again, compare its
   // read_rnd_next against the previous run. Equal => per-statement delta;
