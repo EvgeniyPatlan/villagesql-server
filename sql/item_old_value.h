@@ -33,14 +33,22 @@
 class Item_old_field final : public Item_field {
   typedef Item_field super;
 
+  // Shifts the field to read its pre-update image in record[1] for the
+  // duration of one value fetch, then shifts it back. record[0] (new) and
+  // record[1] (old) are parallel buffers of identical layout, so the old image
+  // of any field is a constant offset away; move_field_offset() moves both the
+  // data and null pointers by that offset.
   class Old_value_guard {
     Field *m_field;
+    ptrdiff_t m_diff;
 
    public:
-    explicit Old_value_guard(Field *field_arg) : m_field(field_arg) {
-      m_field->swap_value_ptrs_with_old_value();
+    explicit Old_value_guard(Field *field_arg)
+        : m_field(field_arg),
+          m_diff(field_arg->table->record[1] - field_arg->table->record[0]) {
+      m_field->move_field_offset(m_diff);
     }
-    ~Old_value_guard() { m_field->swap_value_ptrs_with_old_value(); }
+    ~Old_value_guard() { m_field->move_field_offset(-m_diff); }
   };
 
  public:

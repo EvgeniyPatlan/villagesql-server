@@ -50,16 +50,6 @@ bool Item_old_field::fix_fields(THD *thd, Item **reference) {
       field = down_cast<Item_field *>(real_item)->field;
   }
 
-  if (field != nullptr) {
-    uchar *const old_ptr =
-        field->table->record[1] + field->offset(field->table->record[0]);
-    uchar *const old_null_ptr =
-        field->is_nullable() ? field->table->record[1] +
-                                   field->null_offset(field->table->record[0])
-                             : nullptr;
-    field->set_old_value_ptrs(old_ptr, old_null_ptr);
-  }
-
   return false;
 }
 
