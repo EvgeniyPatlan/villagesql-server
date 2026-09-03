@@ -103,9 +103,10 @@ BuildRequires:  perl-interpreter
 Requires:       villagesql-server = %{epoch}:%{version}-%{release}
 
 %description
-VillageSQL is an open-source tracking fork of MySQL %{mysql_base_version} LTS
-that adds the VillageSQL Extension Framework (VEF), a runtime extension system
-for custom SQL data types and functions.
+VillageSQL is an open-source tracking fork of upstream %{vsql_code_base} that
+adds the VillageSQL Extension Framework (VEF), a runtime extension system for
+custom SQL data types and functions. VillageSQL tracks several upstream code
+bases; this package was built from %{vsql_code_base}.
 
 This is the top-level metapackage; it pulls in villagesql-server.
 
@@ -147,8 +148,8 @@ Obsoletes:      Percona-Server-server-57 < %{epoch}:%{version}-%{release}
 The VillageSQL database server: the mysqld binary, the systemd unit, and the
 server-side utilities.
 
-VillageSQL is wire-, protocol- and on-disk-compatible with MySQL
-%{mysql_base_version}. It installs the same paths and the same systemd unit
+VillageSQL is wire-, protocol- and on-disk-compatible with upstream
+%{vsql_code_base}. It installs the same paths and the same systemd unit
 name (mysqld.service) as MySQL, and therefore REPLACES an existing MySQL,
 MariaDB or Percona Server installation rather than installing alongside it.
 

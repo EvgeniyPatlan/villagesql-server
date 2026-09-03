@@ -47,13 +47,14 @@ Replaces: mysql-server, mysql-server-5.7, mysql-server-8.0, mysql-server-8.4,
           percona-server-server,
           default-mysql-server, default-mysql-server-core
 Description: VillageSQL database server binary and configuration
- VillageSQL is an open-source tracking fork of MySQL @MYSQL_BASE_VERSION@ LTS
- that adds the VillageSQL Extension Framework (VEF), a runtime extension system
- for custom SQL data types and functions.
+ VillageSQL is an open-source tracking fork of upstream @VSQL_CODE_BASE@ that
+ adds the VillageSQL Extension Framework (VEF), a runtime extension system for
+ custom SQL data types and functions. VillageSQL tracks several upstream code
+ bases; this package was built from @VSQL_CODE_BASE@.
  .
  This package provides the mysqld binary, the systemd unit and the server-side
- utilities. It is wire-, protocol- and on-disk-compatible with MySQL
- @MYSQL_BASE_VERSION@ and installs the same paths and the same systemd unit
+ utilities. It is wire-, protocol- and on-disk-compatible with upstream
+ @VSQL_CODE_BASE@ and installs the same paths and the same systemd unit
  name, so it REPLACES an existing MySQL, MariaDB or Percona Server install
  rather than sitting alongside it.
  .
@@ -95,7 +96,7 @@ Architecture: any
 Depends: villagesql-common (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
 Provides: libmysqlclient24, mysql-libs
 Conflicts: libmysqlclient21, libmysqlclient24
-Replaces: libmysqlclient21, libmysqlclient24, libmariadb3
+Replaces: libmysqlclient21, libmysqlclient24
 Description: VillageSQL client library
  The libmysqlclient shared library, used by client applications to connect to
  a VillageSQL or MySQL server.
@@ -106,7 +107,7 @@ Architecture: any
 Depends: libvillagesqlclient24 (= ${binary:Version}), ${misc:Depends}
 Provides: libmysqlclient-dev, default-libmysqlclient-dev
 Conflicts: libmysqlclient-dev, libmariadb-dev
-Replaces: libmysqlclient-dev, default-libmysqlclient-dev
+Replaces: libmysqlclient-dev, libmariadb-dev, default-libmysqlclient-dev
 Description: VillageSQL client library development files
  Headers, static libraries and mysql_config, for building client applications
  against the VillageSQL client library.

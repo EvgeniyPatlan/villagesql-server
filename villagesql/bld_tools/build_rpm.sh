@@ -22,10 +22,13 @@
 set -euo pipefail
 
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPTS_DIR="$(cd "$TOOLS_DIR/../scripts" && pwd)"
-source "$SCRIPTS_DIR/vsql_script_utils.sh"
-
 SOURCE_DIR="${SOURCE_DIR:-$(cd "$TOOLS_DIR/../.." && pwd)}"
+
+# vsql_script_utils.sh provides log_*/die; vsql_parse_version() and friends
+# live in build_info.sh, which expects the utilities to be sourced first.
+source "$SOURCE_DIR/villagesql/scripts/vsql_script_utils.sh"
+source "$SOURCE_DIR/villagesql/bld_tools/build_info.sh"
+
 OUTPUT_DIR="${OUTPUT_DIR:-$PWD/rpms}"
 RPM_TOPDIR="${RPM_TOPDIR:-$HOME/rpmbuild}"
 
@@ -80,6 +83,16 @@ log_info "Tarball root:        $VSQL_SRC_DIR"
 
 SPEC_IN="$SOURCE_DIR/packaging/villagesql-rpm/villagesql.spec.in"
 [[ -f "$SPEC_IN" ]] || die "Spec template not found: $SPEC_IN"
+
+RPM_TOPDIR="$(realpath -m "$RPM_TOPDIR")"
+
+# Same reasoning as build_deb.sh: the source tarball is written under
+# RPM_TOPDIR while the staging copy reads SOURCE_DIR, so an RPM_TOPDIR inside
+# the source tree would fold partially written artifacts back into the tarball.
+case "$RPM_TOPDIR/" in
+    "$(realpath -m "$SOURCE_DIR")"/*)
+        die "RPM_TOPDIR must be outside SOURCE_DIR (got $RPM_TOPDIR)" ;;
+esac
 
 mkdir -p "$RPM_TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 SPEC_OUT="$RPM_TOPDIR/SPECS/villagesql.spec"

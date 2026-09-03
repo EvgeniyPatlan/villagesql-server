@@ -21,10 +21,13 @@
 set -euo pipefail
 
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPTS_DIR="$(cd "$TOOLS_DIR/../scripts" && pwd)"
-source "$SCRIPTS_DIR/vsql_script_utils.sh"
-
 SOURCE_DIR="${SOURCE_DIR:-$(cd "$TOOLS_DIR/../.." && pwd)}"
+
+# vsql_script_utils.sh provides log_*/die; vsql_parse_version() and friends
+# live in build_info.sh, which expects the utilities to be sourced first.
+source "$SOURCE_DIR/villagesql/scripts/vsql_script_utils.sh"
+source "$SOURCE_DIR/villagesql/bld_tools/build_info.sh"
+
 OUTPUT_DIR="${OUTPUT_DIR:-$PWD/debs}"
 
 USE_WORKTREE=0
@@ -75,14 +78,28 @@ fi
 
 log_info "VillageSQL version:  $VSQL_VERSION"
 log_info "DEB version:         $DEB_VERSION"
+log_info "Upstream code base:  $VSQL_CODE_BASE"
 log_info "MySQL base:          $MYSQL_BASE_VERSION"
+log_info "Source directory:    $SOURCE_DIR"
 
 DEB_TEMPLATE_DIR="$SOURCE_DIR/packaging/villagesql-deb"
 [[ -d "$DEB_TEMPLATE_DIR" ]] || die "Missing $DEB_TEMPLATE_DIR"
 
 WORK_DIR="${WORK_DIR:-$(mktemp -d)}"
+WORK_DIR="$(realpath -m "$WORK_DIR")"
+
+# The staging copy below reads SOURCE_DIR recursively, so a WORK_DIR inside the
+# source tree makes tar copy its own output ("file changed as we read it") and
+# silently produces a corrupt tree. Refuse it rather than emit a confusing tar
+# warning halfway through a build.
+case "$WORK_DIR/" in
+    "$(realpath -m "$SOURCE_DIR")"/*)
+        die "WORK_DIR must be outside SOURCE_DIR (got $WORK_DIR)" ;;
+esac
+
 STAGE="$WORK_DIR/villagesql-${DEB_UPSTREAM}"
 trap 'if [[ -z "${KEEP_WORK:-}" ]]; then rm -rf "$WORK_DIR"; fi' EXIT
+log_info "Staging root:        $STAGE"
 
 log_step "Staging source"
 mkdir -p "$STAGE"
@@ -109,12 +126,18 @@ else
         -cf - . | tar -C "$STAGE" -xf -
 fi
 
+# Fail fast on a staged tree missing build inputs. Without this, an over-broad
+# exclude surfaces as an unrelated-looking cmake error minutes into the build.
+# Keep this list in step with the one in build_rpm.sh.
 REQUIRED_PATHS=(
     "CMakeLists.txt"
     "cmake/build_configurations/compiler_options.cmake"
+    "cmake/build_configurations/mysql_release.cmake"
     "cmake/install_layout.cmake"
     "extra/boost/boost_1_84_0/boost/version.hpp"
     "sql/mysqld.cc"
+    "villagesql/CMakeLists.txt"
+    "packaging/villagesql-deb/control.in"
     "VSQL_VERSION"
     "MYSQL_VERSION"
 )
@@ -138,6 +161,7 @@ for f in "$DEB_TEMPLATE_DIR"/*; do
 done
 
 sed -e "s|@MYSQL_BASE_VERSION@|${MYSQL_BASE_VERSION}|g" \
+    -e "s|@VSQL_CODE_BASE@|${VSQL_CODE_BASE}|g" \
     "$DEB_TEMPLATE_DIR/control.in" > "$STAGE/debian/control"
 sed -e "s|@DEB_VERSION@|${DEB_VERSION}|g" \
     -e "s|@DEB_DATE@|${DEB_DATE}|g" \
@@ -151,7 +175,9 @@ for f in "$STAGE/debian/control" "$STAGE/debian/changelog"; do
     fi
 done
 
-cp "$SOURCE_DIR/LICENSE" "$STAGE/debian/copyright" 2>/dev/null || true
+# debian/copyright is a DEP-5 template copied with the other debian/ files
+# above; assert it landed rather than silently shipping without one.
+[[ -f "$STAGE/debian/copyright" ]] || die "debian/copyright missing from $DEB_TEMPLATE_DIR"
 chmod +x "$STAGE/debian/rules"
 chmod +x "$STAGE"/debian/*.postinst "$STAGE"/debian/*.prerm "$STAGE"/debian/*.postrm 2>/dev/null || true
 log_info "debian/ materialized in $STAGE"

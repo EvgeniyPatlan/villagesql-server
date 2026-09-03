@@ -7,7 +7,10 @@ export DH_VERBOSE=1
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
 DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
-NPROC := $(shell getconf _NPROCESSORS_ONLN)
+
+# Parallelism is left to debhelper, which honours DEB_BUILD_OPTIONS=parallel=N
+# as Debian policy requires. Passing an explicit -j here would override that
+# and ignore the builder's setting.
 
 # Depends note: villagesql-server deliberately does NOT depend on lsb-base.
 # lsb-base exists only to provide /lib/lsb/init-functions for SysV init
@@ -55,9 +58,6 @@ override_dh_auto_configure:
 # them as separate products and so does VillageSQL, so they are off here.
 # Leaving them on costs a large amount of build time and then leaves unpackaged
 # ndbd/ndb_mgmd/mysqlrouter artifacts that no binary package claims.
-
-override_dh_auto_build:
-	dh_auto_build -- -j$(NPROC)
 
 # The upstream test suite is not run at package build time: it needs to start a
 # server, which is not available in a build chroot. Run it separately with

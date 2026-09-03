@@ -7,7 +7,6 @@ case "$1" in
         # installed over an existing MySQL data directory, and silently
         # deleting a database on package purge is not recoverable. Removing
         # /var/lib/mysql is left to the administrator.
-        rm -f /etc/mysql/my.cnf.villagesql-old
         ;;
     remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
         ;;
